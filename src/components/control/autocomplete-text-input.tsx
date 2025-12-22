@@ -30,13 +30,7 @@ export const AutocompleteTextInput = React.forwardRef<
 		if (target.value.endsWith(DATALIST_SELECTION_MARKER)) {
 			// User selected from datalist. Strip the marker and notify with metadata.
 			const cleanedValue = target.value.slice(0, -1);
-			
-			// Create a new event with the cleaned value
-			Object.defineProperty(event, 'target', {
-				writable: true,
-				value: {...target, value: cleanedValue}
-			});
-			
+			target.value = cleanedValue;
 			props.onChange?.(event, {autocompleted: true});
 			return;
 		}
