@@ -75,6 +75,12 @@ export interface PrefsState {
 	 */
 	passageEditorFontScale: number;
 	/**
+	 * Whether to show just tag colors (thin colored stripes; ignore tags without
+	 * colors) or tag names (list all tags, even uncolored tags) of tags on passage
+	 * cards in the story map.
+	 */
+	passageTagDisplay: 'color' | 'name';
+	/**
 	 * Name and version of the selected proofing format.
 	 */
 	proofingFormat: {

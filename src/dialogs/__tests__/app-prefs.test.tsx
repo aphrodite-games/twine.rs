@@ -27,6 +27,7 @@ describe('<AppPrefsDialog>', () => {
 				<PrefInspector name="locale" />
 				<PrefInspector name="passageEditorFontFamily" />
 				<PrefInspector name="passageEditorFontScale" />
+				<PrefInspector name="passageTagDisplay" />
 				<PrefInspector name="useCodeMirror" />
 			</FakeStateProvider>
 		);
@@ -94,6 +95,26 @@ describe('<AppPrefsDialog>', () => {
 		expect(screen.getByTestId('pref-inspector-dialogWidth')).toHaveTextContent(
 			'600'
 		);
+	});
+
+	it('displays the passage tag display preference', () => {
+		renderComponent({passageTagDisplay: 'name'});
+		expect(
+			screen.getByLabelText('dialogs.appPrefs.passageTagDisplay')
+		).toHaveValue('name');
+	});
+
+	it('changes the passage tag display preference when changed', () => {
+		renderComponent({passageTagDisplay: 'color'});
+		fireEvent.change(
+			screen.getByLabelText('dialogs.appPrefs.passageTagDisplay'),
+			{
+				target: {value: 'name'}
+			}
+		);
+		expect(
+			screen.getByTestId('pref-inspector-passageTagDisplay')
+		).toHaveTextContent('name');
 	});
 
 	it('displays the editor cursor blink preference', () => {
