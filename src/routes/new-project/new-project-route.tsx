@@ -54,6 +54,53 @@ function workspaceStorageKey(storyId: string) {
 	return `twine-story-edit-workspace-${storyId}`;
 }
 
+function projectSlug(name: string) {
+	const slug = name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, '');
+
+	return slug || 'untitled-story';
+}
+
+function projectFolder(name: string) {
+	return `~/Documents/stories/${projectSlug(name)}`;
+}
+
+function projectPreviewFiles(sourceLayout: SourceLayout, graphLayout: boolean) {
+	const passagePath =
+		sourceLayout === 'multi' ? ['passages/', 'start.twee'] : ['story.twee'];
+	const files = [
+		{depth: 0, icon: 'folder-open', label: 'project/', status: 'new'},
+		{depth: 1, icon: 'settings', label: 'twine.toml', status: 'new'},
+		...(sourceLayout === 'multi'
+			? [
+					{depth: 1, icon: 'folder', label: passagePath[0], status: 'new'},
+					{depth: 2, icon: 'file-text', label: passagePath[1], status: 'new'}
+				]
+			: [{depth: 1, icon: 'file-text', label: passagePath[0], status: 'new'}]),
+		{depth: 1, icon: 'folder', label: 'scripts/', status: 'new'},
+		{depth: 2, icon: 'braces', label: 'story.js', status: 'new'},
+		{depth: 1, icon: 'folder', label: 'styles/', status: 'new'},
+		{depth: 2, icon: 'file-code', label: 'story.css', status: 'new'},
+		{depth: 1, icon: 'folder', label: 'assets/', status: 'empty'},
+		...(graphLayout
+			? [
+					{depth: 1, icon: 'folder', label: '.twine/', status: 'optional'},
+					{
+						depth: 2,
+						icon: 'binary-tree',
+						label: 'graph.json',
+						status: 'optional'
+					}
+				]
+			: [{depth: 1, icon: 'folder', label: '.twine/', status: 'optional'}])
+	];
+
+	return files;
+}
+
 async function readFile(file: File) {
 	if ('text' in file) {
 		return file.text();
@@ -109,6 +156,11 @@ export const NewProjectRoute: React.FC = () => {
 			})),
 		[formats]
 	);
+	const selectedFormat = React.useMemo(() => parseFormatKey(format), [format]);
+	const previewFiles = React.useMemo(
+		() => projectPreviewFiles(sourceLayout, graphLayout),
+		[graphLayout, sourceLayout]
+	);
 
 	React.useEffect(() => {
 		const nextTab = pathname.endsWith('/import') ? 'import' : 'create';
@@ -120,7 +172,9 @@ export const NewProjectRoute: React.FC = () => {
 		const nextTab = value as NewProjectTab;
 
 		setTab(nextTab);
-		history.replace(nextTab === 'import' ? '/new-project/import' : '/new-project');
+		history.replace(
+			nextTab === 'import' ? '/new-project/import' : '/new-project'
+		);
 	}
 
 	function handleCreate(event: React.FormEvent) {
@@ -131,7 +185,6 @@ export const NewProjectRoute: React.FC = () => {
 		const storyId = uuid();
 		const passageName = startPassageName.trim() || 'Start';
 		const passageId = uuid();
-		const selectedFormat = parseFormatKey(format);
 		const defaults = passageDefaults();
 
 		try {
@@ -203,7 +256,9 @@ export const NewProjectRoute: React.FC = () => {
 	}
 
 	function willReplaceExisting(story: Story) {
-		return stories.some(existing => storyFileName(existing) === storyFileName(story));
+		return stories.some(
+			existing => storyFileName(existing) === storyFileName(story)
+		);
 	}
 
 	function setImportSelected(story: Story, selected: boolean) {
@@ -264,81 +319,126 @@ export const NewProjectRoute: React.FC = () => {
 				)}
 			>
 				{tab === 'create' ? (
-					<form className="new-project-route__form" onSubmit={handleCreate}>
-						<Panel icon="folder-plus" title="Project" pad>
-							<div className="new-project-route__fields">
-								<Input
-									autoFocus
-									block
-									icon="writing"
-									label="Project name"
-									onChange={event => setProjectName(event.target.value)}
-									value={projectName}
-								/>
-								<Input
-									block
-									icon="rocket"
-									label="Start passage"
-									onChange={event => setStartPassageName(event.target.value)}
-									value={startPassageName}
-								/>
-								<label className="new-project-route__field-label">
-									<span>Story format</span>
-									<Select
+					<>
+						<form className="new-project-route__form" onSubmit={handleCreate}>
+							<Panel icon="folder-plus" title="Project" pad>
+								<div className="new-project-route__fields">
+									<Input
+										autoFocus
 										block
-										onChange={setFormat}
-										options={formatOptions}
-										value={format}
+										icon="writing"
+										label="Project name"
+										onChange={event => setProjectName(event.target.value)}
+										value={projectName}
 									/>
-								</label>
+									<Input
+										block
+										icon="folder"
+										label="Project folder"
+										mono
+										readOnly
+										value={projectFolder(projectName)}
+									/>
+									<Input
+										block
+										icon="rocket"
+										label="Start passage"
+										onChange={event => setStartPassageName(event.target.value)}
+										value={startPassageName}
+									/>
+									<label className="new-project-route__field-label">
+										<span>Story format</span>
+										<Select
+											block
+											onChange={setFormat}
+											options={formatOptions}
+											value={format}
+										/>
+									</label>
+									<div className="new-project-route__format-summary">
+										<Badge icon="puzzle" tone="neutral">
+											{selectedFormat.name}
+										</Badge>
+										<Badge mono tone="generated">
+											{selectedFormat.version}
+										</Badge>
+									</div>
+								</div>
+							</Panel>
+							<Panel icon="layout-columns" title="Workspace" pad>
+								<div className="new-project-route__fields">
+									<label className="new-project-route__field-label">
+										<span>Source layout</span>
+										<SegmentedControl
+											onChange={value => setSourceLayout(value as SourceLayout)}
+											options={[
+												{icon: 'file-text', label: 'Single', value: 'single'},
+												{icon: 'files', label: 'Multi', value: 'multi'}
+											]}
+											value={sourceLayout}
+										/>
+									</label>
+									<label className="new-project-route__field-label">
+										<span>Initial mode</span>
+										<SegmentedControl
+											onChange={value => setInitialMode(value as StoryEditMode)}
+											options={[
+												{icon: 'file-text', label: 'Text', value: 'text'},
+												{icon: 'binary-tree', label: 'Graph', value: 'graph'},
+												{icon: 'layout-columns', label: 'Split', value: 'split'}
+											]}
+											value={initialMode}
+										/>
+									</label>
+									<Checkbox
+										checked={graphLayout}
+										label="Create graph layout"
+										onChange={setGraphLayout}
+									/>
+								</div>
+							</Panel>
+							{error && (
+								<Badge icon="alert-octagon" tone="error">
+									{error}
+								</Badge>
+							)}
+							<div className="new-project-route__actions">
+								<Button icon="arrow-back-up" onClick={() => history.push('/')}>
+									Cancel
+								</Button>
+								<Button icon="plus" type="submit" variant="primary">
+									Create Project
+								</Button>
 							</div>
-						</Panel>
-						<Panel icon="layout-columns" title="Workspace" pad>
-							<div className="new-project-route__fields">
-								<label className="new-project-route__field-label">
-									<span>Source layout</span>
-									<SegmentedControl
-										onChange={value => setSourceLayout(value as SourceLayout)}
-										options={[
-											{icon: 'file-text', label: 'Single', value: 'single'},
-											{icon: 'files', label: 'Multi', value: 'multi'}
-										]}
-										value={sourceLayout}
-									/>
-								</label>
-								<label className="new-project-route__field-label">
-									<span>Initial mode</span>
-									<SegmentedControl
-										onChange={value => setInitialMode(value as StoryEditMode)}
-										options={[
-											{icon: 'file-text', label: 'Text', value: 'text'},
-											{icon: 'binary-tree', label: 'Graph', value: 'graph'},
-											{icon: 'layout-columns', label: 'Split', value: 'split'}
-										]}
-										value={initialMode}
-									/>
-								</label>
-								<Checkbox
-									checked={graphLayout}
-									label="Create graph layout"
-									onChange={setGraphLayout}
-								/>
+						</form>
+						<Panel
+							className="new-project-route__preview"
+							icon="folder-check"
+							title="Files"
+							pad
+						>
+							<div className="new-project-route__preview-path">
+								{projectFolder(projectName)}
 							</div>
+							<ol className="new-project-route__file-tree">
+								{previewFiles.map((file, index) => (
+									<li
+										className={`new-project-route__file new-project-route__file--${file.status}`}
+										key={`${file.label}-${index}`}
+										style={{'--depth': file.depth} as React.CSSProperties}
+									>
+										<TablerIcon icon={file.icon} />
+										<span>{file.label}</span>
+										{file.status !== 'new' && (
+											<Badge mono tone="neutral">
+												{file.status}
+											</Badge>
+										)}
+									</li>
+								))}
+							</ol>
 						</Panel>
-						{error && (
-							<Badge icon="alert-octagon" tone="error">
-								{error}
-							</Badge>
-						)}
-						<div className="new-project-route__actions">
-							<Button icon="arrow-back-up" onClick={() => history.push('/')}>
-								Cancel
-							</Button>
-							<Button icon="plus" type="submit" variant="primary">
-								Create Project
-							</Button>
-						</div>
-					</form>
+					</>
 				) : (
 					<div className="new-project-route__import">
 						<Panel icon="file-import" title="Import Source" pad>
@@ -398,7 +498,9 @@ export const NewProjectRoute: React.FC = () => {
 												<tr key={story.id}>
 													<td>
 														<Checkbox
-															checked={importQueue.selectedIds.includes(story.id)}
+															checked={importQueue.selectedIds.includes(
+																story.id
+															)}
 															onChange={selected =>
 																setImportSelected(story, selected)
 															}

@@ -1,9 +1,9 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {CheckboxButton} from '../../components/control/checkbox-button';
 import {ButtonBar} from '../../components/container/button-bar';
 import {CardContent} from '../../components/container/card';
 import {DialogCard} from '../../components/container/dialog-card';
+import {Checkbox} from '../../components/design-system';
 import {StoryFormatSelect} from '../../components/story-format/story-format-select';
 import {storyWithId, updateStory, useStoriesContext} from '../../store/stories';
 import {
@@ -66,12 +66,12 @@ export const StoryDetailsDialog: React.FC<StoryDetailsDialogProps> = props => {
 				</a>
 			</div>
 			<ButtonBar>
-				<CheckboxButton
+				<Checkbox
+					checked={story.snapToGrid}
 					label={t('dialogs.storyDetails.snapToGrid')}
 					onChange={value =>
 						dispatch(updateStory(stories, story, {snapToGrid: value}))
 					}
-					value={story.snapToGrid}
 				/>
 			</ButtonBar>
 			<CardContent>

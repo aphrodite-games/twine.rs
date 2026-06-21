@@ -5,6 +5,7 @@ import {
 	Badge,
 	Button,
 	IconButton,
+	Input,
 	Panel,
 	SegmentedControl,
 	Tag,
@@ -209,7 +210,9 @@ const PassageNavigator: React.FC<{
 					>
 						<span className="story-edit-passage-file-icon">
 							<TablerIcon
-								icon={story.startPassage === passage.id ? 'rocket' : 'file-text'}
+								icon={
+									story.startPassage === passage.id ? 'rocket' : 'file-text'
+								}
 							/>
 						</span>
 						<span className="story-edit-passage-list-name">
@@ -268,29 +271,59 @@ const AssetManager: React.FC<{
 	story: Story;
 }> = ({assets, host, onSelectPassage, selection, story}) => {
 	const selectedPassage = selection.passage;
+	const [importPath, setImportPath] = React.useState('');
+	const [assetEdit, setAssetEdit] = React.useState<
+		| {
+				mode: 'rename' | 'replace';
+				path: string;
+				value: string;
+		  }
+		| undefined
+	>();
 
 	function importAsset() {
-		const sourcePath = window.prompt('Import asset path');
+		const sourcePath = importPath.trim();
 
 		if (sourcePath) {
 			host.applyStoryCommand(importAssetCommand(story.id, sourcePath));
+			setImportPath('');
 		}
 	}
 
-	function renameAsset(path: string) {
-		const nextPath = window.prompt('Rename asset', path);
-
-		if (nextPath && nextPath !== path) {
-			host.applyStoryCommand(renameAssetCommand(story.id, path, nextPath));
-		}
+	function startRenameAsset(path: string) {
+		setAssetEdit({mode: 'rename', path, value: path});
 	}
 
-	function replaceAsset(path: string) {
-		const sourcePath = window.prompt('Replacement file path');
+	function startReplaceAsset(path: string) {
+		setAssetEdit({mode: 'replace', path, value: ''});
+	}
 
-		if (sourcePath) {
-			host.applyStoryCommand(replaceAssetCommand(story.id, path, sourcePath));
+	function applyAssetEdit(event: React.FormEvent) {
+		event.preventDefault();
+
+		if (!assetEdit) {
+			return;
 		}
+
+		const value = assetEdit.value.trim();
+
+		if (!value) {
+			return;
+		}
+
+		if (assetEdit.mode === 'rename' && value !== assetEdit.path) {
+			host.applyStoryCommand(
+				renameAssetCommand(story.id, assetEdit.path, value)
+			);
+		}
+
+		if (assetEdit.mode === 'replace') {
+			host.applyStoryCommand(
+				replaceAssetCommand(story.id, assetEdit.path, value)
+			);
+		}
+
+		setAssetEdit(undefined);
 	}
 
 	function revealFirstUsage(path: string) {
@@ -309,19 +342,38 @@ const AssetManager: React.FC<{
 	return (
 		<div className="story-edit-asset-manager">
 			<div className="story-edit-asset-toolbar">
-				<button onClick={importAsset} type="button">
+				<Input
+					aria-label="Asset path"
+					className="story-edit-asset-path-input"
+					icon="folder"
+					onChange={event => setImportPath(event.target.value)}
+					placeholder="Asset path"
+					value={importPath}
+				/>
+				<Button
+					disabled={importPath.trim() === ''}
+					icon="file-import"
+					onClick={importAsset}
+					size="sm"
+				>
 					Import Asset
-				</button>
-				<button
+				</Button>
+				<Button
+					icon="refresh"
 					onClick={() =>
 						host.applyStoryCommand(validateAssetReferencesCommand(story.id))
 					}
-					type="button"
+					size="sm"
+					variant="ghost"
 				>
 					Validate
-				</button>
-				<span>{assets.entries.length} files</span>
-				<span>{assets.referenceCount} references</span>
+				</Button>
+				<span className="story-edit-asset-stat">
+					{assets.entries.length} files
+				</span>
+				<span className="story-edit-asset-stat">
+					{assets.referenceCount} references
+				</span>
 			</div>
 			{assets.entries.length === 0 ? (
 				<p className="story-edit-empty-assets">No assets indexed</p>
@@ -361,7 +413,8 @@ const AssetManager: React.FC<{
 									)}
 								</div>
 								<div className="story-edit-asset-actions">
-									<button
+									<Button
+										icon="copy"
 										onClick={() =>
 											host.applyStoryCommand(
 												copyAssetSnippetCommand(
@@ -371,12 +424,14 @@ const AssetManager: React.FC<{
 												)
 											)
 										}
-										type="button"
+										size="sm"
+										variant="ghost"
 									>
 										Copy Snippet
-									</button>
-									<button
+									</Button>
+									<Button
 										disabled={!selectedPassage}
+										icon="plus"
 										onClick={() => {
 											if (!selectedPassage) {
 												return;
@@ -395,46 +450,105 @@ const AssetManager: React.FC<{
 												)
 											);
 										}}
-										type="button"
+										size="sm"
 									>
 										Insert
-									</button>
-									<button
+									</Button>
+									<Button
+										icon="link"
 										onClick={() => revealFirstUsage(asset.path)}
-										type="button"
+										size="sm"
+										variant="ghost"
 									>
 										Usages
-									</button>
-									<button onClick={() => renameAsset(asset.path)} type="button">
+									</Button>
+									<Button
+										icon="edit"
+										onClick={() => startRenameAsset(asset.path)}
+										size="sm"
+										variant="ghost"
+									>
 										Rename
-									</button>
-									<button
-										onClick={() => replaceAsset(asset.path)}
-										type="button"
+									</Button>
+									<Button
+										icon="refresh"
+										onClick={() => startReplaceAsset(asset.path)}
+										size="sm"
+										variant="ghost"
 									>
 										Replace
-									</button>
-									<button
+									</Button>
+									<Button
+										icon="trash"
 										onClick={() =>
 											host.applyStoryCommand(
 												deleteAssetCommand(story.id, asset.path, true)
 											)
 										}
-										type="button"
+										size="sm"
+										variant="danger"
 									>
 										Delete
-									</button>
-									<button
+									</Button>
+									<Button
+										icon="folder-open"
 										onClick={() =>
 											host.applyStoryCommand(
 												revealAssetCommand(story.id, asset.path)
 											)
 										}
-										type="button"
+										size="sm"
+										variant="ghost"
 									>
 										Reveal
-									</button>
+									</Button>
 								</div>
+								{assetEdit?.path === asset.path && (
+									<form
+										className="story-edit-asset-edit"
+										onSubmit={applyAssetEdit}
+									>
+										<Input
+											autoFocus
+											aria-label={
+												assetEdit.mode === 'rename'
+													? 'New asset path'
+													: 'Replacement file path'
+											}
+											block
+											icon={assetEdit.mode === 'rename' ? 'edit' : 'refresh'}
+											onChange={event =>
+												setAssetEdit(current =>
+													current
+														? {...current, value: event.target.value}
+														: current
+												)
+											}
+											placeholder={
+												assetEdit.mode === 'rename'
+													? 'New asset path'
+													: 'Replacement file path'
+											}
+											value={assetEdit.value}
+										/>
+										<Button
+											icon="check"
+											size="sm"
+											type="submit"
+											variant="primary"
+										>
+											Apply
+										</Button>
+										<Button
+											icon="x"
+											onClick={() => setAssetEdit(undefined)}
+											size="sm"
+											variant="ghost"
+										>
+											Cancel
+										</Button>
+									</form>
+								)}
 							</li>
 						);
 					})}
@@ -651,9 +765,7 @@ const Inspector: React.FC<{
 						return (
 							<OutlineItem
 								broken={!linkedPassage}
-								color={
-									linkedPassage ? 'var(--sem-link)' : 'var(--sem-error)'
-								}
+								color={linkedPassage ? 'var(--sem-link)' : 'var(--sem-error)'}
 								key={`${link.sourceId}:${link.targetName}`}
 								label={link.targetName}
 								onClick={
@@ -1001,10 +1113,7 @@ export const StoryWorkspaceShell: React.FC<
 								: t('routes.storyEdit.workspace.passages')
 					}
 				>
-					<NavigatorTabs
-						activeTab={navigatorTab}
-						onChange={setNavigatorTab}
-					/>
+					<NavigatorTabs activeTab={navigatorTab} onChange={setNavigatorTab} />
 					{navigatorTab === 'passages' ? (
 						<PassageNavigator
 							index={index}

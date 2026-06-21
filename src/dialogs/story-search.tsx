@@ -1,11 +1,9 @@
 import * as React from 'react';
-import {IconReplace} from '@tabler/icons';
 import debounce from 'lodash/debounce';
 import {useTranslation} from 'react-i18next';
 import {DialogCard} from '../components/container/dialog-card';
 import {CodeArea} from '../components/control/code-area';
-import {IconButton} from '../components/control/icon-button';
-import {Checkbox} from '../components/design-system';
+import {Button, Checkbox} from '../components/design-system';
 import {useCoreProjectHost} from '../core';
 import type {CoreSearchHit} from '../core/bindings/CoreSearchHit';
 import {usePrefsContext} from '../store/prefs';
@@ -221,13 +219,14 @@ export const StorySearchDialog: React.FC<StorySearchDialogProps> = props => {
 			</div>
 			{errorText && <p className="search-error">{errorText}</p>}
 			<div className="search-results">
-				<IconButton
+				<Button
 					disabled={!!errorText || replaceableHits.length === 0}
-					icon={<IconReplace />}
-					label={t('dialogs.storySearch.replaceAll')}
+					icon="replace"
 					onClick={handleReplace}
 					variant="danger"
-				/>
+				>
+					{t('dialogs.storySearch.replaceAll')}
+				</Button>
 				<span>
 					{find &&
 						(index.searchHits.length > 0

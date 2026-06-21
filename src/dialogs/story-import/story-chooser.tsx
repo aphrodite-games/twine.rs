@@ -1,8 +1,6 @@
-import {IconFileImport} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {CheckboxButton} from '../../components/control/checkbox-button';
-import {IconButton} from '../../components/control/icon-button';
+import {Button, Checkbox} from '../../components/design-system';
 import {storyFileName} from '../../electron/shared';
 import {Story} from '../../store/stories';
 import './story-chooser.css';
@@ -50,10 +48,10 @@ export const StoryChooser: React.FC<StoryChooserProps> = props => {
 			<ul>
 				{stories.map(story => (
 					<li key={story.id}>
-						<CheckboxButton
+						<Checkbox
+							checked={selectedStories.includes(story)}
 							label={story.name}
 							onChange={selected => handleChange(story, selected)}
-							value={selectedStories.includes(story)}
 						/>
 						{selectedStories.includes(story) && willReplaceExisting(story) && (
 							<span className="replace-warning">
@@ -64,13 +62,14 @@ export const StoryChooser: React.FC<StoryChooserProps> = props => {
 				))}
 			</ul>
 			<div className="actions">
-				<IconButton
+				<Button
 					disabled={selectedStories.length === 0}
-					icon={<IconFileImport />}
-					label={t('dialogs.storyImport.importSelected')}
+					icon="file-import"
 					onClick={() => onImport(selectedStories)}
 					variant="primary"
-				/>
+				>
+					{t('dialogs.storyImport.importSelected')}
+				</Button>
 			</div>
 		</div>
 	);

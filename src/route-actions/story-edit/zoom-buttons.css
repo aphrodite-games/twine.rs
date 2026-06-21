@@ -1,0 +1,21 @@
+@import '../../styles/depth.css';
+@import '../../styles/metrics.css';
+
+.zoom-buttons {
+	align-items: center;
+	display: flex;
+	padding: 0 var(--grid-size);
+}
+
+.zoom-buttons .legend {
+	margin-right: var(--control-inner-padding);
+}
+
+.zoom-buttons .tw-iconbtn {
+	height: 34px;
+	width: 34px;
+}
+
+.zoom-buttons .tw-iconbtn .tw-ds-icon {
+	font-size: 21px;
+}

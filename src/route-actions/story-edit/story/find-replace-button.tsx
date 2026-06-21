@@ -1,0 +1,38 @@
+import * as React from 'react';
+import {useTranslation} from 'react-i18next';
+import {IconButton} from '../../../components/design-system';
+import {StorySearchDialog, useDialogsContext} from '../../../dialogs';
+import {Story} from '../../../store/stories';
+
+export interface FindReplaceButtonProps {
+	story: Story;
+}
+
+export const FindReplaceButton: React.FC<FindReplaceButtonProps> = props => {
+	const {story} = props;
+	const {dispatch} = useDialogsContext();
+	const {t} = useTranslation();
+
+	return (
+		<IconButton
+			icon="search"
+			label={t('routes.storyEdit.toolbar.findAndReplace')}
+			onClick={() =>
+				dispatch({
+					type: 'addDialog',
+					component: StorySearchDialog,
+					props: {
+						find: '',
+						flags: {
+							includePassageNames: true,
+							matchCase: false,
+							useRegexes: false
+						},
+						replace: '',
+						storyId: story.id
+					}
+				})
+			}
+		/>
+	);
+};

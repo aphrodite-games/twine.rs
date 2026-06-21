@@ -6,7 +6,7 @@ import {UndoRedoButtons} from '../../components/codemirror';
 import {ButtonBar} from '../../components/container/button-bar';
 import {MenuButton} from '../../components/control/menu-button';
 import {RenamePassageButton} from '../../components/passage/rename-passage-button';
-import {TestPassageButton} from '../../routes/story-edit/toolbar/passage/test-passage-button';
+import {TestPassageButton} from '../../route-actions/story-edit/passage/test-passage-button';
 import {
 	addPassageTag,
 	Passage,

@@ -6,6 +6,7 @@
 	gap: 16px;
 	height: 100%;
 	min-height: 0;
+	overflow: auto;
 	padding: 18px;
 }
 
@@ -45,7 +46,7 @@
 }
 
 .new-project-route__grid--import {
-	grid-template-columns: minmax(300px, 440px) minmax(0, 1fr);
+	grid-template-columns: 1fr;
 	gap: 14px;
 }
 
@@ -57,8 +58,27 @@
 	min-width: 0;
 }
 
+.new-project-route__grid--import .new-project-route__import {
+	grid-column: 1 / -1;
+	grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(
+			260px,
+			320px
+		);
+}
+
+.new-project-route__grid--import .new-project-route__actions {
+	grid-column: 1 / -1;
+}
+
 .new-project-route__form {
 	grid-column: 1;
+}
+
+.new-project-route__preview {
+	align-self: start;
+	grid-column: 2;
+	margin-left: 16px;
+	min-height: 0;
 }
 
 .new-project-route__fields {
@@ -80,11 +100,67 @@
 	justify-self: start;
 }
 
+.new-project-route__format-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
 .new-project-route__actions {
 	align-items: center;
 	display: flex;
 	gap: 8px;
 	justify-content: flex-end;
+}
+
+.new-project-route__preview-path {
+	color: var(--tx-3);
+	font-family: var(--font-mono);
+	font-size: var(--fs-xs);
+	margin-bottom: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.new-project-route__file-tree {
+	display: grid;
+	gap: 2px;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.new-project-route__file {
+	align-items: center;
+	border-radius: var(--r-sm);
+	color: var(--tx-2);
+	display: grid;
+	font-family: var(--font-mono);
+	font-size: var(--fs-xs);
+	gap: 8px;
+	grid-template-columns: 16px minmax(0, 1fr) auto;
+	min-height: 26px;
+	padding: 0 8px;
+	padding-left: calc(8px + var(--depth) * 16px);
+}
+
+.new-project-route__file .tw-ds-icon {
+	color: var(--tx-4);
+	font-size: 15px;
+}
+
+.new-project-route__file--new {
+	color: var(--sem-saved);
+}
+
+.new-project-route__file--new .tw-ds-icon {
+	color: var(--sem-saved);
+}
+
+.new-project-route__file--optional,
+.new-project-route__file--empty {
+	color: var(--tx-3);
 }
 
 .new-project-route__dropzone {
@@ -204,6 +280,15 @@
 	.new-project-route__grid,
 	.new-project-route__grid--import {
 		grid-template-columns: 1fr;
+	}
+
+	.new-project-route__grid--import .new-project-route__import {
+		grid-template-columns: 1fr;
+	}
+
+	.new-project-route__preview {
+		grid-column: auto;
+		margin-left: 0;
 	}
 
 	.new-project-route__tabs {

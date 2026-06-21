@@ -1,6 +1,7 @@
 import * as React from 'react';
 import classNames from 'classnames';
 import {useHistory, useLocation} from 'react-router-dom';
+import twineMarkUrl from '../../assets/twine-mark.svg';
 import {markSavedCommand, useCoreProjectHost} from '../../core';
 import {storyFileName} from '../../electron/shared';
 import {Story, useStoriesContext} from '../../store/stories';
@@ -16,10 +17,7 @@ import {
 	TablerIcon
 } from '../design-system';
 import {AppCommand} from './command-registry';
-import {
-	AppShellContext,
-	ShellToolbarRegistration
-} from './app-shell-context';
+import {AppShellContext, ShellToolbarRegistration} from './app-shell-context';
 import {CommandPalette} from './command-palette';
 import './app-shell.css';
 
@@ -143,7 +141,9 @@ export const AppShell: React.FC = ({children}) => {
 	);
 	const storyIndex = React.useMemo(
 		() =>
-			currentStory ? coreProjectHost.queryStoryIndex(currentStory.id) : undefined,
+			currentStory
+				? coreProjectHost.queryStoryIndex(currentStory.id)
+				: undefined,
 		[coreProjectHost, currentStory, patchVersion]
 	);
 	const diagnosticCount = storyIndex?.diagnostics.length ?? 0;
@@ -242,8 +242,7 @@ export const AppShell: React.FC = ({children}) => {
 
 	const runPlay = React.useCallback(
 		() =>
-			currentStory &&
-			runBuildAction('Play', () => playStory(currentStory.id)),
+			currentStory && runBuildAction('Play', () => playStory(currentStory.id)),
 		[currentStory, playStory, runBuildAction]
 	);
 	const runProof = React.useCallback(
@@ -254,8 +253,7 @@ export const AppShell: React.FC = ({children}) => {
 	);
 	const runTest = React.useCallback(
 		() =>
-			currentStory &&
-			runBuildAction('Test', () => testStory(currentStory.id)),
+			currentStory && runBuildAction('Test', () => testStory(currentStory.id)),
 		[currentStory, runBuildAction, testStory]
 	);
 	const runExportHtml = React.useCallback(
@@ -273,7 +271,10 @@ export const AppShell: React.FC = ({children}) => {
 		() =>
 			currentStory &&
 			runBuildAction('Export Twee', () => {
-				saveTwee(storyToTwee(currentStory), storyFileName(currentStory, '.twee'));
+				saveTwee(
+					storyToTwee(currentStory),
+					storyFileName(currentStory, '.twee')
+				);
 			}),
 		[currentStory, runBuildAction]
 	);
@@ -343,13 +344,13 @@ export const AppShell: React.FC = ({children}) => {
 				label: 'Export Twee',
 				run: runExportTwee
 			},
-				...routeTabs.map(tab => ({
-					group: 'Toolbar' as const,
-					icon: tab === activeToolbarTab ? 'circle-check' : 'circle-dashed',
-					id: `toolbar.${tab}`,
-					label: `${tab} Actions`,
-					run: () => setActiveToolbarTab(tab)
-				})),
+			...routeTabs.map(tab => ({
+				group: 'Toolbar' as const,
+				icon: tab === activeToolbarTab ? 'circle-check' : 'circle-dashed',
+				id: `toolbar.${tab}`,
+				label: `${tab} Actions`,
+				run: () => setActiveToolbarTab(tab)
+			})),
 			...stories.map(story => ({
 				group: 'Story' as const,
 				icon: story.id === currentStory?.id ? 'circle-check' : 'file-text',
@@ -392,11 +393,15 @@ export const AppShell: React.FC = ({children}) => {
 			>
 				<div className="app-shell__top">
 					<header className="app-shell__bar">
-						<div className="app-shell__brand" aria-label="Twine">
-							<span className="app-shell__brand-mark">
-								<TablerIcon icon="writing" />
-							</span>
-							<span className="app-shell__brand-text">Twine</span>
+						<div className="app-shell__brand" aria-label="twine.rs">
+							<img
+								className="app-shell__brand-mark"
+								src={twineMarkUrl}
+								alt=""
+							/>
+							<b className="app-shell__brand-text">
+								twine<span>.rs</span>
+							</b>
 						</div>
 						<nav className="app-shell__crumbs" aria-label="Breadcrumbs">
 							{crumbLabels.map((crumb, index) => (
@@ -534,9 +539,7 @@ export const AppShell: React.FC = ({children}) => {
 													? 'alert-octagon'
 													: 'alert-triangle'
 											}
-											tone={
-												diagnostic.severity === 'error' ? 'error' : 'warn'
-											}
+											tone={diagnostic.severity === 'error' ? 'error' : 'warn'}
 										>
 											{diagnostic.code}
 										</Badge>

@@ -4,7 +4,7 @@ import {
 	SourceEditor,
 	SourceEditorLanguage
 } from '../../components/control/source-editor';
-import {Badge, TablerIcon} from '../../components/design-system';
+import {Badge, Button, TablerIcon} from '../../components/design-system';
 import {
 	updatePassageTextCommand,
 	updateStoryScriptCommand,
@@ -13,6 +13,7 @@ import {
 	workbenchSelection
 } from '../../core';
 import type {CoreStoryIndex, WorkbenchSelection} from '../../core';
+import {quickFixActionsForDiagnostic} from '../../core/quick-fix-registry';
 import {Passage, Story} from '../../store/stories';
 import {VisibleWhitespace} from '../../components/visible-whitespace';
 
@@ -127,6 +128,25 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 		)
 		.filter((passage): passage is Passage => !!passage);
 	const backlinks = selection.backlinks;
+	const inlineDiagnostics = React.useMemo(
+		() =>
+			activeSource === 'passage' && selectedPassage
+				? storyIndex.diagnostics.filter(
+						diagnostic => diagnostic.passageId === selectedPassage.id
+					)
+				: [],
+		[activeSource, selectedPassage, storyIndex.diagnostics]
+	);
+	const inlineQuickFixes = React.useMemo(
+		() =>
+			inlineDiagnostics
+				.flatMap(diagnostic =>
+					quickFixActionsForDiagnostic(coreProjectHost, story, diagnostic)
+				)
+				.filter(action => action.enabled)
+				.slice(0, 3),
+		[coreProjectHost, inlineDiagnostics, story]
+	);
 
 	React.useEffect(() => {
 		setLocalText(source.value);
@@ -281,13 +301,26 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 					<TablerIcon icon="alert-octagon" />
 					<strong>{t('routes.storyEdit.workspace.brokenLinks')}</strong>
 					<span>{brokenLinks.join(', ')}</span>
+					{inlineQuickFixes.map(action => (
+						<Button
+							icon="wand"
+							key={action.command}
+							onClick={action.apply}
+							size="sm"
+							variant="ghost"
+						>
+							{action.title}
+						</Button>
+					))}
 					{outgoingPassages.length > 0 && onSelectPassage && (
-						<button
+						<Button
+							icon="arrow-up-right"
 							onClick={() => onSelectPassage(outgoingPassages[0])}
-							type="button"
+							size="sm"
+							variant="primary"
 						>
 							{t('routes.storyEdit.workspace.links')}
-						</button>
+						</Button>
 					)}
 				</div>
 			)}

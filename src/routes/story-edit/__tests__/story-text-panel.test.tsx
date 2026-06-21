@@ -121,4 +121,23 @@ describe('<StoryTextPanel>', () => {
 			type: 'updateStoryStylesheet'
 		});
 	});
+
+	it('runs inline diagnostic quick fixes through the core project host', () => {
+		const story = fakeStory(1);
+
+		story.passages[0].text = 'Go to [[Missing]].';
+		renderComponent({stories: [story]});
+
+		fireEvent.click(screen.getByRole('button', {name: 'Create "Missing"'}));
+
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			id: null,
+			layout: null,
+			name: 'Missing',
+			story_id: story.id,
+			tags: [],
+			text: '',
+			type: 'createPassage'
+		});
+	});
 });

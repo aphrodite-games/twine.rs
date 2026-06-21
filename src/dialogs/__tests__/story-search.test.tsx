@@ -354,12 +354,16 @@ describe('<StorySearchDialog>', () => {
 			{find: 'mock-find', replace: 'mock-replace'},
 			{stories: [story]}
 		);
-		expect(screen.getByText('dialogs.storySearch.replaceAll')).toBeDisabled();
+		expect(
+			screen.getByRole('button', {name: 'dialogs.storySearch.replaceAll'})
+		).toBeDisabled();
 	});
 
 	it('disables the replace button if the search is empty', () => {
 		renderComponent({find: '', replace: 'mock-replace'});
-		expect(screen.getByText('dialogs.storySearch.replaceAll')).toBeDisabled();
+		expect(
+			screen.getByRole('button', {name: 'dialogs.storySearch.replaceAll'})
+		).toBeDisabled();
 	});
 
 	it('uses CodeMirror on its code areas when CodeMirror is enabled', () => {

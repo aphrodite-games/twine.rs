@@ -73,16 +73,15 @@ describe('AppShell', () => {
 	});
 
 	it('wraps route content with shell anatomy and command-bar slots', async () => {
-		const {container} = renderShell(story);
+		renderShell(story);
 
 		expect(screen.getByTestId('app-shell')).toBeInTheDocument();
-		expect(screen.getByLabelText('Twine')).toBeInTheDocument();
+		expect(screen.getByLabelText('twine.rs')).toBeInTheDocument();
 		expect(screen.getByText('Moon Castle')).toBeInTheDocument();
 		expect(screen.getByTitle('Workbench')).toHaveAttribute(
 			'aria-current',
 			'page'
 		);
-		expect(container.querySelector('.route-toolbar')).toBeNull();
 		expect(await screen.findByText('Build Action')).toBeInTheDocument();
 		expect(screen.getByText('Pin Control')).toBeInTheDocument();
 		expect(screen.getByText('Opening')).toBeInTheDocument();

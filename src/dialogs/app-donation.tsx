@@ -1,10 +1,10 @@
-import {IconHeart, IconX} from '@tabler/icons';
+import {IconHeart} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {ButtonBar} from '../components/container/button-bar';
 import {CardContent} from '../components/container/card';
 import {DialogCard} from '../components/container/dialog-card';
-import {IconButton} from '../components/control/icon-button';
+import {Button} from '../components/design-system';
 import {IconLink} from '../components/control/icon-link';
 import {setPref, usePrefsContext} from '../store/prefs';
 import {DialogComponentProps} from './dialogs.types';
@@ -35,11 +35,9 @@ export const AppDonationDialog: React.FC<DialogComponentProps> = props => {
 					label={t('dialogs.appDonation.donate')}
 					variant="primary"
 				/>
-				<IconButton
-					icon={<IconX />}
-					label={t('dialogs.appDonation.noThanks')}
-					onClick={props.onClose}
-				/>
+				<Button icon="x" onClick={props.onClose}>
+					{t('dialogs.appDonation.noThanks')}
+				</Button>
 			</ButtonBar>
 		</DialogCard>
 	);

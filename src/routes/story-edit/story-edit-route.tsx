@@ -3,6 +3,7 @@ import {useParams} from 'react-router-dom';
 import {MainContent} from '../../components/container/main-content';
 import {DocumentTitle} from '../../components/document-title/document-title';
 import {DialogsContextProvider} from '../../dialogs';
+import {StoryEditActions} from '../../route-actions';
 import {usePrefsContext} from '../../store/prefs';
 import {Passage, selectPassage, storyWithId} from '../../store/stories';
 import {
@@ -11,7 +12,6 @@ import {
 } from '../../store/undoable-stories';
 import {MarqueeablePassageMap} from './marqueeable-passage-map';
 import {PassageFuzzyFinder} from './passage-fuzzy-finder';
-import {StoryEditToolbar} from './toolbar';
 import {useInitialPassageCreation} from './use-initial-passage-creation';
 import {usePassageChangeHandlers} from './use-passage-change-handlers';
 import {useViewCenter} from './use-view-center';
@@ -75,7 +75,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 	return (
 		<div className="story-edit-route">
 			<DocumentTitle title={story.name} />
-			<StoryEditToolbar
+			<StoryEditActions
 				bottomDrawerOpen={workspace.bottomDrawerOpen}
 				getCenter={getCenter}
 				leftDockCollapsed={workspace.leftDockCollapsed}

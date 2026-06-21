@@ -4,6 +4,7 @@ import {axe} from 'jest-axe';
 import * as React from 'react';
 import {Helmet} from 'react-helmet';
 import {Route, Router} from 'react-router-dom';
+import {AppShell} from '../../../components/app-shell';
 import {Story, useStoriesContext} from '../../../store/stories';
 import {
 	fakeLoadedStoryFormat,
@@ -15,7 +16,6 @@ import {
 import {InnerStoryEditRoute} from '../story-edit-route';
 import {useZoomShortcuts} from '../use-zoom-shortcuts';
 
-jest.mock('../toolbar/story-edit-toolbar');
 jest.mock('../use-zoom-shortcuts');
 jest.mock('../../../components/passage/passage-map/passage-map');
 
@@ -28,10 +28,12 @@ const TestStoryEditRoute: React.FC = () => {
 				initialEntries: [`/stories/${stories[0].id}`]
 			})}
 		>
-			<Route path="/stories/:storyId">
-				<InnerStoryEditRoute />
-				<StoryInspector />
-			</Route>
+			<AppShell>
+				<Route path="/stories/:storyId">
+					<InnerStoryEditRoute />
+					<StoryInspector />
+				</Route>
+			</AppShell>
 		</Router>
 	);
 };
@@ -78,9 +80,16 @@ describe('<StoryEditRoute>', () => {
 		expect(Helmet.peek().title).toBe(story.name);
 	});
 
-	it('displays the toolbar', async () => {
+	it('registers story edit actions in the app shell', async () => {
 		await renderComponent(fakeStory());
-		expect(screen.getByTestId('mock-story-edit-toolbar')).toBeInTheDocument();
+		expect(
+			await screen.findByRole('tab', {
+				name: 'routes.storyEdit.workspace.textMode'
+			})
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole('tab', {name: 'common.passage'})
+		).toBeInTheDocument();
 	});
 
 	it('displays a passage map', async () => {
