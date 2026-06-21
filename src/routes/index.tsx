@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {HashRouter, Route, Switch} from 'react-router-dom';
+import {AppShell} from '../components/app-shell';
 import {usePrefsContext} from '../store/prefs';
 import {StoryEditRoute} from './story-edit';
 import {StoryListRoute} from './story-list';
@@ -18,42 +19,44 @@ export const Routes: React.FC = () => {
 
 	return (
 		<HashRouter>
-			{prefs.welcomeSeen ? (
-				<Switch>
-					<Route exact path="/">
-						<StoryListRoute />
-					</Route>
-					<Route path="/welcome">
-						<WelcomeRoute />
-					</Route>
-					<Route path="/stories/:storyId/play">
-						<StoryPlayRoute />
-					</Route>
-					<Route path="/stories/:storyId/proof">
-						<StoryProofRoute />
-					</Route>
-					<Route path="/stories/:storyId/test/:passageId">
-						<StoryTestRoute />
-					</Route>
-					<Route path="/stories/:storyId/test">
-						<StoryTestRoute />
-					</Route>
-					<Route path="/stories/:storyId">
-						<StoryEditRoute />
-					</Route>
-					<Route
-						path="*"
-						render={path => {
-							console.warn(
-								`No route for path "${path.location.pathname}", rendering story list`
-							);
-							return <StoryListRoute />;
-						}}
-					></Route>
-				</Switch>
-			) : (
-				<WelcomeRoute />
-			)}
+			<AppShell>
+				{prefs.welcomeSeen ? (
+					<Switch>
+						<Route exact path="/">
+							<StoryListRoute />
+						</Route>
+						<Route path="/welcome">
+							<WelcomeRoute />
+						</Route>
+						<Route path="/stories/:storyId/play">
+							<StoryPlayRoute />
+						</Route>
+						<Route path="/stories/:storyId/proof">
+							<StoryProofRoute />
+						</Route>
+						<Route path="/stories/:storyId/test/:passageId">
+							<StoryTestRoute />
+						</Route>
+						<Route path="/stories/:storyId/test">
+							<StoryTestRoute />
+						</Route>
+						<Route path="/stories/:storyId">
+							<StoryEditRoute />
+						</Route>
+						<Route
+							path="*"
+							render={path => {
+								console.warn(
+									`No route for path "${path.location.pathname}", rendering story list`
+								);
+								return <StoryListRoute />;
+							}}
+						></Route>
+					</Switch>
+				) : (
+					<WelcomeRoute />
+				)}
+			</AppShell>
 		</HashRouter>
 	);
 };

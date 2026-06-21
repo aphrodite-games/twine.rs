@@ -29,6 +29,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 			iconRight,
 			loading = false,
 			size = 'md',
+			type = 'button',
 			variant = 'default',
 			...rest
 		},
@@ -45,6 +46,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 			)}
 			disabled={disabled || loading}
 			ref={ref}
+			type={type}
 			{...rest}
 		>
 			{loading ? (
@@ -61,4 +63,3 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 );
 
 Button.displayName = 'Button';
-

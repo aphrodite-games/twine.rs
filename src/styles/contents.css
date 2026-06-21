@@ -42,7 +42,7 @@
 	color: var(--text-faint);
 	font-size: var(--fs-micro);
 	font-weight: var(--fw-bold);
-	letter-spacing: var(--ls-normal);
+	letter-spacing: 0;
 	padding: var(--sp-3) var(--sp-5);
 	position: sticky;
 	text-transform: uppercase;

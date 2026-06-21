@@ -23,6 +23,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 			label,
 			size = 'md',
 			solid = false,
+			type = 'button',
 			...rest
 		},
 		ref
@@ -40,6 +41,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 			disabled={disabled}
 			ref={ref}
 			title={label}
+			type={type}
 			{...rest}
 		>
 			<TablerIcon className="tw-ds-icon" icon={icon} />
@@ -48,4 +50,3 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 );
 
 IconButton.displayName = 'IconButton';
-

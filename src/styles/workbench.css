@@ -22,7 +22,7 @@
 	font-family: var(--font-ui);
 	font-size: var(--fs-sm);
 	font-weight: var(--fw-bold);
-	letter-spacing: var(--ls-normal);
+	letter-spacing: 0;
 	text-transform: uppercase;
 }
 

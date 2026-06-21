@@ -3,6 +3,7 @@ import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {Tab, TabList, TabPanel, Tabs} from 'react-tabs';
 import {IconButton} from '../control/icon-button';
+import {useAppShellContext} from '../app-shell';
 import {BackButton} from './back-button';
 import './route-toolbar.css';
 
@@ -14,7 +15,22 @@ export interface RouteToolbarProps {
 
 export const RouteToolbar: React.FC<RouteToolbarProps> = props => {
 	const {helpUrl = 'https://twinery.org/2guide', pinnedControls, tabs} = props;
+	const appShell = useAppShellContext();
 	const {t} = useTranslation();
+
+	React.useEffect(() => {
+		if (!appShell.inShell) {
+			return;
+		}
+
+		appShell.setRouteToolbar({helpUrl, pinnedControls, tabs});
+
+		return () => appShell.setRouteToolbar(undefined);
+	}, [appShell, helpUrl, pinnedControls, tabs]);
+
+	if (appShell.inShell) {
+		return null;
+	}
 
 	return (
 		<div className="route-toolbar">

@@ -21,7 +21,7 @@
 	gap: 7px;
 	height: var(--_h);
 	justify-content: center;
-	letter-spacing: var(--ls-snug);
+	letter-spacing: 0;
 	line-height: 1;
 	padding: 0 var(--ctl-pad-x);
 	position: relative;
@@ -224,7 +224,7 @@
 	font-family: var(--font-ui);
 	font-size: var(--fs-xs);
 	font-weight: var(--fw-medium);
-	letter-spacing: var(--ls-snug);
+	letter-spacing: 0;
 }
 
 .tw-input {
@@ -556,7 +556,7 @@
 	font-weight: var(--fw-semibold);
 	gap: 4px;
 	height: 18px;
-	letter-spacing: 0.01em;
+	letter-spacing: 0;
 	line-height: 1;
 	padding: 0 7px;
 	white-space: nowrap;
@@ -742,7 +742,7 @@
 	font-family: var(--font-ui);
 	font-size: var(--fs-xs);
 	font-weight: var(--fw-semibold);
-	letter-spacing: var(--ls-caps);
+	letter-spacing: 0;
 	text-transform: uppercase;
 }
 
@@ -904,4 +904,3 @@
 .tw-node__stat--broken {
 	color: var(--sem-error);
 }
-

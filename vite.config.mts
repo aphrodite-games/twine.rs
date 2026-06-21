@@ -6,8 +6,10 @@ import {nodePolyfills} from 'vite-plugin-node-polyfills';
 import {VitePWA} from 'vite-plugin-pwa';
 import packageJson from './package.json';
 
+const base = './';
+
 export default defineConfig({
-	base: './',
+	base,
 	build: {
 		outDir: 'dist/web',
 		target: browserslistToEsbuild(['>0.2%', 'not dead', 'not op_mini all'])
@@ -15,12 +17,13 @@ export default defineConfig({
 	define: {
 		// Make app name and version available to code.
 		// https://stackoverflow.com/a/74860417/7569568
+		'process.env.BASE_URL': JSON.stringify(base),
 		'process.env.VITE_APP_NAME': JSON.stringify(packageJson.name),
 		'process.env.VITE_APP_VERSION': JSON.stringify(packageJson.version)
 	},
 	plugins: [
 		checker({
-			eslint: {lintCommand: 'eslint src'},
+			eslint: {lintCommand: 'eslint "src/**/*.{ts,tsx}"'},
 			overlay: {
 				initialIsOpen: false
 			},
