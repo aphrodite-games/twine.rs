@@ -9,6 +9,7 @@ import {useTranslation} from 'react-i18next';
 import {IconButton} from '../../components/control/icon-button';
 import {TagGrid} from '../../components/tag';
 import {VisibleWhitespace} from '../../components/visible-whitespace';
+import {storyToCoreIndex} from '../../core';
 import {Passage, Story} from '../../store/stories';
 import {parseLinks} from '../../util/parse-links';
 import {StoryEditMode} from './workspace-state';
@@ -115,15 +116,17 @@ const PassageNavigator: React.FC<{
 };
 
 const Inspector: React.FC<{
+	onSelectPassage: (passage: Passage) => void;
 	passage?: Passage;
 	story: Story;
 }> = props => {
-	const {passage, story} = props;
+	const {onSelectPassage, passage, story} = props;
 	const {t} = useTranslation();
 	const links = React.useMemo(
 		() => (passage ? parseLinks(passage.text, true) : []),
 		[passage]
 	);
+	const index = React.useMemo(() => storyToCoreIndex(story), [story]);
 
 	return (
 		<div className="story-edit-inspector">
@@ -136,6 +139,12 @@ const Inspector: React.FC<{
 					</dd>
 					<dt>{t('routes.storyEdit.workspace.passages')}</dt>
 					<dd>{story.passages.length}</dd>
+					<dt>{t('routes.storyEdit.workspace.brokenLinks')}</dt>
+					<dd>{index.graph.brokenLinks}</dd>
+					<dt>{t('routes.storyEdit.workspace.orphanPassages')}</dt>
+					<dd>{index.graph.orphanPassages}</dd>
+					<dt>{t('routes.storyEdit.workspace.unreachablePassages')}</dt>
+					<dd>{index.graph.unreachablePassages}</dd>
 				</dl>
 			</section>
 			{passage && (
@@ -149,6 +158,41 @@ const Inspector: React.FC<{
 						<dt>{t('common.tags')}</dt>
 						<dd>{passage.tags.length || t('colors.none')}</dd>
 					</dl>
+				</section>
+			)}
+			{index.diagnostics.length > 0 && (
+				<section>
+					<h3>{t('routes.storyEdit.workspace.diagnostics')}</h3>
+					<ul className="story-edit-diagnostic-list">
+						{index.diagnostics.slice(0, 8).map((diagnostic, ordinal) => {
+							const diagnosticPassage = story.passages.find(
+								passage => passage.id === diagnostic.passageId
+							);
+
+							return (
+								<li
+									key={`${diagnostic.sourceId}-${diagnostic.code}-${ordinal}`}
+								>
+									{diagnosticPassage ? (
+										<button
+											className={`story-edit-diagnostic ${diagnostic.severity}`}
+											onClick={() => onSelectPassage(diagnosticPassage)}
+											type="button"
+										>
+											<span>{diagnosticPassage.name}</span>
+											{diagnostic.message}
+										</button>
+									) : (
+										<span
+											className={`story-edit-diagnostic ${diagnostic.severity}`}
+										>
+											{diagnostic.message}
+										</span>
+									)}
+								</li>
+							);
+						})}
+					</ul>
 				</section>
 			)}
 		</div>
@@ -272,7 +316,11 @@ export const StoryWorkspaceShell: React.FC<
 			{showGraph && graphPanel}
 			{showText && (
 				<div className="story-edit-text-layer">
-					<StoryTextPanel selectedPassageId={passage?.id} story={story} />
+					<StoryTextPanel
+						onSelectPassage={onSelectPassage}
+						selectedPassageId={passage?.id}
+						story={story}
+					/>
 				</div>
 			)}
 			<aside
@@ -287,7 +335,13 @@ export const StoryWorkspaceShell: React.FC<
 				>
 					{t('routes.storyEdit.workspace.inspector')}
 				</DockHeader>
-				{!rightDockCollapsed && <Inspector passage={passage} story={story} />}
+				{!rightDockCollapsed && (
+					<Inspector
+						onSelectPassage={onSelectPassage}
+						passage={passage}
+						story={story}
+					/>
+				)}
 			</aside>
 			<BottomDrawer
 				onChangeOpen={onChangeBottomDrawerOpen}

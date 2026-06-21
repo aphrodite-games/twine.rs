@@ -33,6 +33,8 @@ fn default_overscan() -> f64 {
     256.0
 }
 
+const SPATIAL_CELL_SIZE: f64 = 512.0;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkEdge {
@@ -98,6 +100,7 @@ pub struct GraphIndex {
     self_links: Vec<PassageId>,
     stats: GraphStats,
     story_order: Vec<PassageId>,
+    story_rank: BTreeMap<PassageId, usize>,
 }
 
 impl GraphIndex {
@@ -112,6 +115,12 @@ impl GraphIndex {
             .iter()
             .map(|passage| passage.id.clone())
             .collect::<Vec<_>>();
+        let story_rank = story_order
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, id)| (id, index))
+            .collect::<BTreeMap<_, _>>();
         let mut graph = Self {
             passage_names,
             stats: GraphStats {
@@ -129,6 +138,7 @@ impl GraphIndex {
                 ..GraphStats::default()
             },
             story_order,
+            story_rank,
             ..Self::default()
         };
 
@@ -224,6 +234,15 @@ impl GraphIndex {
         projection_options: &GraphProjectionOptions,
     ) -> GraphProjection {
         let layout = self.layout_snapshot(story, saved_layout, layout_options);
+
+        self.canvas_projection_from_snapshot(&layout, projection_options)
+    }
+
+    pub fn canvas_projection_from_snapshot(
+        &self,
+        layout: &GraphLayoutSnapshot,
+        projection_options: &GraphProjectionOptions,
+    ) -> GraphProjection {
         let focus_ids = projection_options.focus.as_ref().and_then(|focus| {
             if focus.passage_ids.is_empty() {
                 None
@@ -236,28 +255,30 @@ impl GraphIndex {
             .map(|viewport| expand_rect(viewport, projection_options.overscan));
         let mut visible_ids = BTreeSet::new();
         let mut nodes = Vec::new();
+        let mut candidate_ids = viewport.map_or_else(
+            || self.story_order.to_vec(),
+            |viewport| layout.visible_passage_ids(viewport).into_iter().collect(),
+        );
 
-        for id in &self.story_order {
+        candidate_ids.sort_by_key(|id| self.story_order_index(id));
+
+        for id in candidate_ids {
             if focus_ids
                 .as_ref()
-                .is_some_and(|focused_ids| !focused_ids.contains(id))
+                .is_some_and(|focused_ids| !focused_ids.contains(&id))
             {
                 continue;
             }
 
-            let Some(layout_entry) = layout.passages.get(id) else {
+            let Some(layout_entry) = layout.passages.get(&id) else {
                 continue;
             };
 
-            if viewport.is_some_and(|viewport| !rects_intersect(viewport, layout_entry.bounds)) {
-                continue;
-            }
-
-            let Some(node) = self.nodes.get(id) else {
+            let Some(node) = self.nodes.get(&id) else {
                 continue;
             };
 
-            visible_ids.insert(id.clone());
+            visible_ids.insert(id);
             nodes.push(GraphCanvasNode {
                 broken_link_count: node.broken_link_count,
                 bounds: layout_entry.bounds,
@@ -276,7 +297,7 @@ impl GraphIndex {
         }
 
         let edges = self.project_edges(
-            &layout,
+            layout,
             &visible_ids,
             focus_ids.as_ref(),
             &projection_options.layers,
@@ -334,10 +355,12 @@ impl GraphIndex {
             _ => GraphLayoutState::Mixed,
         };
         let bounds = graph_bounds(passages.values().map(|entry| entry.bounds));
+        let spatial_cells = spatial_cells_for(&passages);
 
         GraphLayoutSnapshot {
             bounds,
             passages,
+            spatial_cells,
             state,
         }
     }
@@ -553,17 +576,27 @@ impl GraphIndex {
         layers: &LinkLayerOptions,
     ) -> Vec<GraphCanvasEdge> {
         let mut edges = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut source_ids = BTreeSet::new();
 
-        for source_id in &self.story_order {
-            if focus_ids.is_some_and(|focused_ids| !focused_ids.contains(source_id)) {
+        for visible_id in visible_ids {
+            source_ids.insert(visible_id.clone());
+
+            for source_id in self.backlinks_to(visible_id) {
+                source_ids.insert(source_id.clone());
+            }
+        }
+
+        for source_id in source_ids {
+            if focus_ids.is_some_and(|focused_ids| !focused_ids.contains(&source_id)) {
                 continue;
             }
 
-            let Some(source_layout) = layout.passages.get(source_id) else {
+            let Some(source_layout) = layout.passages.get(&source_id) else {
                 continue;
             };
 
-            for edge in self.links_from(source_id) {
+            for edge in self.links_from(&source_id) {
                 let kind = edge.kind();
 
                 if !layers.includes(kind) {
@@ -579,18 +612,27 @@ impl GraphIndex {
                     continue;
                 }
 
+                if !visible_ids.contains(&source_id)
+                    && !edge
+                        .target
+                        .as_ref()
+                        .is_some_and(|target_id| visible_ids.contains(target_id))
+                {
+                    continue;
+                }
+
                 let target_layout = edge
                     .target
                     .as_ref()
                     .and_then(|id| layout.passages.get(id))
                     .map(|layout| layout.bounds);
-                let touches_visible_node = visible_ids.contains(source_id)
-                    || edge
-                        .target
-                        .as_ref()
-                        .is_some_and(|target_id| visible_ids.contains(target_id));
+                let edge_key = (
+                    edge.source.clone(),
+                    edge.target.clone(),
+                    edge.target_name.clone(),
+                );
 
-                if !touches_visible_node {
+                if !seen.insert(edge_key) {
                     continue;
                 }
 
@@ -620,10 +662,7 @@ impl GraphIndex {
     }
 
     fn story_order_index(&self, id: &PassageId) -> usize {
-        self.story_order
-            .iter()
-            .position(|entry| entry == id)
-            .unwrap_or(usize::MAX)
+        self.story_rank.get(id).copied().unwrap_or(usize::MAX)
     }
 }
 
@@ -705,7 +744,41 @@ pub struct GraphLayoutEntry {
 pub struct GraphLayoutSnapshot {
     pub bounds: Option<GraphPosition>,
     pub passages: BTreeMap<PassageId, GraphLayoutEntry>,
+    #[serde(skip)]
+    spatial_cells: BTreeMap<(i64, i64), Vec<PassageId>>,
     pub state: GraphLayoutState,
+}
+
+impl GraphLayoutSnapshot {
+    fn visible_passage_ids(&self, viewport: GraphPosition) -> BTreeSet<PassageId> {
+        if self.spatial_cells.is_empty() {
+            return self
+                .passages
+                .iter()
+                .filter(|(_, entry)| rects_intersect(viewport, entry.bounds))
+                .map(|(id, _)| id.clone())
+                .collect();
+        }
+
+        let mut ids = BTreeSet::new();
+
+        for cell_x in spatial_cell(viewport.left)..=spatial_cell(viewport.left + viewport.width) {
+            for cell_y in spatial_cell(viewport.top)..=spatial_cell(viewport.top + viewport.height)
+            {
+                if let Some(cell_ids) = self.spatial_cells.get(&(cell_x, cell_y)) {
+                    for id in cell_ids {
+                        if let Some(entry) = self.passages.get(id)
+                            && rects_intersect(viewport, entry.bounds)
+                        {
+                            ids.insert(id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        ids
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -890,6 +963,30 @@ fn graph_bounds(bounds: impl IntoIterator<Item = GraphPosition>) -> Option<Graph
         top,
         width: right - left,
     })
+}
+
+fn spatial_cell(value: f64) -> i64 {
+    (value / SPATIAL_CELL_SIZE).floor() as i64
+}
+
+fn spatial_cells_for(
+    passages: &BTreeMap<PassageId, GraphLayoutEntry>,
+) -> BTreeMap<(i64, i64), Vec<PassageId>> {
+    let mut cells = BTreeMap::<(i64, i64), Vec<PassageId>>::new();
+
+    for (id, entry) in passages {
+        for cell_x in
+            spatial_cell(entry.bounds.left)..=spatial_cell(entry.bounds.left + entry.bounds.width)
+        {
+            for cell_y in spatial_cell(entry.bounds.top)
+                ..=spatial_cell(entry.bounds.top + entry.bounds.height)
+            {
+                cells.entry((cell_x, cell_y)).or_default().push(id.clone());
+            }
+        }
+    }
+
+    cells
 }
 
 fn rects_intersect(left: GraphPosition, right: GraphPosition) -> bool {

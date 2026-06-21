@@ -10,7 +10,8 @@ import {
 import {Rect, rectsIntersect} from '../../util/geometry';
 
 export interface MarqueeablePassageMapProps
-	extends PassageMapProps,
+	extends
+		PassageMapProps,
 		Omit<
 			MarqueeSelectionProps,
 			'ignoreEventsOnSelector' | 'onTemporarySelectRect'
@@ -73,11 +74,15 @@ export const MarqueeablePassageMap: React.FC<
 		<>
 			<MarqueeSelection
 				container={container}
-				ignoreEventsOnSelector=".passage-card, .fuzzy-finder, .zoom-buttons"
+				ignoreEventsOnSelector=".passage-card, .fuzzy-finder, .zoom-buttons, .passage-map-link-layers"
 				onSelectRect={handleSelectRect}
 				onTemporarySelectRect={handleTemporarySelectRect}
 			/>
-			<PassageMap {...other} passages={innerPassages} />
+			<PassageMap
+				{...other}
+				passages={innerPassages}
+				viewportContainer={container}
+			/>
 		</>
 	);
 };

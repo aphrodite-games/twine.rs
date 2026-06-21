@@ -1,0 +1,67 @@
+@import '../../../styles/colors.css';
+@import '../../../styles/metrics.css';
+
+.source-editor {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	position: relative;
+}
+
+.source-editor .cm-editor {
+	background: var(--white);
+	color: var(--dark-gray);
+	flex: 1;
+	font-family: var(--font-monospace);
+	font-size: 100%;
+	min-height: 0;
+	outline: none;
+}
+
+.source-editor .cm-scroller {
+	font-family: inherit;
+}
+
+.source-editor .cm-focused {
+	outline: none;
+}
+
+.source-editor .cm-focused .cm-selectionBackground,
+.source-editor .cm-selectionBackground,
+.source-editor .cm-content ::selection {
+	background: var(--light-blue-translucent);
+}
+
+.source-editor .cm-gutters {
+	background: var(--off-white);
+	border-right: 1px solid var(--light-gray);
+	color: var(--gray);
+}
+
+.source-editor .cm-activeLine,
+.source-editor .cm-activeLineGutter {
+	background: var(--faint-blue);
+}
+
+.source-editor .cm-placeholder {
+	color: var(--gray);
+}
+
+.source-editor .cm-twine-link {
+	background: var(--faint-blue);
+	border-radius: 2px;
+	color: var(--dark-blue);
+}
+
+.source-editor .cm-twine-link-self {
+	background: var(--light-green-translucent);
+	color: var(--dark-green);
+}
+
+.source-editor .cm-twine-link-broken {
+	background: var(--light-red-translucent);
+	color: var(--dark-red);
+	text-decoration: underline wavy var(--dark-red);
+	text-underline-offset: 2px;
+}

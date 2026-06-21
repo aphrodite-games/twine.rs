@@ -383,6 +383,12 @@ Core deliverables:
 - Unified search and replace across passage text, titles, tags, variables, proof output, assets, files, commands, and settings, with reveal-in-source and optional reveal-in-graph actions.
 - Bulk tag workflows, tag counts/colors/filtering, advanced connectivity diagnostics, highlighted tag/query results, and durable organization constructs such as sections/chapters/groups.
 
+M4 handoff notes from M1-M3 readiness:
+
+- `twine_core` now exposes a typed `QueryStoryIndex` command and `CoreStoryIndex` DTO covering source files, graph stats, simple query hits, tags, broken-link diagnostics, and unreachable-passage diagnostics. The Electron-era UI also has a TypeScript shim that produces the same DTO shape until a live Tauri/WASM host is wired in.
+- M4 still owns the richer indexed engine: incremental variable/symbol extraction, regex/fuzzy ranking, case/options handling, replacement previews, proof-output indexing, asset/file references, tag count/color workflows, diagnostics severities/quick fixes, and persisted Contents Navigator state.
+- M4 should replace the lightweight TypeScript story-index producer with the Rust producer without changing the inspector/search UI contract. Treat the current search hits as a compatibility scaffold, not the final search implementation.
+
 Highest-signal requests in this milestone:
 
 - [#984](https://github.com/klembot/twinejs/issues/984) 2.4: UX for adding passage tags is a bit clunky (P2 (should), 3 comments)

@@ -1,8 +1,14 @@
 import * as React from 'react';
 import {DraggableData} from 'react-draggable';
+import {useTranslation} from 'react-i18next';
 import {Passage, Story} from '../../../store/stories';
-import {boundingRect, Point} from '../../../util/geometry';
-import {PassageConnections} from '../passage-connections';
+import {
+	boundingRect,
+	Point,
+	Rect,
+	rectsIntersect
+} from '../../../util/geometry';
+import {PassageConnectionCanvas} from '../passage-connections';
 import {PassageCardGroup} from '../passage-card-group';
 import './passage-map.css';
 import classnames from 'classnames';
@@ -10,6 +16,7 @@ import classnames from 'classnames';
 export interface PassageMapProps {
 	formatName: string;
 	formatVersion: string;
+	onCreate?: (point: Point) => void;
 	onDeselect: (passage: Passage) => void;
 	onDrag: (change: Point) => void;
 	onEdit: (passage: Passage) => void;
@@ -18,6 +25,7 @@ export interface PassageMapProps {
 	startPassageId: string;
 	tagColors: Story['tagColors'];
 	tagDisplay: 'color' | 'name';
+	viewportContainer?: React.RefObject<HTMLElement>;
 	visibleZoom: number;
 	zoom: number;
 }
@@ -69,11 +77,51 @@ function dragReducer(state: DragState, action: DragAction) {
 }
 
 const compactCardZoom = 0.6;
+const viewportOverscan = 400;
+
+function useLogicalViewport(
+	viewportContainer: React.RefObject<HTMLElement> | undefined,
+	zoom: number
+): Rect | undefined {
+	const [viewport, setViewport] = React.useState<Rect>();
+
+	React.useEffect(() => {
+		const container = viewportContainer?.current;
+
+		if (!container) {
+			setViewport(undefined);
+			return;
+		}
+
+		const current = container;
+
+		function updateViewport() {
+			setViewport({
+				height: current.clientHeight / zoom + viewportOverscan / zoom,
+				left: Math.max(current.scrollLeft / zoom - viewportOverscan / zoom, 0),
+				top: Math.max(current.scrollTop / zoom - viewportOverscan / zoom, 0),
+				width: current.clientWidth / zoom + viewportOverscan / zoom
+			});
+		}
+
+		updateViewport();
+		current.addEventListener('scroll', updateViewport, {passive: true});
+		window.addEventListener('resize', updateViewport);
+
+		return () => {
+			current.removeEventListener('scroll', updateViewport);
+			window.removeEventListener('resize', updateViewport);
+		};
+	}, [viewportContainer, zoom]);
+
+	return viewport;
+}
 
 export const PassageMap: React.FC<PassageMapProps> = props => {
 	const {
 		formatName,
 		formatVersion,
+		onCreate,
 		onDeselect,
 		onDrag,
 		onEdit,
@@ -82,12 +130,19 @@ export const PassageMap: React.FC<PassageMapProps> = props => {
 		startPassageId,
 		tagColors,
 		tagDisplay,
+		viewportContainer,
 		visibleZoom,
 		zoom
 	} = props;
+	const {t} = useTranslation();
 	const [compactCards, setCompactCards] = React.useState(
 		visibleZoom <= compactCardZoom
 	);
+	const [linkLayers, setLinkLayers] = React.useState({
+		broken: true,
+		resolved: true,
+		selfLinks: true
+	});
 	const container = React.useRef<HTMLDivElement>(null);
 	const passageBounds = React.useMemo(() => {
 		// Need to inject a fake rect at the very top-left corner to anchor the
@@ -95,6 +150,16 @@ export const PassageMap: React.FC<PassageMapProps> = props => {
 
 		return boundingRect([...passages, {top: 0, left: 0, width: 0, height: 0}]);
 	}, [passages]);
+	const logicalViewport = useLogicalViewport(viewportContainer, zoom);
+	const visiblePassages = React.useMemo(() => {
+		if (!logicalViewport) {
+			return passages;
+		}
+
+		return passages.filter(
+			passage => passage.selected || rectsIntersect(logicalViewport, passage)
+		);
+	}, [logicalViewport, passages]);
 
 	// This is a separate memo so that there's less work when visibleZoom changes
 	// during a zoom transition. The max() expression ensures that dialogs will
@@ -107,12 +172,20 @@ export const PassageMap: React.FC<PassageMapProps> = props => {
 			height: `calc(${passageBounds.height}px + max(50vh, ${
 				1000 / visibleZoom
 			}px))`,
+			'--passage-map-visible-zoom': visibleZoom,
 			width: `calc(${passageBounds.width}px + max(50vw, ${
 				1000 / visibleZoom
 			}px))`,
 			transform: `scale(${visibleZoom})`
-		};
+		} as React.CSSProperties;
 	}, [passageBounds.height, passageBounds.width, visibleZoom]);
+	const canvasSize = React.useMemo(
+		() => ({
+			height: passageBounds.height + 1000 / visibleZoom,
+			width: passageBounds.width + 1000 / visibleZoom
+		}),
+		[passageBounds.height, passageBounds.width, visibleZoom]
+	);
 
 	const [state, dispatch] = React.useReducer(dragReducer, {
 		dragging: false,
@@ -195,24 +268,110 @@ export const PassageMap: React.FC<PassageMapProps> = props => {
 		},
 		[onSelect]
 	);
+	const pointFromEvent = React.useCallback(
+		(event: React.MouseEvent<HTMLElement>): Point | undefined => {
+			if (!container.current || !onCreate) {
+				return undefined;
+			}
+
+			if ((event.target as HTMLElement).closest('.passage-card')) {
+				return undefined;
+			}
+
+			const bounds = container.current.getBoundingClientRect();
+
+			return {
+				left: Math.max((event.clientX - bounds.left) / visibleZoom, 0),
+				top: Math.max((event.clientY - bounds.top) / visibleZoom, 0)
+			};
+		},
+		[onCreate, visibleZoom]
+	);
+	const handleDoubleClick = React.useCallback(
+		(event: React.MouseEvent<HTMLDivElement>) => {
+			const point = pointFromEvent(event);
+
+			if (point) {
+				onCreate?.(point);
+			}
+		},
+		[onCreate, pointFromEvent]
+	);
+	const handleContextMenu = React.useCallback(
+		(event: React.MouseEvent<HTMLDivElement>) => {
+			const point = pointFromEvent(event);
+
+			if (point) {
+				event.preventDefault();
+				onCreate?.(point);
+			}
+		},
+		[onCreate, pointFromEvent]
+	);
+	const handleChangeLayer = React.useCallback(
+		(layer: keyof typeof linkLayers) =>
+			(event: React.ChangeEvent<HTMLInputElement>) => {
+				const checked = event.target.checked;
+
+				setLinkLayers(current => ({...current, [layer]: checked}));
+			},
+		[]
+	);
 
 	return (
 		<div
 			className={classnames('passage-map', {
 				'compact-passage-cards': compactCards
 			})}
+			onContextMenu={handleContextMenu}
+			onDoubleClick={handleDoubleClick}
 			ref={container}
 			style={style}
 		>
-			<PassageConnections
+			<div
+				className="passage-map-link-layers"
+				onContextMenu={event => event.stopPropagation()}
+				onDoubleClick={event => event.stopPropagation()}
+				onMouseDown={event => event.stopPropagation()}
+			>
+				<label>
+					<input
+						checked={linkLayers.resolved}
+						onChange={handleChangeLayer('resolved')}
+						type="checkbox"
+					/>
+					{t('routes.storyEdit.workspace.resolvedLinks')}
+				</label>
+				<label>
+					<input
+						checked={linkLayers.broken}
+						onChange={handleChangeLayer('broken')}
+						type="checkbox"
+					/>
+					{t('routes.storyEdit.workspace.brokenLinks')}
+				</label>
+				<label>
+					<input
+						checked={linkLayers.selfLinks}
+						onChange={handleChangeLayer('selfLinks')}
+						type="checkbox"
+					/>
+					{t('routes.storyEdit.workspace.selfLinks')}
+				</label>
+			</div>
+			<PassageConnectionCanvas
 				formatName={formatName}
 				formatVersion={formatVersion}
+				height={canvasSize.height}
+				layers={linkLayers}
 				offset={{
 					left: (state.dragX - state.startX) / zoom,
 					top: (state.dragY - state.startY) / zoom
 				}}
 				passages={passages}
 				startPassageId={startPassageId}
+				visiblePassages={visiblePassages}
+				width={canvasSize.width}
 			/>
 			<PassageCardGroup
 				onDeselect={onDeselect}
@@ -221,7 +380,7 @@ export const PassageMap: React.FC<PassageMapProps> = props => {
 				onDragStop={handleDragStop}
 				onEdit={onEdit}
 				onSelect={handleSelect}
-				passages={passages}
+				passages={visiblePassages}
 				tagColors={tagColors}
 				tagDisplay={tagDisplay}
 			/>

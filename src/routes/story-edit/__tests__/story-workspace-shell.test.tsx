@@ -80,10 +80,13 @@ describe('<StoryWorkspaceShell>', () => {
 	it('marks the active passage in the navigator', () => {
 		renderComponent('text');
 
-		expect(screen.getByRole('button', {name: /Start/})).toHaveAttribute(
-			'aria-current',
-			'true'
-		);
+		expect(
+			within(
+				screen.getByRole('complementary', {
+					name: 'routes.storyEdit.workspace.leftDock'
+				})
+			).getByRole('button', {name: /Start/})
+		).toHaveAttribute('aria-current', 'true');
 	});
 
 	it('navigates to linked passages from the bottom drawer', () => {

@@ -5,7 +5,6 @@ import {fakePassage} from '../../../../test-util';
 import {PassageMap, PassageMapProps} from '../passage-map';
 
 jest.mock('../../../../store/use-format-reference-parser');
-jest.mock('../../passage-connections/passage-connections');
 jest.mock('../../passage-card-group');
 
 describe('<PassageMap>', () => {
@@ -31,14 +30,12 @@ describe('<PassageMap>', () => {
 		);
 	}
 
-	it('renders a <PassageConnections> for the passages', () => {
+	it('renders a canvas connection layer for the passages', () => {
 		const passages = [fakePassage(), fakePassage()];
 
 		renderComponent({passages, startPassageId: passages[0].id});
 		expect(
-			screen.getByTestId(
-				`mock-passage-connections-${passages[0].name}-${passages[1].name}`
-			)
+			document.querySelector('canvas.link-connectors')
 		).toBeInTheDocument();
 	});
 
@@ -53,7 +50,7 @@ describe('<PassageMap>', () => {
 		).toBeInTheDocument();
 	});
 
-	it('changes the offset on <PassageConnections> when a drag occurs', () => {
+	it('changes the connection canvas offset when a drag occurs', () => {
 		const passages = [fakePassage(), fakePassage()];
 
 		renderComponent({passages, startPassageId: passages[0].id});
@@ -65,12 +62,10 @@ describe('<PassageMap>', () => {
 			).getByText('simulate drag')
 		);
 
-		const connections = screen.getByTestId(
-			`mock-passage-connections-${passages[0].name}-${passages[1].name}`
-		);
+		const connections = document.querySelector('canvas.link-connectors');
 
-		expect(connections.dataset.offsetLeft).toBe('5');
-		expect(connections.dataset.offsetTop).toBe('10');
+		expect(connections).toHaveAttribute('data-offset-left', '5');
+		expect(connections).toHaveAttribute('data-offset-top', '10');
 	});
 
 	it('adds a compact-passage-cards class if the visible zoom level is equal to or below 0.6', () => {
@@ -121,6 +116,27 @@ describe('<PassageMap>', () => {
 			).getByText('simulate drag')
 		);
 		expect(onSelect).not.toBeCalled();
+	});
+
+	it('creates a passage at the logical point when empty map space is double-clicked', () => {
+		const onCreate = jest.fn();
+
+		renderComponent({onCreate, visibleZoom: 2, zoom: 2});
+		const map = document.querySelector('.passage-map') as HTMLElement;
+
+		jest.spyOn(map, 'getBoundingClientRect').mockReturnValue({
+			bottom: 0,
+			height: 0,
+			left: 10,
+			right: 0,
+			toJSON: () => '',
+			top: 20,
+			width: 0,
+			x: 10,
+			y: 20
+		});
+		fireEvent.doubleClick(map, {clientX: 50, clientY: 70});
+		expect(onCreate).toHaveBeenCalledWith({left: 20, top: 25});
 	});
 
 	it('is accessible', async () => {

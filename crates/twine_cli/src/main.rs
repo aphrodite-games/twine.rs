@@ -1,14 +1,19 @@
 use anyhow::{Context, Result, bail};
 use std::{
+    collections::BTreeMap,
     env, fs,
     path::{Path, PathBuf},
+    time::Instant,
 };
 use twine_export::{
     HtmlExportOptions, archive_to_twine_html, stories_to_json_pretty, story_to_html_document,
     story_to_twee,
 };
 use twine_graph::{AutoLayoutOptions, GraphIndex, GraphProjectionOptions};
-use twine_model::{GraphLayout, LibraryMetadata, Project, ProjectManifest, Story};
+use twine_model::{
+    GraphLayout, GraphPosition, LibraryMetadata, Passage, PassageId, Project, ProjectManifest,
+    Story, StoryId,
+};
 use twine_parse::{stories_from_json_interchange, stories_from_twine_html, story_from_twee_named};
 use twine_store::{FileProjectStore, SaveOptions, load_project_path};
 
@@ -20,11 +25,14 @@ fn main() -> Result<()> {
 
     match args.as_slice() {
         [] => bail!("{}", usage()),
-        [path] => inspect(path),
+        [command] if is_command(command, "bench-graph") => bench_graph(50_000),
         [command, path] if is_command(command, "inspect") => inspect(path),
         [command, path] if is_command(command, "graph") => graph(path, None),
         [command, path, story_id] if is_command(command, "graph") => {
             graph(path, Some(&story_id.to_string_lossy()))
+        }
+        [command, count] if is_command(command, "bench-graph") => {
+            bench_graph(count.to_string_lossy().parse()?)
         }
         [command, source, project_dir] if is_command(command, "import") => {
             import_project(source, project_dir)
@@ -35,6 +43,7 @@ fn main() -> Result<()> {
         [command, project_dir, format] if is_command(command, "export") => {
             export_project(project_dir, format, None)
         }
+        [path] => inspect(path),
         _ => bail!("{}", usage()),
     }
 }
@@ -47,8 +56,52 @@ fn usage() -> &'static str {
     "usage:
   twine-rs inspect <story-json|twee|html|project-dir>
   twine-rs graph <story-json|twee|html|project-dir> [story-id-or-name]
+  twine-rs bench-graph [passage-count]
   twine-rs import <story-json|twee|html> <project-dir>
   twine-rs export <project-dir> <json|twee|html|archive> [output-file]"
+}
+
+fn bench_graph(passage_count: usize) -> Result<()> {
+    let passage_count = passage_count.max(1);
+    let story = synthetic_story(passage_count);
+    let layout = GraphLayout::from_story_layout(&story);
+    let start = Instant::now();
+    let graph = GraphIndex::from_story(&story);
+    let index_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let start = Instant::now();
+    let snapshot = graph.layout_snapshot(&story, &layout, &AutoLayoutOptions::default());
+    let layout_snapshot_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let start = Instant::now();
+    let projection = graph.canvas_projection_from_snapshot(
+        &snapshot,
+        &GraphProjectionOptions {
+            viewport: Some(
+                GraphPosition {
+                    height: 1200.0,
+                    left: 0.0,
+                    top: 0.0,
+                    width: 1600.0,
+                }
+                .into(),
+            ),
+            ..GraphProjectionOptions::default()
+        },
+    );
+    let projection_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "passages": passage_count,
+            "links": projection.stats.links,
+            "visibleNodes": projection.nodes.len(),
+            "visibleEdges": projection.edges.len(),
+            "indexMs": index_ms,
+            "layoutSnapshotMs": layout_snapshot_ms,
+            "projectionMs": projection_ms
+        }))?
+    );
+    Ok(())
 }
 
 fn inspect(path: &Path) -> Result<()> {
@@ -208,6 +261,48 @@ fn load_stories(path: &Path) -> Result<Vec<Story>> {
     };
 
     Ok(stories)
+}
+
+fn synthetic_story(passage_count: usize) -> Story {
+    let story_id = StoryId::new("bench-story");
+    let passages = (0..passage_count)
+        .map(|index| {
+            let name = format!("P{index}");
+            let text = if index + 1 < passage_count {
+                format!("[[P{}]]", index + 1)
+            } else {
+                String::new()
+            };
+
+            Passage {
+                custom_attributes: BTreeMap::new(),
+                id: PassageId::new(format!("p-{index}")),
+                layout: Some(GraphPosition {
+                    height: 100.0,
+                    left: (index % 250) as f64 * 180.0,
+                    top: (index / 250) as f64 * 140.0,
+                    width: 140.0,
+                }),
+                metadata: BTreeMap::new(),
+                name,
+                source_pid: None,
+                story: story_id.clone(),
+                tags: Vec::new(),
+                text,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Story {
+        id: story_id,
+        ifid: "bench-ifid".into(),
+        name: "Graph Benchmark".into(),
+        passages: passages.into(),
+        start_passage: PassageId::new("p-0"),
+        story_format: "Harlowe".into(),
+        story_format_version: "3.3.9".into(),
+        ..Story::default()
+    }
 }
 
 fn project_from_stories(stories: Vec<Story>) -> Project {

@@ -289,6 +289,39 @@ body.dragging-passages .story-edit-route * {
 	justify-content: center;
 }
 
+.story-edit-source-tabs {
+	align-items: stretch;
+	background: var(--white);
+	border-bottom: 1px solid var(--light-gray);
+	display: flex;
+	flex: 0 0 var(--control-height);
+	min-width: 0;
+}
+
+.story-edit-source-tabs button {
+	background: transparent;
+	border: 0;
+	border-right: 1px solid var(--light-gray);
+	color: var(--dark-gray);
+	cursor: pointer;
+	font: 100% var(--font-system);
+	min-width: 0;
+	padding: 0 var(--grid-size);
+}
+
+.story-edit-source-tabs button[aria-selected='true'] {
+	background: var(--faint-blue);
+	box-shadow: inset 0 -2px 0 var(--blue);
+	color: var(--dark-blue);
+}
+
+.story-edit-source-tabs button:focus-visible {
+	box-shadow:
+		inset 0 0 0 2px var(--blue),
+		inset 0 -2px 0 var(--blue);
+	outline: none;
+}
+
 .story-edit-text-panel-header {
 	align-items: center;
 	background: var(--white);
@@ -323,24 +356,39 @@ body.dragging-passages .story-edit-route * {
 	min-height: 0;
 }
 
-.story-edit-text-editor .passage-edit-contents,
-.story-edit-text-editor .dialog-editor,
-.story-edit-text-editor .code-area {
+.story-edit-text-editor .source-editor {
 	flex: 1;
 	min-height: 0;
 }
 
-.story-edit-text-editor .dialog-editor {
+.story-edit-source-outline {
+	align-items: center;
+	background: var(--white);
+	border-top: 1px solid var(--light-gray);
 	display: flex;
-	flex-direction: column;
+	flex: 0 0 auto;
+	gap: var(--grid-size);
+	min-height: var(--control-height);
+	overflow-x: auto;
+	padding: var(--control-inner-padding) var(--grid-size);
 }
 
-.story-edit-text-editor .code-area .CodeMirror,
-.story-edit-text-editor .code-area textarea.visible {
-	border-bottom: 0;
-	border-left: 0;
-	border-radius: 0;
-	border-right: 0;
+.story-edit-source-outline-section {
+	align-items: center;
+	display: inline-flex;
+	flex: 0 0 auto;
+	gap: var(--control-inner-padding);
+	min-width: 0;
+}
+
+.story-edit-source-outline-section > span:first-child {
+	color: var(--gray);
+	font-size: 90%;
+	white-space: nowrap;
+}
+
+.story-edit-source-outline-section.missing {
+	color: var(--dark-red);
 }
 
 .story-edit-inspector {
@@ -377,6 +425,65 @@ body.dragging-passages .story-edit-route * {
 	min-width: 0;
 	overflow-wrap: anywhere;
 	text-align: right;
+}
+
+.story-edit-diagnostic-list {
+	display: grid;
+	gap: var(--control-inner-padding);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.story-edit-diagnostic-list li {
+	margin: 0;
+	padding: 0;
+}
+
+.story-edit-diagnostic {
+	background: var(--faint-blue);
+	border: 0;
+	border-left: 3px solid var(--blue);
+	border-radius: var(--corner-round);
+	color: var(--dark-gray);
+	display: grid;
+	font: 90% var(--font-system);
+	gap: 2px;
+	padding: var(--control-inner-padding);
+	text-align: left;
+	width: 100%;
+}
+
+button.story-edit-diagnostic {
+	cursor: pointer;
+}
+
+button.story-edit-diagnostic:hover {
+	background: var(--light-blue-translucent);
+}
+
+button.story-edit-diagnostic:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--blue);
+	outline: none;
+}
+
+.story-edit-diagnostic.warning {
+	background: var(--light-red-translucent);
+	border-left-color: var(--red);
+}
+
+.story-edit-diagnostic.info {
+	background: var(--light-gray-translucent);
+	border-left-color: var(--gray);
+}
+
+.story-edit-diagnostic span {
+	color: var(--black);
+	font-weight: bold;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .story-edit-bottom-drawer {

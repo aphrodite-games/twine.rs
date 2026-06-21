@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {addPassageEditors, useDialogsContext} from '../../dialogs';
 import {
+	createUntitledPassage,
 	deselectPassage,
 	movePassages,
 	Passage,
@@ -22,6 +23,15 @@ export function usePassageChangeHandlers(story: Story) {
 	const handleDeselectPassage = React.useCallback(
 		(passage: Passage) =>
 			undoableStoriesDispatch(deselectPassage(story, passage)),
+		[story, undoableStoriesDispatch]
+	);
+
+	const handleCreatePassage = React.useCallback(
+		(point: Point) =>
+			undoableStoriesDispatch(
+				createUntitledPassage(story, point.left, point.top),
+				'undoChange.newPassage'
+			),
 		[story, undoableStoriesDispatch]
 	);
 
@@ -89,6 +99,7 @@ export function usePassageChangeHandlers(story: Story) {
 	);
 
 	return {
+		handleCreatePassage,
 		handleDeselectPassage,
 		handleDragPassages,
 		handleEditPassage,

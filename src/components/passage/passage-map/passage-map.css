@@ -4,7 +4,7 @@
 	background-color: var(--faint-blue);
 	background-image: url('graph-paper-light.svg');
 	background-size: 100px;
-	
+
 	/*
 	These minimums are to guarantee that the passage map fills the viewport
 	when zooming in/out (remember that our height and width are _before_
@@ -24,7 +24,7 @@
 	will-change: transform;
 }
 
-[data-app-theme="dark"] .passage-map {
+[data-app-theme='dark'] .passage-map {
 	background-image: url('graph-paper-dark.svg');
 }
 
@@ -34,4 +34,30 @@
 
 .passage-map .passage-card.selected {
 	transform: translate(var(--drag-offset-left), var(--drag-offset-top));
+}
+
+.passage-map-link-layers {
+	align-items: center;
+	background: var(--white);
+	border: 1px solid var(--light-gray);
+	border-radius: var(--corner-round);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	display: inline-flex;
+	gap: var(--control-inner-padding);
+	left: var(--grid-size);
+	padding: var(--control-inner-padding);
+	position: sticky;
+	top: var(--grid-size);
+	transform: scale(calc(1 / var(--passage-map-visible-zoom, 1)));
+	transform-origin: top left;
+	z-index: 4;
+}
+
+.passage-map-link-layers label {
+	align-items: center;
+	color: var(--dark-gray);
+	display: inline-flex;
+	font: 90% var(--font-system);
+	gap: 4px;
+	white-space: nowrap;
 }

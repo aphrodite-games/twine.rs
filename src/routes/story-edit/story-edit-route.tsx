@@ -34,6 +34,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 	const workspace = useStoryEditWorkspace(story);
 	const {getCenter, setCenter} = useViewCenter(story, mainContent);
 	const {
+		handleCreatePassage,
 		handleDeselectPassage,
 		handleDragPassages,
 		handleSelectPassage,
@@ -100,6 +101,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 								container={mainContent}
 								formatName={story.storyFormat}
 								formatVersion={story.storyFormatVersion}
+								onCreate={handleCreatePassage}
 								onDeselect={handleDeselectPassage}
 								onDrag={handleDragPassages}
 								onEdit={handleEditPassage}
