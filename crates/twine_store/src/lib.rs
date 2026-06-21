@@ -173,6 +173,7 @@ pub fn save_project_path(
     }
 
     write_project_to_dir(&temp_root, project, options)?;
+    copy_existing_assets(root, &temp_root)?;
 
     let new_files = collect_files(&temp_root)?;
     let dirty = !file_sets_equal(root, &old_files, &temp_root, &new_files)?;
@@ -300,6 +301,39 @@ fn write_project_to_dir(
         root.join(MANIFEST_FILE),
         toml::to_string_pretty(&project_file)?,
     )?;
+
+    Ok(())
+}
+
+fn copy_existing_assets(source_root: &Path, target_root: &Path) -> Result<(), StoreError> {
+    let source_assets = source_root.join("assets");
+
+    if !source_assets.exists() {
+        return Ok(());
+    }
+
+    copy_dir_contents(&source_assets, &target_root.join("assets"))
+}
+
+fn copy_dir_contents(source: &Path, target: &Path) -> Result<(), StoreError> {
+    fs::create_dir_all(target)?;
+
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            copy_dir_contents(&source_path, &target_path)?;
+        } else if file_type.is_file() {
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            fs::copy(&source_path, &target_path)?;
+        }
+    }
 
     Ok(())
 }
@@ -946,6 +980,37 @@ mod tests {
         let loaded = load_project_path(&root).expect("project should load");
 
         assert!(loaded.stories[0].passages[0].layout.is_none());
+
+        fs::remove_dir_all(&root).expect("project should be removed");
+    }
+
+    #[test]
+    fn project_save_preserves_existing_asset_files() {
+        let root = temp_path("project-assets");
+        let mut project = Project::from_story(story());
+
+        save_project_path(&root, &project, &SaveOptions::default()).expect("project should save");
+        fs::create_dir_all(root.join("assets/ui")).expect("asset directory should be created");
+        fs::write(root.join("assets/cover.png"), b"cover").expect("asset should be written");
+        fs::write(root.join("assets/ui/click.wav"), b"sound")
+            .expect("nested asset should be written");
+
+        project.stories[0]
+            .passages
+            .iter_mut()
+            .next()
+            .expect("story should have a passage")
+            .text = "Changed".into();
+        save_project_path(&root, &project, &SaveOptions::default()).expect("project should resave");
+
+        assert_eq!(
+            fs::read(root.join("assets/cover.png")).expect("asset should remain"),
+            b"cover"
+        );
+        assert_eq!(
+            fs::read(root.join("assets/ui/click.wav")).expect("nested asset should remain"),
+            b"sound"
+        );
 
         fs::remove_dir_all(&root).expect("project should be removed");
     }

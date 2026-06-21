@@ -134,8 +134,8 @@ describe('<StoryWorkspaceShell>', () => {
 			screen.getByText('routes.storyEdit.workspace.variables')
 		).toBeInTheDocument();
 		expect(
-			screen.getByText('routes.storyEdit.workspace.assets')
-		).toBeInTheDocument();
+			screen.getAllByText('routes.storyEdit.workspace.assets').length
+		).toBeGreaterThan(0);
 
 		within(
 			screen.getByRole('complementary', {
@@ -196,6 +196,25 @@ describe('<StoryWorkspaceShell>', () => {
 			.click();
 
 		expect(onSelectPassage).toHaveBeenCalledWith(start);
+	});
+
+	it('routes asset manager insertion through the project host', () => {
+		const {storyDispatch} = renderComponent('text');
+
+		within(
+			screen.getByRole('complementary', {
+				name: 'routes.storyEdit.workspace.leftDock'
+			})
+		)
+			.getByRole('tab', {name: 'routes.storyEdit.workspace.assets'})
+			.click();
+
+		screen.getByRole('button', {name: 'Insert'}).click();
+
+		expect(storyDispatch).toHaveBeenCalledWith(
+			expect.any(Function),
+			'undoChange.editPassage'
+		);
 	});
 
 	it('dispatches executable diagnostic quick fixes', () => {

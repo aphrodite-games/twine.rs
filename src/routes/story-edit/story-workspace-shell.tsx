@@ -12,8 +12,16 @@ import {VisibleWhitespace} from '../../components/visible-whitespace';
 import {
 	assetManagerViewModel,
 	contentsViewModel,
+	copyAssetSnippetCommand,
+	deleteAssetCommand,
 	diagnosticsViewModel,
+	importAssetCommand,
+	insertAssetSnippetCommand,
+	renameAssetCommand,
+	replaceAssetCommand,
+	revealAssetCommand,
 	useCoreProjectHost,
+	validateAssetReferencesCommand,
 	workbenchSelection
 } from '../../core';
 import type {
@@ -49,7 +57,7 @@ export interface StoryWorkspaceShellProps {
 	story: Story;
 }
 
-type NavigatorTab = 'passages' | 'contents';
+type NavigatorTab = 'passages' | 'contents' | 'assets';
 
 function navigatorStorageKey(storyId: string) {
 	return `twine-story-edit-navigator-${storyId}`;
@@ -59,7 +67,7 @@ function readNavigatorTab(storyId: string): NavigatorTab {
 	try {
 		const value = window.localStorage.getItem(navigatorStorageKey(storyId));
 
-		return value === 'contents' ? 'contents' : 'passages';
+		return value === 'assets' || value === 'contents' ? value : 'passages';
 	} catch {
 		return 'passages';
 	}
@@ -180,7 +188,8 @@ const NavigatorTabs: React.FC<{
 	const {t} = useTranslation();
 	const tabs: {label: string; value: NavigatorTab}[] = [
 		{label: t('routes.storyEdit.workspace.passages'), value: 'passages'},
-		{label: t('routes.storyEdit.workspace.contents'), value: 'contents'}
+		{label: t('routes.storyEdit.workspace.contents'), value: 'contents'},
+		{label: t('routes.storyEdit.workspace.assets'), value: 'assets'}
 	];
 
 	return (
@@ -196,6 +205,190 @@ const NavigatorTabs: React.FC<{
 					{tab.label}
 				</button>
 			))}
+		</div>
+	);
+};
+
+const AssetManager: React.FC<{
+	assets: AssetManagerViewModel;
+	host: CoreProjectHost;
+	onSelectPassage: (passage: Passage) => void;
+	selection: WorkbenchSelection;
+	story: Story;
+}> = ({assets, host, onSelectPassage, selection, story}) => {
+	const selectedPassage = selection.passage;
+
+	function importAsset() {
+		const sourcePath = window.prompt('Import asset path');
+
+		if (sourcePath) {
+			host.applyStoryCommand(importAssetCommand(story.id, sourcePath));
+		}
+	}
+
+	function renameAsset(path: string) {
+		const nextPath = window.prompt('Rename asset', path);
+
+		if (nextPath && nextPath !== path) {
+			host.applyStoryCommand(renameAssetCommand(story.id, path, nextPath));
+		}
+	}
+
+	function replaceAsset(path: string) {
+		const sourcePath = window.prompt('Replacement file path');
+
+		if (sourcePath) {
+			host.applyStoryCommand(replaceAssetCommand(story.id, path, sourcePath));
+		}
+	}
+
+	function revealFirstUsage(path: string) {
+		const asset = assets.entries.find(entry => entry.path === path);
+		const passage = asset?.firstReference?.passageId
+			? story.passages.find(
+					passage => passage.id === asset.firstReference?.passageId
+				)
+			: undefined;
+
+		if (passage) {
+			onSelectPassage(passage);
+		}
+	}
+
+	return (
+		<div className="story-edit-asset-manager">
+			<div className="story-edit-asset-toolbar">
+				<button onClick={importAsset} type="button">
+					Import Asset
+				</button>
+				<button
+					onClick={() =>
+						host.applyStoryCommand(validateAssetReferencesCommand(story.id))
+					}
+					type="button"
+				>
+					Validate
+				</button>
+				<span>{assets.entries.length} files</span>
+				<span>{assets.referenceCount} references</span>
+			</div>
+			{assets.entries.length === 0 ? (
+				<p className="story-edit-empty-assets">No assets indexed</p>
+			) : (
+				<ol className="story-edit-asset-list">
+					{assets.entries.map(asset => {
+						const status = asset.missing
+							? 'Missing'
+							: asset.unused
+								? 'Unused'
+								: 'Used';
+
+						return (
+							<li className="story-edit-asset-item" key={asset.id}>
+								<div className="story-edit-asset-preview">
+									{asset.thumbnailUrl ? (
+										<img alt="" src={asset.thumbnailUrl} />
+									) : (
+										<span>{asset.kind}</span>
+									)}
+								</div>
+								<div className="story-edit-asset-main">
+									<strong>{asset.path}</strong>
+									<span>
+										{asset.kind}
+										{asset.sizeBytes !== null ? ` · ${asset.sizeBytes} B` : ''}
+										{asset.width && asset.height
+											? ` · ${asset.width}×${asset.height}`
+											: ''}
+									</span>
+									<span>
+										{status} · {asset.referenceCount} references ·{' '}
+										{asset.publish.copy ? 'Publish' : 'Do not publish'}
+									</span>
+									{asset.sourceNames.length > 0 && (
+										<span>{asset.sourceNames.join(', ')}</span>
+									)}
+								</div>
+								<div className="story-edit-asset-actions">
+									<button
+										onClick={() =>
+											host.applyStoryCommand(
+												copyAssetSnippetCommand(
+													story.id,
+													asset.path,
+													asset.snippet.text
+												)
+											)
+										}
+										type="button"
+									>
+										Copy Snippet
+									</button>
+									<button
+										disabled={!selectedPassage}
+										onClick={() => {
+											if (!selectedPassage) {
+												return;
+											}
+
+											host.applyStoryCommand(
+												insertAssetSnippetCommand(
+													story.id,
+													asset.path,
+													selectedPassage.id,
+													selectedPassage.text.length,
+													{
+														passageId: selectedPassage.id,
+														snippet: asset.snippet.text
+													}
+												)
+											);
+										}}
+										type="button"
+									>
+										Insert
+									</button>
+									<button
+										onClick={() => revealFirstUsage(asset.path)}
+										type="button"
+									>
+										Usages
+									</button>
+									<button onClick={() => renameAsset(asset.path)} type="button">
+										Rename
+									</button>
+									<button
+										onClick={() => replaceAsset(asset.path)}
+										type="button"
+									>
+										Replace
+									</button>
+									<button
+										onClick={() =>
+											host.applyStoryCommand(
+												deleteAssetCommand(story.id, asset.path, true)
+											)
+										}
+										type="button"
+									>
+										Delete
+									</button>
+									<button
+										onClick={() =>
+											host.applyStoryCommand(
+												revealAssetCommand(story.id, asset.path)
+											)
+										}
+										type="button"
+									>
+										Reveal
+									</button>
+								</div>
+							</li>
+						);
+					})}
+				</ol>
+			)}
 		</div>
 	);
 };
@@ -558,9 +751,19 @@ export const StoryWorkspaceShell: React.FC<
 		story
 	} = props;
 	const coreProjectHost = useCoreProjectHost();
+	const [patchVersion, setPatchVersion] = React.useState(0);
+
+	React.useEffect(
+		() =>
+			coreProjectHost.subscribeToPatches(() =>
+				setPatchVersion(version => version + 1)
+			),
+		[coreProjectHost]
+	);
+
 	const index = React.useMemo(
 		() => coreProjectHost.queryStoryIndex(story.id),
-		[coreProjectHost, story]
+		[coreProjectHost, patchVersion, story]
 	);
 	const contents = React.useMemo(() => contentsViewModel(index), [index]);
 	const diagnostics = React.useMemo(
@@ -608,7 +811,9 @@ export const StoryWorkspaceShell: React.FC<
 				>
 					{navigatorTab === 'contents'
 						? t('routes.storyEdit.workspace.contents')
-						: t('routes.storyEdit.workspace.passages')}
+						: navigatorTab === 'assets'
+							? t('routes.storyEdit.workspace.assets')
+							: t('routes.storyEdit.workspace.passages')}
 				</DockHeader>
 				{!leftDockCollapsed && (
 					<>
@@ -623,11 +828,19 @@ export const StoryWorkspaceShell: React.FC<
 								selectedPassageId={passage?.id}
 								story={story}
 							/>
-						) : (
+						) : navigatorTab === 'contents' ? (
 							<ContentsNavigator
 								contents={contents}
 								onOpenSource={handleOpenContentsSource}
 								onSelectPassage={onSelectPassage}
+								story={story}
+							/>
+						) : (
+							<AssetManager
+								assets={assets}
+								host={coreProjectHost}
+								onSelectPassage={onSelectPassage}
+								selection={selection}
 								story={story}
 							/>
 						)}

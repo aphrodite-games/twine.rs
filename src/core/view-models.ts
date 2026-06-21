@@ -54,6 +54,7 @@ export interface DiagnosticsViewModel {
 export interface AssetManagerViewModelEntry {
 	exists: boolean | null;
 	firstReference: CoreAssetReference | null;
+	height: number | null;
 	id: string;
 	inventory: CoreAssetInventoryEntry;
 	kind: string;
@@ -67,6 +68,7 @@ export interface AssetManagerViewModelEntry {
 	sourceNames: string[];
 	thumbnailUrl: string | null;
 	unused: boolean;
+	width: number | null;
 }
 
 export interface AssetManagerViewModel {
@@ -217,7 +219,10 @@ function fallbackAssetInventory(
 	const byPath = new Map<string, CoreAssetReference[]>();
 
 	for (const reference of references) {
-		byPath.set(reference.path, [...(byPath.get(reference.path) ?? []), reference]);
+		byPath.set(reference.path, [
+			...(byPath.get(reference.path) ?? []),
+			reference
+		]);
 	}
 
 	return Array.from(byPath.entries())
@@ -321,6 +326,7 @@ export function assetManagerViewModel(
 		entries: inventory.map(asset => ({
 			exists: asset.exists,
 			firstReference: asset.references[0] ?? null,
+			height: asset.height,
 			id: asset.path,
 			inventory: asset,
 			kind: asset.kind,
@@ -335,7 +341,8 @@ export function assetManagerViewModel(
 				new Set(asset.references.map(reference => reference.sourceName))
 			),
 			thumbnailUrl: asset.thumbnailUrl,
-			unused: asset.unused
+			unused: asset.unused,
+			width: asset.width
 		})),
 		referenceCount: inventory.reduce(
 			(total, asset) => total + asset.referenceCount,

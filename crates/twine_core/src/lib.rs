@@ -1,7 +1,13 @@
 #![doc = "Command, patch, transaction, and snapshot spine for the Twine core."]
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    io::Read,
+    path::{Component, Path, PathBuf},
+    time::UNIX_EPOCH,
+};
 use thiserror::Error;
 use ts_rs::TS;
 use twine_graph::{
@@ -943,6 +949,43 @@ impl StoryCommand {
 #[serde(rename_all = "camelCase", tag = "type")]
 #[ts(export, export_to = "../../../src/core/bindings/")]
 pub enum Patch {
+    AssetDeleted {
+        path: String,
+        story_id: String,
+    },
+    AssetImported {
+        asset: CoreAssetInventoryEntry,
+        story_id: String,
+    },
+    AssetInventoryUpdated {
+        inventory: Vec<CoreAssetInventoryEntry>,
+        story_id: String,
+    },
+    AssetRenamed {
+        new_path: String,
+        old_path: String,
+        story_id: String,
+    },
+    AssetReplaced {
+        asset: CoreAssetInventoryEntry,
+        story_id: String,
+    },
+    AssetRevealed {
+        path: String,
+        reveal_path: String,
+        story_id: String,
+    },
+    AssetSnippetCopied {
+        path: String,
+        snippet: String,
+        story_id: String,
+    },
+    AssetSnippetInserted {
+        path: String,
+        snippet: String,
+        source_id: String,
+        story_id: String,
+    },
     DirtyStateChanged {
         dirty: bool,
     },
@@ -999,8 +1042,20 @@ pub struct PatchBatch {
 
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum CoreError {
+    #[error("asset already exists: {0}")]
+    AssetAlreadyExists(String),
+
+    #[error("asset file not found: {0}")]
+    AssetFileNotFound(String),
+
+    #[error("asset host is not configured")]
+    AssetHostUnavailable,
+
     #[error("duplicate passage name: {0}")]
     DuplicatePassageName(String),
+
+    #[error("I/O error: {0}")]
+    Io(String),
 
     #[error("passage not found: {0}")]
     PassageNotFound(String),
@@ -1010,6 +1065,9 @@ pub enum CoreError {
 
     #[error("unsupported command: {0}")]
     UnsupportedCommand(String),
+
+    #[error("unsafe asset path: {0}")]
+    UnsafeAssetPath(String),
 }
 
 #[derive(Clone, Debug)]
@@ -1024,6 +1082,7 @@ struct Transaction {
 
 #[derive(Clone, Debug)]
 pub struct ProjectSession {
+    asset_root: Option<PathBuf>,
     dirty: bool,
     next_transaction_id: u64,
     project: Project,
@@ -1034,12 +1093,24 @@ pub struct ProjectSession {
 impl ProjectSession {
     pub fn new(project: Project) -> Self {
         Self {
+            asset_root: None,
             dirty: false,
             next_transaction_id: 1,
             project,
             redo_stack: Vec::new(),
             undo_stack: Vec::new(),
         }
+    }
+
+    pub fn with_project_root(project: Project, project_root: impl Into<PathBuf>) -> Self {
+        let mut session = Self::new(project);
+
+        session.set_project_root(project_root);
+        session
+    }
+
+    pub fn set_project_root(&mut self, project_root: impl Into<PathBuf>) {
+        self.asset_root = Some(project_root.into().join("assets"));
     }
 
     pub fn apply(&mut self, command: StoryCommand) -> Result<PatchBatch, CoreError> {
@@ -1156,7 +1227,11 @@ impl ProjectSession {
 
                 Ok(patches)
             }
-            StoryCommand::CopyAssetSnippet { .. } => unsupported_asset_command("copyAssetSnippet"),
+            StoryCommand::CopyAssetSnippet {
+                path,
+                snippet,
+                story_id,
+            } => self.copy_asset_snippet(&story_id, &path, snippet),
             StoryCommand::CreatePassage {
                 id,
                 layout,
@@ -1169,11 +1244,32 @@ impl ProjectSession {
                 story_id,
                 passage_ids,
             } => self.delete_passages(&story_id, &passage_ids),
-            StoryCommand::DeleteAsset { .. } => unsupported_asset_command("deleteAsset"),
-            StoryCommand::ImportAsset { .. } => unsupported_asset_command("importAsset"),
-            StoryCommand::InsertAssetSnippet { .. } => {
-                unsupported_asset_command("insertAssetSnippet")
-            }
+            StoryCommand::DeleteAsset {
+                path,
+                remove_references,
+                story_id,
+            } => self.delete_asset(&story_id, &path, remove_references),
+            StoryCommand::ImportAsset {
+                overwrite,
+                source_path,
+                story_id,
+                target_path,
+            } => self.import_asset(&story_id, &source_path, target_path, overwrite),
+            StoryCommand::InsertAssetSnippet {
+                passage_id,
+                path,
+                position,
+                snippet,
+                source_id,
+                story_id,
+            } => self.insert_asset_snippet(
+                &story_id,
+                &path,
+                &source_id,
+                passage_id.as_deref(),
+                position,
+                snippet,
+            ),
             StoryCommand::MarkSaved => {
                 self.dirty = false;
                 Ok(Vec::new())
@@ -1198,9 +1294,18 @@ impl ProjectSession {
                 story_id,
                 update_references,
             } => self.rename_passage(&story_id, &passage_id, name, update_references),
-            StoryCommand::RenameAsset { .. } => unsupported_asset_command("renameAsset"),
-            StoryCommand::ReplaceAsset { .. } => unsupported_asset_command("replaceAsset"),
-            StoryCommand::RevealAsset { .. } => unsupported_asset_command("revealAsset"),
+            StoryCommand::RenameAsset {
+                new_path,
+                path,
+                story_id,
+                update_references,
+            } => self.rename_asset(&story_id, &path, &new_path, update_references),
+            StoryCommand::ReplaceAsset {
+                path,
+                source_path,
+                story_id,
+            } => self.replace_asset(&story_id, &path, &source_path),
+            StoryCommand::RevealAsset { path, story_id } => self.reveal_asset(&story_id, &path),
             StoryCommand::RestorePassages { story_id, passages } => {
                 self.restore_passages(&story_id, passages)
             }
@@ -1226,8 +1331,8 @@ impl ProjectSession {
                 story_id,
                 stylesheet,
             } => self.update_story_stylesheet(&story_id, stylesheet),
-            StoryCommand::ValidateAssetReferences { .. } => {
-                unsupported_asset_command("validateAssetReferences")
+            StoryCommand::ValidateAssetReferences { story_id } => {
+                self.validate_asset_references(&story_id)
             }
         }
     }
@@ -1741,7 +1846,9 @@ impl ProjectSession {
         }
 
         let mut asset_inventory = if options.include_assets {
-            asset_inventory_from_references(&assets, options.known_assets.clone())
+            let known_assets = self.known_asset_inventory(&options.known_assets)?;
+
+            asset_inventory_from_references(&assets, known_assets, self.asset_root.is_some())
         } else {
             Vec::new()
         };
@@ -1911,6 +2018,270 @@ impl ProjectSession {
         })
     }
 
+    fn asset_root(&self) -> Result<&Path, CoreError> {
+        self.asset_root
+            .as_deref()
+            .ok_or(CoreError::AssetHostUnavailable)
+    }
+
+    fn known_asset_inventory(
+        &self,
+        extra_assets: &[CoreAssetInventoryEntry],
+    ) -> Result<Vec<CoreAssetInventoryEntry>, CoreError> {
+        let mut assets = extra_assets.to_vec();
+
+        if let Some(asset_root) = &self.asset_root {
+            assets.extend(file_asset_inventory(asset_root)?);
+        }
+
+        Ok(assets)
+    }
+
+    fn asset_inventory_patch(&self, story_id: &str) -> Result<Patch, CoreError> {
+        let index = self.story_index(story_id, CoreStoryIndexOptions::default())?;
+
+        Ok(Patch::AssetInventoryUpdated {
+            inventory: index.asset_inventory,
+            story_id: story_id.to_owned(),
+        })
+    }
+
+    fn copy_asset_snippet(
+        &self,
+        story_id: &str,
+        path: &str,
+        snippet: Option<String>,
+    ) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        let snippet = snippet.unwrap_or_else(|| {
+            let kind = asset_kind_for_path(path);
+
+            asset_snippet(path, &kind).text
+        });
+
+        Ok(vec![Patch::AssetSnippetCopied {
+            path: path.to_owned(),
+            snippet,
+            story_id: story_id.to_owned(),
+        }])
+    }
+
+    fn delete_asset(
+        &mut self,
+        story_id: &str,
+        path: &str,
+        remove_references: bool,
+    ) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        let asset_root = self.asset_root()?.to_path_buf();
+        let asset_path = AssetPath::parse(path)?;
+        let disk_path = asset_path.disk_path(&asset_root);
+
+        if !disk_path.is_file() {
+            return Err(CoreError::AssetFileNotFound(asset_path.project_path));
+        }
+
+        fs::remove_file(&disk_path).map_err(core_io_error)?;
+
+        let mut patches = vec![Patch::AssetDeleted {
+            path: asset_path.project_path.clone(),
+            story_id: story_id.to_owned(),
+        }];
+
+        if remove_references {
+            patches.extend(self.replace_asset_references(
+                story_id,
+                &asset_path.project_path,
+                "",
+            )?);
+        }
+
+        patches.push(self.asset_inventory_patch(story_id)?);
+        Ok(patches)
+    }
+
+    fn import_asset(
+        &mut self,
+        story_id: &str,
+        source_path: &str,
+        target_path: Option<String>,
+        overwrite: bool,
+    ) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        let asset_root = self.asset_root()?.to_path_buf();
+        let source = PathBuf::from(source_path);
+
+        if !source.is_file() {
+            return Err(CoreError::AssetFileNotFound(source_path.into()));
+        }
+
+        let target = match target_path {
+            Some(path) => AssetPath::parse(&path)?,
+            None => {
+                let Some(file_name) = source.file_name().and_then(|name| name.to_str()) else {
+                    return Err(CoreError::UnsafeAssetPath(source_path.into()));
+                };
+
+                AssetPath::parse(file_name)?
+            }
+        };
+        let disk_path = target.disk_path(&asset_root);
+
+        if disk_path.exists() && !overwrite {
+            return Err(CoreError::AssetAlreadyExists(target.project_path));
+        }
+
+        if let Some(parent) = disk_path.parent() {
+            fs::create_dir_all(parent).map_err(core_io_error)?;
+        }
+
+        fs::copy(&source, &disk_path).map_err(core_io_error)?;
+
+        let asset = file_asset_inventory_entry(&asset_root, &disk_path)?;
+
+        Ok(vec![
+            Patch::AssetImported {
+                asset,
+                story_id: story_id.to_owned(),
+            },
+            self.asset_inventory_patch(story_id)?,
+        ])
+    }
+
+    fn insert_asset_snippet(
+        &mut self,
+        story_id: &str,
+        path: &str,
+        source_id: &str,
+        passage_id: Option<&str>,
+        position: usize,
+        snippet: Option<String>,
+    ) -> Result<Vec<Patch>, CoreError> {
+        let snippet = snippet.unwrap_or_else(|| {
+            let kind = asset_kind_for_path(path);
+
+            asset_snippet(path, &kind).text
+        });
+        let mut patches =
+            self.insert_source_text(story_id, source_id, passage_id, position, &snippet)?;
+
+        patches.push(Patch::AssetSnippetInserted {
+            path: path.into(),
+            snippet,
+            source_id: source_id.into(),
+            story_id: story_id.into(),
+        });
+        Ok(patches)
+    }
+
+    fn rename_asset(
+        &mut self,
+        story_id: &str,
+        path: &str,
+        new_path: &str,
+        update_references: bool,
+    ) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        let asset_root = self.asset_root()?.to_path_buf();
+        let old_asset = AssetPath::parse(path)?;
+        let new_asset = AssetPath::parse(new_path)?;
+        let old_disk_path = old_asset.disk_path(&asset_root);
+        let new_disk_path = new_asset.disk_path(&asset_root);
+
+        if !old_disk_path.is_file() {
+            return Err(CoreError::AssetFileNotFound(old_asset.project_path));
+        }
+
+        if new_disk_path.exists() {
+            return Err(CoreError::AssetAlreadyExists(new_asset.project_path));
+        }
+
+        if let Some(parent) = new_disk_path.parent() {
+            fs::create_dir_all(parent).map_err(core_io_error)?;
+        }
+
+        fs::rename(&old_disk_path, &new_disk_path).map_err(core_io_error)?;
+
+        let mut patches = vec![Patch::AssetRenamed {
+            new_path: new_asset.project_path.clone(),
+            old_path: old_asset.project_path.clone(),
+            story_id: story_id.to_owned(),
+        }];
+
+        if update_references {
+            patches.extend(self.replace_asset_references(
+                story_id,
+                &old_asset.project_path,
+                &new_asset.project_path,
+            )?);
+        }
+
+        patches.push(self.asset_inventory_patch(story_id)?);
+        Ok(patches)
+    }
+
+    fn replace_asset(
+        &mut self,
+        story_id: &str,
+        path: &str,
+        source_path: &str,
+    ) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        let asset_root = self.asset_root()?.to_path_buf();
+        let asset = AssetPath::parse(path)?;
+        let disk_path = asset.disk_path(&asset_root);
+        let source = PathBuf::from(source_path);
+
+        if !disk_path.is_file() {
+            return Err(CoreError::AssetFileNotFound(asset.project_path));
+        }
+
+        if !source.is_file() {
+            return Err(CoreError::AssetFileNotFound(source_path.into()));
+        }
+
+        fs::copy(source, &disk_path).map_err(core_io_error)?;
+
+        let asset = file_asset_inventory_entry(&asset_root, &disk_path)?;
+
+        Ok(vec![
+            Patch::AssetReplaced {
+                asset,
+                story_id: story_id.to_owned(),
+            },
+            self.asset_inventory_patch(story_id)?,
+        ])
+    }
+
+    fn reveal_asset(&self, story_id: &str, path: &str) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        let asset_root = self.asset_root()?.to_path_buf();
+        let asset = AssetPath::parse(path)?;
+        let disk_path = asset.disk_path(&asset_root);
+
+        if !disk_path.is_file() {
+            return Err(CoreError::AssetFileNotFound(asset.project_path));
+        }
+
+        Ok(vec![Patch::AssetRevealed {
+            path: asset.project_path,
+            reveal_path: disk_path.to_string_lossy().into_owned(),
+            story_id: story_id.into(),
+        }])
+    }
+
+    fn validate_asset_references(&self, story_id: &str) -> Result<Vec<Patch>, CoreError> {
+        self.story(story_id)?;
+
+        Ok(vec![self.asset_inventory_patch(story_id)?])
+    }
+
     fn story(&self, story_id: &str) -> Result<&Story, CoreError> {
         self.project
             .stories
@@ -1925,6 +2296,112 @@ impl ProjectSession {
             .iter_mut()
             .find(|story| story.id.as_ref() == story_id)
             .ok_or_else(|| CoreError::StoryNotFound(story_id.to_owned()))
+    }
+
+    fn insert_source_text(
+        &mut self,
+        story_id: &str,
+        source_id: &str,
+        passage_id: Option<&str>,
+        position: usize,
+        text: &str,
+    ) -> Result<Vec<Patch>, CoreError> {
+        let source_id_passage = passage_id
+            .map(PassageId::new)
+            .or_else(|| Some(PassageId::new(source_id)));
+
+        if let Some(passage_id) = source_id_passage {
+            let story = self.story_mut(story_id)?;
+
+            if let Some(passage) = story.passage_by_id_mut(&passage_id) {
+                let position = clamped_char_boundary(&passage.text, position);
+
+                passage.text.insert_str(position, text);
+                return Ok(vec![Patch::PassageUpdated {
+                    changes: PassagePatch {
+                        text: Some(passage.text.clone()),
+                        ..PassagePatch::default()
+                    },
+                    passage_id: passage_id.as_ref().to_owned(),
+                    story_id: story_id.to_owned(),
+                }]);
+            }
+        }
+
+        if source_id.ends_with(":script") {
+            let story = self.story_mut(story_id)?;
+            let position = clamped_char_boundary(&story.script, position);
+
+            story.script.insert_str(position, text);
+            return Ok(vec![Patch::StoryScriptUpdated {
+                script: story.script.clone(),
+                story_id: story_id.to_owned(),
+            }]);
+        }
+
+        if source_id.ends_with(":stylesheet") {
+            let story = self.story_mut(story_id)?;
+            let position = clamped_char_boundary(&story.stylesheet, position);
+
+            story.stylesheet.insert_str(position, text);
+            return Ok(vec![Patch::StoryStylesheetUpdated {
+                story_id: story_id.to_owned(),
+                stylesheet: story.stylesheet.clone(),
+            }]);
+        }
+
+        Err(CoreError::PassageNotFound(source_id.to_owned()))
+    }
+
+    fn replace_asset_references(
+        &mut self,
+        story_id: &str,
+        old_path: &str,
+        new_path: &str,
+    ) -> Result<Vec<Patch>, CoreError> {
+        let old_normalized = normalized_asset_path(old_path);
+        let story = self.story_mut(story_id)?;
+        let mut patches = Vec::new();
+
+        for passage in story.passages.iter_mut() {
+            let replaced =
+                replace_asset_references_in_source(&passage.text, &old_normalized, new_path);
+
+            if replaced != passage.text {
+                passage.text = replaced.clone();
+                patches.push(Patch::PassageUpdated {
+                    changes: PassagePatch {
+                        text: Some(replaced),
+                        ..PassagePatch::default()
+                    },
+                    passage_id: passage.id.as_ref().to_owned(),
+                    story_id: story_id.to_owned(),
+                });
+            }
+        }
+
+        let script = replace_asset_references_in_source(&story.script, &old_normalized, new_path);
+
+        if script != story.script {
+            story.script = script.clone();
+            patches.push(Patch::StoryScriptUpdated {
+                script,
+                story_id: story_id.to_owned(),
+            });
+        }
+
+        let stylesheet =
+            replace_asset_references_in_source(&story.stylesheet, &old_normalized, new_path);
+
+        if stylesheet != story.stylesheet {
+            story.stylesheet = stylesheet.clone();
+            patches.push(Patch::StoryStylesheetUpdated {
+                story_id: story_id.to_owned(),
+                stylesheet,
+            });
+        }
+
+        Ok(patches)
     }
 
     fn update_passage_text(
@@ -2019,10 +2496,310 @@ fn push_dirty_patch(patches: &mut Vec<Patch>, before: bool, after: bool) {
     }
 }
 
-fn unsupported_asset_command(command: &str) -> Result<Vec<Patch>, CoreError> {
-    Err(CoreError::UnsupportedCommand(format!(
-        "{command} requires the M5 file-backed asset host"
-    )))
+fn core_io_error(error: std::io::Error) -> CoreError {
+    CoreError::Io(error.to_string())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AssetPath {
+    asset_relative_path: PathBuf,
+    project_path: String,
+}
+
+impl AssetPath {
+    fn parse(path: &str) -> Result<Self, CoreError> {
+        let mut normalized = path.replace('\\', "/");
+
+        while let Some(stripped) = normalized.strip_prefix("./") {
+            normalized = stripped.into();
+        }
+
+        if let Some(stripped) = normalized.strip_prefix("assets/") {
+            normalized = stripped.into();
+        }
+
+        if normalized.trim().is_empty() {
+            return Err(CoreError::UnsafeAssetPath(path.into()));
+        }
+
+        let mut asset_relative_path = PathBuf::new();
+
+        for component in Path::new(&normalized).components() {
+            match component {
+                Component::Normal(value) => asset_relative_path.push(value),
+                Component::CurDir => {}
+                Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                    return Err(CoreError::UnsafeAssetPath(path.into()));
+                }
+            }
+        }
+
+        if asset_relative_path.as_os_str().is_empty() || asset_relative_path.file_name().is_none() {
+            return Err(CoreError::UnsafeAssetPath(path.into()));
+        }
+
+        Ok(Self {
+            project_path: format!("assets/{}", path_string(&asset_relative_path)),
+            asset_relative_path,
+        })
+    }
+
+    fn disk_path(&self, asset_root: &Path) -> PathBuf {
+        asset_root.join(&self.asset_relative_path)
+    }
+}
+
+fn path_string(path: &Path) -> String {
+    path.iter()
+        .map(|component| component.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn file_asset_inventory(asset_root: &Path) -> Result<Vec<CoreAssetInventoryEntry>, CoreError> {
+    let mut entries = Vec::new();
+
+    if !asset_root.exists() {
+        return Ok(entries);
+    }
+
+    collect_file_asset_inventory(asset_root, asset_root, &mut entries)?;
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(entries)
+}
+
+fn collect_file_asset_inventory(
+    asset_root: &Path,
+    current: &Path,
+    entries: &mut Vec<CoreAssetInventoryEntry>,
+) -> Result<(), CoreError> {
+    for entry in fs::read_dir(current).map_err(core_io_error)? {
+        let entry = entry.map_err(core_io_error)?;
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(core_io_error)?;
+
+        if file_type.is_dir() {
+            collect_file_asset_inventory(asset_root, &path, entries)?;
+        } else if file_type.is_file() {
+            entries.push(file_asset_inventory_entry(asset_root, &path)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn file_asset_inventory_entry(
+    asset_root: &Path,
+    disk_path: &Path,
+) -> Result<CoreAssetInventoryEntry, CoreError> {
+    let relative = disk_path
+        .strip_prefix(asset_root)
+        .map_err(|_| CoreError::UnsafeAssetPath(disk_path.to_string_lossy().into_owned()))?;
+    let path = format!("assets/{}", path_string(relative));
+    let kind = asset_kind_for_path(&path);
+    let metadata = fs::metadata(disk_path).map_err(core_io_error)?;
+    let missing = false;
+    let dimensions = image_dimensions(disk_path);
+    let preview_url = Some(format!("asset://{path}"));
+    let thumbnail_url = if kind == "image" {
+        preview_url.clone()
+    } else {
+        None
+    };
+
+    Ok(CoreAssetInventoryEntry {
+        duration_ms: None,
+        exists: Some(true),
+        height: dimensions.map(|(_, height)| height),
+        kind: kind.clone(),
+        missing,
+        modified_at: metadata_modified_at(&metadata),
+        normalized_path: normalized_asset_path(&path),
+        path: path.clone(),
+        preview_url,
+        publish: asset_publish_rule(&path, missing),
+        reference_count: 0,
+        references: Vec::new(),
+        size_bytes: usize::try_from(metadata.len()).ok(),
+        snippet: asset_snippet(&path, &kind),
+        thumbnail_url,
+        unused: true,
+        width: dimensions.map(|(width, _)| width),
+    })
+}
+
+fn metadata_modified_at(metadata: &fs::Metadata) -> Option<String> {
+    let modified = metadata.modified().ok()?;
+    let duration = modified.duration_since(UNIX_EPOCH).ok()?;
+
+    Some(duration.as_millis().to_string())
+}
+
+fn image_dimensions(path: &Path) -> Option<(usize, usize)> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+
+    match extension.as_str() {
+        "gif" => gif_dimensions(path),
+        "jpg" | "jpeg" => jpeg_dimensions(path),
+        "png" => png_dimensions(path),
+        "svg" => svg_dimensions(path),
+        _ => None,
+    }
+}
+
+fn png_dimensions(path: &Path) -> Option<(usize, usize)> {
+    let mut bytes = [0; 24];
+    let mut file = fs::File::open(path).ok()?;
+
+    file.read_exact(&mut bytes).ok()?;
+
+    if &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+
+    Some((
+        u32::from_be_bytes(bytes[16..20].try_into().ok()?) as usize,
+        u32::from_be_bytes(bytes[20..24].try_into().ok()?) as usize,
+    ))
+}
+
+fn gif_dimensions(path: &Path) -> Option<(usize, usize)> {
+    let mut bytes = [0; 10];
+    let mut file = fs::File::open(path).ok()?;
+
+    file.read_exact(&mut bytes).ok()?;
+
+    if &bytes[0..3] != b"GIF" {
+        return None;
+    }
+
+    Some((
+        u16::from_le_bytes(bytes[6..8].try_into().ok()?) as usize,
+        u16::from_le_bytes(bytes[8..10].try_into().ok()?) as usize,
+    ))
+}
+
+fn jpeg_dimensions(path: &Path) -> Option<(usize, usize)> {
+    let bytes = fs::read(path).ok()?;
+
+    if bytes.len() < 4 || bytes[0] != 0xff || bytes[1] != 0xd8 {
+        return None;
+    }
+
+    let mut index = 2;
+
+    while index + 9 < bytes.len() {
+        if bytes[index] != 0xff {
+            index += 1;
+            continue;
+        }
+
+        while index < bytes.len() && bytes[index] == 0xff {
+            index += 1;
+        }
+
+        if index >= bytes.len() {
+            return None;
+        }
+
+        let marker = bytes[index];
+        index += 1;
+
+        if marker == 0xda || marker == 0xd9 {
+            return None;
+        }
+
+        if index + 2 > bytes.len() {
+            return None;
+        }
+
+        let length = u16::from_be_bytes(bytes[index..index + 2].try_into().ok()?) as usize;
+
+        if length < 2 || index + length > bytes.len() {
+            return None;
+        }
+
+        if matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        ) && length >= 7
+        {
+            let height = u16::from_be_bytes(bytes[index + 3..index + 5].try_into().ok()?) as usize;
+            let width = u16::from_be_bytes(bytes[index + 5..index + 7].try_into().ok()?) as usize;
+
+            return Some((width, height));
+        }
+
+        index += length;
+    }
+
+    None
+}
+
+fn svg_dimensions(path: &Path) -> Option<(usize, usize)> {
+    let source = fs::read_to_string(path).ok()?;
+
+    Some((
+        svg_dimension(&source, "width")?,
+        svg_dimension(&source, "height")?,
+    ))
+}
+
+fn svg_dimension(source: &str, attribute: &str) -> Option<usize> {
+    let regex = regex::Regex::new(&format!(r#"{attribute}\s*=\s*["']([0-9]+)"#)).ok()?;
+    let value = regex.captures(source)?.get(1)?.as_str();
+
+    value.parse().ok()
+}
+
+fn clamped_char_boundary(text: &str, position: usize) -> usize {
+    let mut position = position.min(text.len());
+
+    while !text.is_char_boundary(position) {
+        position -= 1;
+    }
+
+    position
+}
+
+fn replace_asset_references_in_source(
+    source: &str,
+    old_normalized: &str,
+    new_path: &str,
+) -> String {
+    let references = asset_references_in_source("", "", source, None);
+    let mut output = String::with_capacity(source.len());
+    let mut cursor = 0;
+    let mut changed = false;
+
+    for reference in references {
+        if normalized_asset_path(&reference.path) != old_normalized {
+            continue;
+        }
+
+        output.push_str(&source[cursor..reference.start]);
+        output.push_str(new_path);
+        cursor = reference.end;
+        changed = true;
+    }
+
+    if !changed {
+        return source.into();
+    }
+
+    output.push_str(&source[cursor..]);
+    output
 }
 
 fn line_count(text: &str) -> usize {
@@ -2505,6 +3282,7 @@ fn asset_inventory_entry(
 fn asset_inventory_from_references(
     references: &[CoreAssetReference],
     known_assets: Vec<CoreAssetInventoryEntry>,
+    file_backed: bool,
 ) -> Vec<CoreAssetInventoryEntry> {
     let mut references_by_path = BTreeMap::<String, Vec<CoreAssetReference>>::new();
 
@@ -2563,7 +3341,12 @@ fn asset_inventory_from_references(
 
         inventory.insert(
             normalized_asset_path(&first.path),
-            asset_inventory_entry(first.path.clone(), first.kind.clone(), None, references),
+            asset_inventory_entry(
+                first.path.clone(),
+                first.kind.clone(),
+                if file_backed { Some(false) } else { None },
+                references,
+            ),
         );
     }
 
@@ -3005,6 +3788,7 @@ impl Default for CoreLinkLayerOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use twine_model::{GraphLayout, ProjectManifest, StoragePolicy};
 
     const DEFAULT_CARD_WIDTH: f64 = 100.0;
@@ -3083,6 +3867,25 @@ mod tests {
             stories: vec![story],
             ..Project::default()
         })
+    }
+
+    fn temp_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "twine-core-{label}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ))
+    }
+
+    fn tiny_png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+
+        bytes.extend(width.to_be_bytes());
+        bytes.extend(height.to_be_bytes());
+        bytes.extend([8, 6, 0, 0, 0, 0, 0, 0, 0]);
+        bytes
     }
 
     #[test]
@@ -3517,7 +4320,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_commands_are_explicit_m5_host_stubs() {
+    fn asset_commands_require_file_backed_project_root() {
         let mut session = session();
         let error = session
             .apply(StoryCommand::ImportAsset {
@@ -3526,10 +4329,174 @@ mod tests {
                 story_id: "story-1".into(),
                 target_path: None,
             })
-            .expect_err("asset commands are not implemented in ProjectSession yet");
+            .expect_err("asset commands need a project root");
 
-        assert!(matches!(error, CoreError::UnsupportedCommand(_)));
+        assert!(matches!(error, CoreError::AssetHostUnavailable));
         assert!(!session.dirty());
+    }
+
+    #[test]
+    fn file_backed_asset_inventory_tracks_files_references_and_metadata() {
+        let root = temp_path("asset-inventory");
+        let cover = root.join("assets/cover.png");
+        let unused = root.join("assets/ui/unused.gif");
+        let mut session = session();
+
+        fs::create_dir_all(cover.parent().expect("asset should have parent"))
+            .expect("asset directory should be created");
+        fs::create_dir_all(unused.parent().expect("asset should have parent"))
+            .expect("nested asset directory should be created");
+        fs::write(&cover, tiny_png(320, 200)).expect("cover should be written");
+        fs::write(&unused, b"GIF89a\x01\0\x02\0\0\0").expect("gif should be written");
+        session.set_project_root(&root);
+
+        {
+            let story = session.story_mut("story-1").expect("story");
+            let passage = story
+                .passage_by_id_mut(&PassageId::new("a"))
+                .expect("passage");
+
+            passage.text =
+                r#"<img src="assets/cover.png"> <audio src="assets/missing.mp3">"#.into();
+        }
+
+        let index = session
+            .story_index("story-1", CoreStoryIndexOptions::default())
+            .expect("index should build");
+        let cover_asset = index
+            .asset_inventory
+            .iter()
+            .find(|asset| asset.path == "assets/cover.png")
+            .expect("cover should be indexed");
+        let missing_asset = index
+            .asset_inventory
+            .iter()
+            .find(|asset| asset.path == "assets/missing.mp3")
+            .expect("missing asset should be indexed");
+        let unused_asset = index
+            .asset_inventory
+            .iter()
+            .find(|asset| asset.path == "assets/ui/unused.gif")
+            .expect("unused asset should be indexed");
+
+        assert_eq!(cover_asset.exists, Some(true));
+        assert_eq!(cover_asset.reference_count, 1);
+        assert_eq!(cover_asset.width, Some(320));
+        assert_eq!(cover_asset.height, Some(200));
+        assert_eq!(
+            cover_asset.thumbnail_url.as_deref(),
+            Some("asset://assets/cover.png")
+        );
+        assert_eq!(missing_asset.exists, Some(false));
+        assert!(missing_asset.missing);
+        assert!(unused_asset.unused);
+        assert_eq!(unused_asset.width, Some(1));
+        assert_eq!(unused_asset.height, Some(2));
+        assert!(
+            index
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "missing-asset")
+        );
+        assert!(
+            index
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "unused-asset")
+        );
+
+        fs::remove_dir_all(root).expect("temp project should be removed");
+    }
+
+    #[test]
+    fn asset_commands_import_insert_rename_and_delete_files_and_references() {
+        let root = temp_path("asset-commands");
+        let source = root.join("incoming.png");
+        let mut session = session();
+
+        fs::create_dir_all(&root).expect("temp project should be created");
+        fs::write(&source, tiny_png(64, 32)).expect("source asset should be written");
+        session.set_project_root(&root);
+
+        let import = session
+            .apply(StoryCommand::ImportAsset {
+                overwrite: false,
+                source_path: source.to_string_lossy().into_owned(),
+                story_id: "story-1".into(),
+                target_path: Some("assets/media/cover.png".into()),
+            })
+            .expect("asset should import");
+
+        assert!(root.join("assets/media/cover.png").is_file());
+        assert!(
+            import
+                .patches
+                .iter()
+                .any(|patch| matches!(patch, Patch::AssetImported { .. }))
+        );
+
+        session
+            .apply(StoryCommand::InsertAssetSnippet {
+                passage_id: Some("a".into()),
+                path: "assets/media/cover.png".into(),
+                position: 0,
+                snippet: None,
+                source_id: "a".into(),
+                story_id: "story-1".into(),
+            })
+            .expect("snippet should insert");
+
+        assert!(
+            session
+                .story("story-1")
+                .expect("story")
+                .passage_by_id(&PassageId::new("a"))
+                .expect("passage")
+                .text
+                .starts_with(r#"<img src="assets/media/cover.png" alt="">"#)
+        );
+
+        session
+            .apply(StoryCommand::RenameAsset {
+                new_path: "assets/media/hero.png".into(),
+                path: "assets/media/cover.png".into(),
+                story_id: "story-1".into(),
+                update_references: true,
+            })
+            .expect("asset should rename");
+
+        assert!(!root.join("assets/media/cover.png").exists());
+        assert!(root.join("assets/media/hero.png").is_file());
+        assert!(
+            session
+                .story("story-1")
+                .expect("story")
+                .passage_by_id(&PassageId::new("a"))
+                .expect("passage")
+                .text
+                .contains("assets/media/hero.png")
+        );
+
+        session
+            .apply(StoryCommand::DeleteAsset {
+                path: "assets/media/hero.png".into(),
+                remove_references: true,
+                story_id: "story-1".into(),
+            })
+            .expect("asset should delete");
+
+        assert!(!root.join("assets/media/hero.png").exists());
+        assert!(
+            !session
+                .story("story-1")
+                .expect("story")
+                .passage_by_id(&PassageId::new("a"))
+                .expect("passage")
+                .text
+                .contains("assets/media/hero.png")
+        );
+
+        fs::remove_dir_all(root).expect("temp project should be removed");
     }
 
     #[test]
