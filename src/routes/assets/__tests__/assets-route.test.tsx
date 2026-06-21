@@ -70,4 +70,24 @@ describe('<AssetsRoute>', () => {
 			).toHaveTextContent('<img src="assets/cover.png" alt="">')
 		);
 	});
+
+	it('imports a host-known asset into the inventory and marks it unused', async () => {
+		renderComponent();
+
+		fireEvent.change(screen.getByLabelText('Asset path'), {
+			target: {value: '/tmp/ambient.mp3'}
+		});
+		fireEvent.click(screen.getByRole('button', {name: 'Import Asset'}));
+
+		await waitFor(() =>
+			expect(screen.getAllByText('assets/ambient.mp3').length).toBeGreaterThan(
+				0
+			)
+		);
+
+		fireEvent.click(screen.getByText('assets/ambient.mp3').closest('button')!);
+
+		expect(screen.getAllByText('Unused').length).toBeGreaterThan(0);
+		expect(screen.getAllByText('0 refs').length).toBeGreaterThan(0);
+	});
 });

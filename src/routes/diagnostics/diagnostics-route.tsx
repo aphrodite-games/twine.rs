@@ -2,7 +2,15 @@ import * as React from 'react';
 import classNames from 'classnames';
 import {useHistory, useParams} from 'react-router-dom';
 import {Badge, Button, Input, TablerIcon} from '../../components/design-system';
-import {diagnosticsViewModel, useCoreProjectHost} from '../../core';
+import {
+	diagnosticDismissalsChangedEvent,
+	diagnosticIdentity,
+	diagnosticsViewModel,
+	isDiagnosticDismissed,
+	loadDismissedDiagnosticIds,
+	saveDismissedDiagnosticIds,
+	useCoreProjectHost
+} from '../../core';
 import {quickFixActionsForDiagnostic} from '../../core/quick-fix-registry';
 import type {DiagnosticsViewModelItem} from '../../core/view-models';
 import type {CoreDiagnosticSeverity} from '../../core/bindings/CoreDiagnosticSeverity';
@@ -15,6 +23,11 @@ import {
 import './diagnostics-route.css';
 
 type SeverityFilter = CoreDiagnosticSeverity | 'all';
+type VisibilityFilter = 'active' | 'dismissed';
+type RouteDiagnosticItem = DiagnosticsViewModelItem & {
+	dismissalId: string;
+	dismissed: boolean;
+};
 
 const severityFilters: Array<{
 	id: SeverityFilter;
@@ -99,16 +112,13 @@ function matchesQuery(item: DiagnosticsViewModelItem, query: string) {
 	].some(value => value.toLowerCase().includes(normalized));
 }
 
-function severityCount(
-	items: DiagnosticsViewModelItem[],
-	severity: SeverityFilter
-) {
+function severityCount(items: RouteDiagnosticItem[], severity: SeverityFilter) {
 	return severity === 'all'
 		? items.length
 		: items.filter(item => item.severity === severity).length;
 }
 
-function typeCount(items: DiagnosticsViewModelItem[], group: string) {
+function typeCount(items: RouteDiagnosticItem[], group: string) {
 	return group === 'All Types'
 		? items.length
 		: items.filter(item => item.group === group).length;
@@ -121,10 +131,15 @@ export const DiagnosticsRoute: React.FC = () => {
 	const coreProjectHost = useCoreProjectHost();
 	const story = storyForId(stories, storyId);
 	const [severity, setSeverity] = React.useState<SeverityFilter>('all');
+	const [visibility, setVisibility] =
+		React.useState<VisibilityFilter>('active');
 	const [type, setType] = React.useState('All Types');
 	const [query, setQuery] = React.useState('');
 	const [selectedId, setSelectedId] = React.useState<string>();
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [dismissedIds, setDismissedIds] = React.useState<Set<string>>(
+		() => new Set()
+	);
 
 	React.useEffect(
 		() =>
@@ -134,6 +149,37 @@ export const DiagnosticsRoute: React.FC = () => {
 		[coreProjectHost]
 	);
 
+	React.useEffect(() => {
+		setDismissedIds(story ? loadDismissedDiagnosticIds(story.id) : new Set());
+	}, [story]);
+
+	React.useEffect(() => {
+		if (!story) {
+			return;
+		}
+
+		const currentStoryId: string = story.id;
+
+		function handleDismissalsChanged(event: Event) {
+			const detail = (event as CustomEvent<{storyId?: string}>).detail;
+
+			if (!detail?.storyId || detail.storyId === currentStoryId) {
+				setDismissedIds(loadDismissedDiagnosticIds(currentStoryId));
+			}
+		}
+
+		window.addEventListener(
+			diagnosticDismissalsChangedEvent,
+			handleDismissalsChanged
+		);
+
+		return () =>
+			window.removeEventListener(
+				diagnosticDismissalsChangedEvent,
+				handleDismissalsChanged
+			);
+	}, [story?.id]);
+
 	const index = React.useMemo(
 		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
 		[coreProjectHost, patchVersion, story]
@@ -142,16 +188,30 @@ export const DiagnosticsRoute: React.FC = () => {
 		() => (story && index ? diagnosticsViewModel(index, story) : undefined),
 		[index, story]
 	);
+	const items = React.useMemo<RouteDiagnosticItem[]>(() => {
+		return (diagnostics?.items ?? []).map(item => ({
+			...item,
+			dismissalId: diagnosticIdentity(item.core),
+			dismissed: isDiagnosticDismissed(item.core, dismissedIds)
+		}));
+	}, [diagnostics, dismissedIds]);
+	const activeItems = React.useMemo(
+		() => items.filter(item => !item.dismissed),
+		[items]
+	);
+	const dismissedItems = React.useMemo(
+		() => items.filter(item => item.dismissed),
+		[items]
+	);
+	const statusItems = visibility === 'active' ? activeItems : dismissedItems;
 	const visibleItems = React.useMemo(() => {
-		const items = diagnostics?.items ?? [];
-
-		return items.filter(
+		return statusItems.filter(
 			item =>
 				(severity === 'all' || item.severity === severity) &&
 				(type === 'All Types' || item.group === type) &&
 				matchesQuery(item, query)
 		);
-	}, [diagnostics, query, severity, type]);
+	}, [query, severity, statusItems, type]);
 	const selectedItem =
 		visibleItems.find(item => item.id === selectedId) ?? visibleItems[0];
 	const selectedPassage =
@@ -191,6 +251,10 @@ export const DiagnosticsRoute: React.FC = () => {
 		}
 
 		for (const item of visibleItems) {
+			if (item.dismissed) {
+				continue;
+			}
+
 			for (const action of quickFixActionsForDiagnostic(
 				coreProjectHost,
 				story,
@@ -201,6 +265,26 @@ export const DiagnosticsRoute: React.FC = () => {
 				}
 			}
 		}
+	}
+
+	function updateDismissed(
+		item: RouteDiagnosticItem | undefined,
+		dismiss: boolean
+	) {
+		if (!story || !item) {
+			return;
+		}
+
+		const next = new Set(dismissedIds);
+
+		if (dismiss) {
+			next.add(item.dismissalId);
+		} else {
+			next.delete(item.dismissalId);
+		}
+
+		setDismissedIds(next);
+		saveDismissedDiagnosticIds(story.id, next);
 	}
 
 	if (!story || !diagnostics) {
@@ -220,6 +304,29 @@ export const DiagnosticsRoute: React.FC = () => {
 				aria-label="Diagnostic filters"
 				className="diagnostics-route__filters"
 			>
+				<div className="diagnostics-route__filter-label">Status</div>
+				<button
+					aria-current={visibility === 'active'}
+					className="diagnostics-route__filter"
+					onClick={() => setVisibility('active')}
+					type="button"
+				>
+					<TablerIcon icon="alert-triangle" />
+					<span>Active</span>
+					<span className="diagnostics-route__count">{activeItems.length}</span>
+				</button>
+				<button
+					aria-current={visibility === 'dismissed'}
+					className="diagnostics-route__filter"
+					onClick={() => setVisibility('dismissed')}
+					type="button"
+				>
+					<TablerIcon icon="archive" />
+					<span>Dismissed</span>
+					<span className="diagnostics-route__count">
+						{dismissedItems.length}
+					</span>
+				</button>
 				<div className="diagnostics-route__filter-label">Severity</div>
 				{severityFilters.map(candidate => (
 					<button
@@ -232,7 +339,7 @@ export const DiagnosticsRoute: React.FC = () => {
 						<TablerIcon icon={candidate.icon} />
 						<span>{candidate.label}</span>
 						<span className="diagnostics-route__count">
-							{severityCount(diagnostics.items, candidate.id)}
+							{severityCount(statusItems, candidate.id)}
 						</span>
 					</button>
 				))}
@@ -247,7 +354,7 @@ export const DiagnosticsRoute: React.FC = () => {
 					>
 						<span>{candidate}</span>
 						<span className="diagnostics-route__count">
-							{typeCount(diagnostics.items, candidate)}
+							{typeCount(statusItems, candidate)}
 						</span>
 					</button>
 				))}
@@ -263,10 +370,12 @@ export const DiagnosticsRoute: React.FC = () => {
 						value={query}
 					/>
 					<span className="diagnostics-route__toolbar-stat">
-						{visibleItems.length} issues
+						{visibleItems.length} {visibility}
+						{dismissedItems.length > 0 &&
+							` (${dismissedItems.length} dismissed)`}
 					</span>
 					<Button
-						disabled={visibleItems.length === 0}
+						disabled={items.length === 0}
 						icon="refresh"
 						onClick={() => setPatchVersion(version => version + 1)}
 						size="sm"
@@ -276,12 +385,14 @@ export const DiagnosticsRoute: React.FC = () => {
 					</Button>
 					<Button
 						disabled={
-							!visibleItems.some(item =>
-								quickFixActionsForDiagnostic(
-									coreProjectHost,
-									story,
-									item.core
-								).some(action => action.enabled)
+							!visibleItems.some(
+								item =>
+									!item.dismissed &&
+									quickFixActionsForDiagnostic(
+										coreProjectHost,
+										story,
+										item.core
+									).some(action => action.enabled)
 							)
 						}
 						icon="wand"
@@ -295,7 +406,7 @@ export const DiagnosticsRoute: React.FC = () => {
 				<div className="diagnostics-route__list">
 					{visibleItems.length === 0 ? (
 						<div className="diagnostics-route__list-empty">
-							No diagnostics match this filter.
+							No {visibility} diagnostics match this filter.
 						</div>
 					) : (
 						visibleItems.map(item => {
@@ -315,7 +426,8 @@ export const DiagnosticsRoute: React.FC = () => {
 										aria-current={item.id === selectedItem?.id}
 										className={classNames(
 											'diagnostics-route__row',
-											`diagnostics-route__row--${item.severity}`
+											`diagnostics-route__row--${item.severity}`,
+											item.dismissed && 'diagnostics-route__row--dismissed'
 										)}
 										onClick={() => setSelectedId(item.id)}
 										type="button"
@@ -334,7 +446,11 @@ export const DiagnosticsRoute: React.FC = () => {
 											</span>
 										</span>
 										<span className="diagnostics-route__row-fix">
-											{item.core.quickFixes.length > 0 ? 'Fix' : 'Review'}
+											{item.dismissed
+												? 'Dismissed'
+												: item.core.quickFixes.length > 0
+													? 'Fix'
+													: 'Review'}
 										</span>
 									</button>
 								</React.Fragment>
@@ -360,6 +476,21 @@ export const DiagnosticsRoute: React.FC = () => {
 							{selectedItem.location}
 						</div>
 						<p>{selectedItem.message}</p>
+						<div className="diagnostics-route__actions">
+							<Button
+								block
+								icon={selectedItem.dismissed ? 'refresh' : 'archive'}
+								onClick={() =>
+									updateDismissed(selectedItem, !selectedItem.dismissed)
+								}
+								size="sm"
+								variant="ghost"
+							>
+								{selectedItem.dismissed
+									? 'Restore Diagnostic'
+									: 'Dismiss Diagnostic'}
+							</Button>
+						</div>
 						<div className="diagnostics-route__code">
 							{selectedPassage
 								? selectedPassage.text || selectedPassage.name

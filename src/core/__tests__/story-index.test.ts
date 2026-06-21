@@ -83,6 +83,17 @@ describe('storyToCoreIndex', () => {
 		expect(index.diagnostics.map(diagnostic => diagnostic.code)).toEqual(
 			expect.arrayContaining(['broken-link', 'unreachable-passage'])
 		);
+		expect(index.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: 'unreachable-passage',
+					message: expect.stringContaining(
+						'It may still be used by story-format macros'
+					),
+					severity: 'warning'
+				})
+			])
+		);
 		expect(index.searchHits).toEqual([
 			expect.objectContaining({
 				scope: 'script',
@@ -117,27 +128,27 @@ describe('storyToCoreIndex', () => {
 		expect(index.symbols.map(symbol => symbol.name)).toEqual(
 			expect.arrayContaining(['$score', '_turn'])
 		);
-			expect(index.assets).toEqual([
-				expect.objectContaining({kind: 'image', path: 'assets/cover.png'})
-			]);
-			expect(index.assetInventory).toEqual([
-				expect.objectContaining({
-					exists: null,
-					kind: 'image',
-					missing: false,
-					path: 'assets/cover.png',
-					publish: expect.objectContaining({
-						copy: true,
-						outputPath: 'assets/cover.png'
-					}),
-					referenceCount: 1,
-					snippet: expect.objectContaining({
-						text: '<img src="assets/cover.png" alt="">'
-					}),
-					unused: false
-				})
-			]);
-			expect(index.tagEntries).toEqual([
+		expect(index.assets).toEqual([
+			expect.objectContaining({kind: 'image', path: 'assets/cover.png'})
+		]);
+		expect(index.assetInventory).toEqual([
+			expect.objectContaining({
+				exists: null,
+				kind: 'image',
+				missing: false,
+				path: 'assets/cover.png',
+				publish: expect.objectContaining({
+					copy: true,
+					outputPath: 'assets/cover.png'
+				}),
+				referenceCount: 1,
+				snippet: expect.objectContaining({
+					text: '<img src="assets/cover.png" alt="">'
+				}),
+				unused: false
+			})
+		]);
+		expect(index.tagEntries).toEqual([
 			expect.objectContaining({count: 1, name: 'chapter-one'}),
 			expect.objectContaining({color: 'red', count: 2, name: 'scene'})
 		]);
@@ -161,12 +172,12 @@ describe('storyToCoreIndex', () => {
 		expect(storyToCoreIndex(story, '$score').searchHits).toEqual(
 			expect.arrayContaining([expect.objectContaining({scope: 'variable'})])
 		);
-			expect(storyToCoreIndex(story, 'cover.png').searchHits).toEqual(
-				expect.arrayContaining([expect.objectContaining({scope: 'asset'})])
-			);
-		});
+		expect(storyToCoreIndex(story, 'cover.png').searchHits).toEqual(
+			expect.arrayContaining([expect.objectContaining({scope: 'asset'})])
+		);
+	});
 
-		it('merges known file assets and reports missing and unused asset diagnostics', () => {
+	it('merges known file assets and reports missing and unused asset diagnostics', () => {
 		const story = fakeStory(0);
 		const start = fakePassage({
 			id: 'start',
@@ -238,46 +249,48 @@ describe('storyToCoreIndex', () => {
 				})
 			])
 		);
-		expect(storyToCoreIndex(story, {
-			knownAssets: [knownAsset('assets/unused.png', {exists: true})],
-			query: 'unused.png'
-		}).searchHits).toEqual(
+		expect(
+			storyToCoreIndex(story, {
+				knownAssets: [knownAsset('assets/unused.png', {exists: true})],
+				query: 'unused.png'
+			}).searchHits
+		).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({scope: 'asset', sourceName: 'Assets'})
 			])
-			);
+		);
+	});
+
+	it('ignores external asset URLs and normalizes local asset references', () => {
+		const story = fakeStory(0);
+		const start = fakePassage({
+			id: 'start',
+			name: 'Start',
+			story: story.id,
+			text:
+				'<img src="https://cdn.example.com/cover.png"> ' +
+				'<img src="/assets/local.png"> ' +
+				'<img src="../assets/icon.svg"> poster.jpg'
 		});
 
-		it('ignores external asset URLs and normalizes local asset references', () => {
-			const story = fakeStory(0);
-			const start = fakePassage({
-				id: 'start',
-				name: 'Start',
-				story: story.id,
-				text:
-					'<img src="https://cdn.example.com/cover.png"> ' +
-					'<img src="/assets/local.png"> ' +
-					'<img src="../assets/icon.svg"> poster.jpg'
-			});
+		story.passages = [start];
+		story.startPassage = start.id;
 
-			story.passages = [start];
-			story.startPassage = start.id;
+		const assetPaths = storyToCoreIndex(story).assetInventory.map(
+			asset => asset.path
+		);
 
-			const assetPaths = storyToCoreIndex(story).assetInventory.map(
-				asset => asset.path
-			);
+		expect(assetPaths).not.toContain('https://cdn.example.com/cover.png');
+		expect(assetPaths).toEqual(
+			expect.arrayContaining([
+				'assets/local.png',
+				'assets/icon.svg',
+				'assets/poster.jpg'
+			])
+		);
+	});
 
-			expect(assetPaths).not.toContain('https://cdn.example.com/cover.png');
-			expect(assetPaths).toEqual(
-				expect.arrayContaining([
-					'assets/local.png',
-					'assets/icon.svg',
-					'assets/poster.jpg'
-				])
-			);
-		});
-
-		it('supports regex search options and replacement previews', () => {
+	it('supports regex search options and replacement previews', () => {
 		const story = fakeStory(1);
 
 		story.passages[0].name = 'Start';

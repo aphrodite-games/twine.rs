@@ -42,15 +42,29 @@ describe('<AppActions>', () => {
 		expect(screen.getByText('dialogs.aboutTwine.title')).toBeInTheDocument();
 	});
 
-	it('displays a button that shows the story formats dialog', () => {
-		renderComponent();
-		expect(
-			screen.queryByText('dialogs.storyFormats.title')
-		).not.toBeInTheDocument();
+	it('navigates to the Story Formats route instead of opening the legacy dialog', () => {
+		const history = createMemoryHistory({initialEntries: ['/']});
+
+		renderComponent(undefined, history);
 		fireEvent.click(
 			screen.getByRole('button', {name: 'routeActions.app.storyFormats'})
 		);
-		expect(screen.getByText('dialogs.storyFormats.title')).toBeInTheDocument();
+
+		expect(history.location.pathname).toBe('/formats');
+		expect(
+			screen.queryByText('dialogs.storyFormats.title')
+		).not.toBeInTheDocument();
+	});
+
+	it('disables the story formats action on the Story Formats route', () => {
+		renderComponent(
+			undefined,
+			createMemoryHistory({initialEntries: ['/formats']})
+		);
+
+		expect(
+			screen.getByRole('button', {name: 'routeActions.app.storyFormats'})
+		).toBeDisabled();
 	});
 
 	it('displays a button that allows users to report bugs', () => {

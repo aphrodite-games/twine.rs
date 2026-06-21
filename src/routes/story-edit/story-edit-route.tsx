@@ -120,26 +120,16 @@ export const InnerStoryEditRoute: React.FC = () => {
 				<StoryWorkspaceShell
 					bottomDrawerOpen={workspace.bottomDrawerOpen}
 					graphPanel={
-						<>
-							<StoryGraphPanel
-								onCreate={handleCreatePassage}
-								onDeselect={handleDeselectPassage}
-								onEdit={handleEditPassage}
-								onSelect={handleSelectPassageInMap}
-								selectedPassageId={workspace.selectedPassageId}
-								story={story}
-								visibleZoom={visibleZoom}
-								zoom={story.zoom}
-							/>
-							<PassageFuzzyFinder
-								onClose={() => setFuzzyFinderOpen(false)}
-								onOpen={() => setFuzzyFinderOpen(true)}
-								onRevealPassageInGraph={handleRevealPassageInGraph}
-								open={fuzzyFinderOpen}
-								setCenter={setCenter}
-								story={story}
-							/>
-						</>
+						<StoryGraphPanel
+							onCreate={handleCreatePassage}
+							onDeselect={handleDeselectPassage}
+							onEdit={handleEditPassage}
+							onSelect={handleSelectPassageInMap}
+							selectedPassageId={workspace.selectedPassageId}
+							story={story}
+							visibleZoom={visibleZoom}
+							zoom={story.zoom}
+						/>
 					}
 					leftDockCollapsed={workspace.leftDockCollapsed}
 					mode={workspace.mode}
@@ -148,6 +138,16 @@ export const InnerStoryEditRoute: React.FC = () => {
 					onChangeRightDockCollapsed={workspace.setRightDockCollapsed}
 					onRevealPassageInGraph={handleRevealPassageInGraph}
 					onSelectPassage={handleChoosePassage}
+					overlay={
+						<PassageFuzzyFinder
+							onClose={() => setFuzzyFinderOpen(false)}
+							onOpen={() => setFuzzyFinderOpen(true)}
+							onRevealPassageInGraph={handleChoosePassage}
+							open={fuzzyFinderOpen}
+							setCenter={setCenter}
+							story={story}
+						/>
+					}
 					rightDockCollapsed={workspace.rightDockCollapsed}
 					selectedPassageId={workspace.selectedPassageId}
 					story={story}

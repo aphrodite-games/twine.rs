@@ -430,12 +430,13 @@ function diagnosticsForStory(story: Story): CoreDiagnostic[] {
 				code: 'unreachable-passage',
 				end: passage.name.length,
 				line: 1,
-				message: 'Passage is not reachable from the start passage',
+				message:
+					'Passage is not linked from the start passage. It may still be used by story-format macros, scripts, or other runtime behavior.',
 				passageId: passage.id,
 				quickFixes: [
 					{command: 'link-from-start', title: 'Link from the start passage'}
 				],
-				severity: 'info',
+				severity: 'warning',
 				sourceId: passage.id,
 				start: 0
 			});
@@ -516,7 +517,10 @@ function symbolsInSource(
 	return symbols;
 }
 
-function assetPublishRule(path: string, missing: boolean): CoreAssetPublishRule {
+function assetPublishRule(
+	path: string,
+	missing: boolean
+): CoreAssetPublishRule {
 	return {
 		copy: !missing,
 		outputPath: path,
@@ -1212,7 +1216,7 @@ export function storyToCoreIndex(
 			sourceId: hit.sourceId,
 			sourceName: hit.sourceName,
 			start: hit.start
-			}));
+		}));
 
 	diagnostics.push(...assetDiagnostics(story, assetInventory));
 

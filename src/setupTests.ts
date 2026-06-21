@@ -52,3 +52,4 @@ afterEach(() => delete (window as any).matchMedia);
 
 window.Element.prototype.releasePointerCapture = () => {};
 window.Element.prototype.setPointerCapture = () => {};
+window.Element.prototype.scrollTo = () => {};

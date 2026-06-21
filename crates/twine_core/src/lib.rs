@@ -2006,13 +2006,13 @@ impl ProjectSession {
                     code: "unreachable-passage".into(),
                     end: node.name.len(),
                     line: 1,
-                    message: "Passage is not reachable from the start passage".into(),
+                    message: "Passage is not linked from the start passage. It may still be used by story-format macros, scripts, or other runtime behavior.".into(),
                     passage_id: Some(node.id.as_ref().to_owned()),
                     quick_fixes: vec![CoreQuickFix {
                         command: "link-from-start".into(),
                         title: "Link from the start passage".into(),
                     }],
-                    severity: CoreDiagnosticSeverity::Info,
+                    severity: CoreDiagnosticSeverity::Warning,
                     source_id: node.id.as_ref().to_owned(),
                     start: 0,
                 });
@@ -4360,6 +4360,11 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == "broken-link")
         );
+        assert!(index.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unreachable-passage"
+                && diagnostic.severity == CoreDiagnosticSeverity::Warning
+                && diagnostic.message.contains("story-format macros")
+        }));
         assert!(
             index
                 .search_hits

@@ -15,6 +15,23 @@
 	z-index: 4;
 }
 
+.story-edit-workspace > .fuzzy-finder {
+	left: calc(var(--story-edit-left-offset) + var(--sp-3));
+	position: absolute;
+	top: calc(var(--sp-3) + var(--ctl-h-lg) + var(--sp-2));
+	width: min(
+		500px,
+		max(
+			260px,
+			calc(
+				100% - var(--story-edit-left-offset) - var(--story-edit-right-offset) -
+					2 * var(--sp-3)
+			)
+		)
+	);
+	z-index: 8;
+}
+
 .story-edit-route .passage-map,
 .story-edit-route .link-connectors {
 	left: 0;
@@ -129,7 +146,7 @@ body.dragging-passages .story-edit-route * {
 }
 
 .story-edit-graph-viewport {
-	cursor: default;
+	cursor: grab;
 	height: 100%;
 	overflow: auto;
 	position: relative;
@@ -1248,6 +1265,11 @@ button.story-edit-link-chip:focus-visible {
 	.story-edit-workspace {
 		--story-edit-dock-width: 220px;
 		--story-edit-inspector-width: 240px;
+	}
+
+	.story-edit-workspace > .fuzzy-finder {
+		left: var(--sp-3);
+		width: calc(100% - 2 * var(--sp-3));
 	}
 
 	.story-edit-mode-controls {

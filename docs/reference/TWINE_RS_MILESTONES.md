@@ -445,11 +445,15 @@ Core deliverables:
 M4 handoff notes from M1-M3 readiness:
 
 - `twine_core` now exposes a typed `QueryStoryIndex` command and `CoreStoryIndex` DTO covering source files, graph stats, simple query hits, tags, broken-link diagnostics, and unreachable-passage diagnostics. The Electron-era UI also has a TypeScript shim that produces the same DTO shape until a live Tauri/WASM host is wired in.
-- D6-A now promotes the indexed Contents and Diagnostics data into first-class
+- D6 now promotes the indexed Contents and Diagnostics data into first-class
   DS shell routes: `/stories/:storyId/contents` and
   `/stories/:storyId/diagnostics`. These routes are the primary UI for browsing
   indexed passages/tags/variables/assets/problems and running diagnostic
-  reveal/quick-fix actions.
+  reveal/quick-fix actions. Specific diagnostics can be dismissed and restored;
+  dismissed diagnostics remain reviewable but leave active shell/build
+  validation counts. Unlinked/unreachable passages are warnings, not errors,
+  because story formats can still reach passages through macros such as
+  `(display: "passage")`, scripts, or other runtime behavior.
 - M4 still owns the richer indexed engine: incremental variable/symbol extraction, regex/fuzzy ranking, case/options handling, replacement previews, proof-output indexing, asset/file references, tag count/color workflows, diagnostics severities/quick fixes, and persisted Contents Navigator state.
 - M4 should replace the lightweight TypeScript story-index producer with the Rust producer without changing the inspector/search UI contract. Treat the current search hits as a compatibility scaffold, not the final search implementation.
 
@@ -509,15 +513,17 @@ M5 implementation checklist from the M1-M4 audit:
 M5 implementation status (audited 2026-06-21 — **partially done**):
 
 - **DONE in engine/contracts:** file-backed Rust asset operations exist when a `ProjectSession` has a project root; the TypeScript `CoreProjectHost` exposes asset commands and publishes asset patches; the workbench has a reference-backed Asset Manager surface.
-- **PARTIAL in UI, D6-A SURFACED:** Text/Split and the first-class
+- **PARTIAL in UI, D6 SURFACED:** Text/Split and the first-class
   `/stories/:storyId/assets` DS route can insert snippets, copy snippets, reveal
-  paths, validate references, rename/replace/delete through host commands, and
-  show reference-derived asset previews/usages.
+  paths, validate references, import host-known assets into inventory,
+  rename/replace/delete through host commands, and show reference-derived or
+  host-known asset previews/usages.
 - **MISSING in app integration:** the React/Electron app still does not open stories as file-backed project roots, so the primary Asset Manager view remains reference-backed/in-memory instead of reading real files from `assets/`.
-- **REMAINING in D6:** the standalone Assets screen must switch from the
-  reference-backed fallback to the full file inventory with real filesystem
-  metadata, thumbnails, import conflict handling, and publish-copy controls once
-  the live project-root host is the app integration path.
+- **REMAINING in app integration:** the standalone Assets screen must switch
+  from the reference-backed/host-known fallback to the full file inventory with
+  real filesystem metadata, thumbnails, import conflict handling, and
+  publish-copy controls once the live project-root host is the app integration
+  path.
 
 Highest-signal requests in this milestone:
 
@@ -558,14 +564,14 @@ M6 splits along an engine/UI seam. The **engine** (Rust contracts plus the TypeS
 - Build targets (deliverable 4): **PARTIAL, SCREEN SURFACED** — `play`/`test`/`proof`/`publish` run through `createStoryBuildPackage()`; Export HTML/JSON/Twee/Package targets exist in the package builder, Rust HTML/JSON export (`twine_export`) exists, and `/stories/:storyId/build` now exposes Play, Test From Selection, Proof, Export HTML, Export Twee, Export JSON, Package, and Publish with capability, fidelity, missing-asset, diagnostic, publish-safety, output, save, and build-log affordances. Remaining gaps: compatibility export mode, source/HTML inspection, archive/project-folder packaging, streamed build logs, and turning build warnings into first-class diagnostics.
 - Export/import fidelity boundary: **PSEUDO SPEC** — the roadmap now treats the `twine.rs` project folder/archive as the full-fidelity format and allows full-fidelity single-file source export by deterministically bundling sidecar story-graph data into one reserved `StoryGraph` metadata passage. Normal Twine compatibility mode is also a required export/import path: import passage-level `position`/`size` into sidecar layout, and export sidecar layout back into passage-level `position`/`size` without requiring `StoryGraph`. Existing Rust model/store/export work already supports sidecar layout and metadata preservation in part; remaining work is archive packaging, `StoryGraph` parse/export, compatibility export settings, export warnings, publish-time exclusion, and optional import support for future `<tw-passagegroup>` elements without making them the canonical model.
 - Normal Twine compatibility export setting: **MISSING** — the Build/Export UI must offer a compatibility output mode that omits `StoryGraph` by default, writes sidecar positions into normal Twine position/size metadata, and warns when richer graph metadata will not round-trip through standard Twine.
-- Format host API (deliverable 2): **PARTIAL, SCREEN SURFACED** — module slots/types, capability derivation, module resolution, and module loading are implemented and tested; `/formats` now renders capability, publish-safety, module, development, default/proofing, extension-enable, URL-add, and custom-format removal controls on the D2 shell. Remaining gaps: fully app-owned extension-point UI for every declared host slot and retirement of the legacy Story Formats dialog as a primary path.
+- Format host API (deliverable 2): **PARTIAL, PRIMARY SCREEN SURFACED** — module slots/types, capability derivation, module resolution, and module loading are implemented and tested; `/formats` now renders capability, publish-safety, module, development, default/proofing, extension-enable, URL-add, and custom-format removal controls on the D2 shell, and legacy Story Formats toolbar access routes there. Remaining gaps: fully app-owned extension-point UI for every declared host slot plus deeper dev-loop plumbing.
 - Local format dev workflow (deliverable 3): **PARTIAL** — option types exist and `/formats` surfaces declared dev-server/HMR/local-folder metadata plus URL-added format registration. Remaining gaps: folder picker, dev-server connection health, HMR reload plumbing, source maps/logs, and reload-without-restart controls.
 - Runtime/debug hooks (deliverable 5): **MISSING**. _Owned by D8._
 - H1 (previews on host/query contracts): **PARTIAL** — previews call `usePublishing()` → `CoreProjectHost` and now render in app-owned iframe surfaces instead of `replaceDom()`; the Play/Test route load loop and Electron JSONP bridge regression were fixed in the D1-D5/M0-M6 cleanup. Debugger/source/graph reveal bridges are still **D8**.
 - H2 (graph projection): **DONE for D5** — DS graph rendering, viewport/focus query options, generated layout save, explicit reveal-in-graph, immediate pointer-down selection feedback, additive multi-select, group drag, live edge/arrow updates during movement, one-shot selection centering, and minimap panning are wired on the app side. Native/WASM `ProjectSession` bridging remains follow-up.
 - H3 ("run from here" everywhere): **PARTIAL** — `startId` is plumbed and passage-level Test From Here exists, but run-from-here is not yet exposed from every Text/Graph/Split/search/diagnostic/preview context; remaining work lands across **D4/D5/D8**.
 
-Sequencing implication: **do not build any M6 UI in the legacy shell.** The core-first work is now mostly in place and the primary Build/Formats screens have been promoted into the DS shell; the remaining closures are deeper screen replacement and app integration — **D5** closes H2, **D6-A** has promoted Contents/Diagnostics/Assets/Formats into the shell while D6 completion still owns file-backed asset inventory and dialog retirement, **D7** finishes Settings plus advanced Build/export policy, and **D8** closes H1, H3, and deliverable 5. Full closure map in [`TWINE_RS_DESIGN_SYSTEM_SPINE.md`](./TWINE_RS_DESIGN_SYSTEM_SPINE.md).
+Sequencing implication: **do not build any M6 UI in the legacy shell.** The core-first work is now mostly in place and the primary Build/Formats screens have been promoted into the DS shell; the remaining closures are deeper screen replacement and app integration — **D5** closes H2, **D6** has promoted Contents/Diagnostics/Assets/Formats into the shell and retired legacy Story Formats toolbar access as a primary path, **D7** finishes Settings plus advanced Build/export policy, and **D8** closes H1, H3, and deliverable 5. Full closure map in [`TWINE_RS_DESIGN_SYSTEM_SPINE.md`](./TWINE_RS_DESIGN_SYSTEM_SPINE.md).
 
 Highest-signal requests in this milestone:
 

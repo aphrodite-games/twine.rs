@@ -7,7 +7,12 @@ import {
 	Select,
 	TablerIcon
 } from '../../components/design-system';
-import {useCoreProjectHost} from '../../core';
+import {
+	diagnosticDismissalsChangedEvent,
+	diagnosticIdentity,
+	loadDismissedDiagnosticIds,
+	useCoreProjectHost
+} from '../../core';
 import {FormatLoader} from '../../store/format-loader';
 import {
 	formatWithNameAndVersion,
@@ -166,10 +171,15 @@ export const BuildRoute: React.FC = () => {
 	const [logs, setLogs] = React.useState<string[]>([
 		'Build surface ready. Choose a target to validate outputs.'
 	]);
+	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
 	const definition = targetDefinition(target);
 	const storyIndex = React.useMemo(
 		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
 		[coreProjectHost, story]
+	);
+	const dismissedDiagnosticIds = React.useMemo(
+		() => (story ? loadDismissedDiagnosticIds(story.id) : new Set<string>()),
+		[dismissalsVersion, story]
 	);
 	const format = React.useMemo(() => {
 		if (!story) {
@@ -197,9 +207,15 @@ export const BuildRoute: React.FC = () => {
 	const safetyIssues =
 		publishBoundTargets.includes(target) && safety ? safety.issues : [];
 	const missingAssets =
-		storyIndex?.assetInventory.filter(asset => asset.missing).map(asset => asset.path) ??
-		[];
-	const diagnostics = storyIndex?.diagnostics ?? [];
+		storyIndex?.assetInventory
+			.filter(asset => asset.missing)
+			.map(asset => asset.path) ?? [];
+	const diagnostics =
+		storyIndex?.diagnostics.filter(
+			diagnostic => !dismissedDiagnosticIds.has(diagnosticIdentity(diagnostic))
+		) ?? [];
+	const dismissedDiagnosticCount =
+		(storyIndex?.diagnostics.length ?? 0) - diagnostics.length;
 	const errorDiagnostics = diagnostics.filter(
 		diagnostic => diagnostic.severity === 'error'
 	);
@@ -219,6 +235,23 @@ export const BuildRoute: React.FC = () => {
 
 		setStartPassageId(story.startPassage || story.passages[0]?.id || '');
 	}, [story]);
+
+	React.useEffect(() => {
+		function handleDismissalsChanged() {
+			setDismissalsVersion(version => version + 1);
+		}
+
+		window.addEventListener(
+			diagnosticDismissalsChangedEvent,
+			handleDismissalsChanged
+		);
+
+		return () =>
+			window.removeEventListener(
+				diagnosticDismissalsChangedEvent,
+				handleDismissalsChanged
+			);
+	}, []);
 
 	const appendLog = React.useCallback((line: string) => {
 		setLogs(current => [...current.slice(-80), line]);
@@ -368,9 +401,7 @@ export const BuildRoute: React.FC = () => {
 									<span
 										className="build-route__target-dot"
 										style={{
-											background: risky
-												? 'var(--sem-warn)'
-												: 'var(--acc-blue)'
+											background: risky ? 'var(--sem-warn)' : 'var(--acc-blue)'
 										}}
 									/>
 								</button>
@@ -401,9 +432,7 @@ export const BuildRoute: React.FC = () => {
 											<div className="build-route__warning-title">
 												Last build failed
 											</div>
-											<div className="build-route__warning-detail">
-												{error}
-											</div>
+											<div className="build-route__warning-detail">{error}</div>
 										</div>
 									</div>
 								)}
@@ -419,8 +448,8 @@ export const BuildRoute: React.FC = () => {
 												{blockingIssueCount === 1 ? '' : 's'} before publish
 											</div>
 											<div className="build-route__warning-detail">
-												Resolve error diagnostics or publish-safety errors before
-												shipping this target.
+												Resolve active error diagnostics or publish-safety
+												errors before shipping this target.
 											</div>
 										</div>
 									</div>
@@ -462,11 +491,19 @@ export const BuildRoute: React.FC = () => {
 								</div>
 								<div className="build-route__option">
 									<span>Diagnostics</span>
-									<b>{diagnostics.length}</b>
+									<b>
+										{diagnostics.length}
+										{dismissedDiagnosticCount > 0 &&
+											` (${dismissedDiagnosticCount} dismissed)`}
+									</b>
 								</div>
 								<div className="build-route__option">
 									<span>Asset plan</span>
-									<b>{build?.assets.length ?? storyIndex?.assetInventory.length ?? 0}</b>
+									<b>
+										{build?.assets.length ??
+											storyIndex?.assetInventory.length ??
+											0}
+									</b>
 								</div>
 								<div className="build-route__option">
 									<span>Prepared size</span>
@@ -553,17 +590,21 @@ export const BuildRoute: React.FC = () => {
 							<Panel icon="file-text" pad title="Fidelity Boundary">
 								<div className="build-route__section-title">Preserves</div>
 								<ul className="build-route__fidelity-list">
-									{(build?.report.fidelity.preserves ?? [
-										'Build once to inspect exact preserved data.'
-									]).map(item => (
+									{(
+										build?.report.fidelity.preserves ?? [
+											'Build once to inspect exact preserved data.'
+										]
+									).map(item => (
 										<li key={item}>{item}</li>
 									))}
 								</ul>
 								<div className="build-route__section-title">Omits</div>
 								<ul className="build-route__fidelity-list">
-									{(build?.report.fidelity.omits ?? [
-										'Build once to inspect target omissions.'
-									]).map(item => (
+									{(
+										build?.report.fidelity.omits ?? [
+											'Build once to inspect target omissions.'
+										]
+									).map(item => (
 										<li key={item}>{item}</li>
 									))}
 								</ul>
@@ -580,7 +621,8 @@ export const BuildRoute: React.FC = () => {
 											<li key={`${file.filename}-${file.kind}`}>
 												<b>{file.filename}</b>
 												<span>
-													{file.kind} · {file.role} · {bytesLabel(file.sizeBytes)}
+													{file.kind} · {file.role} ·{' '}
+													{bytesLabel(file.sizeBytes)}
 												</span>
 											</li>
 										))

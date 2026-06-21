@@ -147,6 +147,15 @@
 	color: var(--sem-link);
 }
 
+.diagnostics-route__row--dismissed {
+	opacity: 0.68;
+}
+
+.diagnostics-route__row--dismissed .diagnostics-route__message,
+.diagnostics-route__row--dismissed .diagnostics-route__location {
+	color: var(--tx-4);
+}
+
 .diagnostics-route__row-text {
 	display: grid;
 	flex: 1;

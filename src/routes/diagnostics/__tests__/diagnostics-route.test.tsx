@@ -53,6 +53,10 @@ function renderComponent() {
 }
 
 describe('<DiagnosticsRoute>', () => {
+	beforeEach(() => {
+		window.localStorage.clear();
+	});
+
 	it('groups diagnostics and exposes source/graph reveal actions', () => {
 		renderComponent();
 
@@ -61,13 +65,51 @@ describe('<DiagnosticsRoute>', () => {
 		expect(
 			screen.getAllByText(/Broken link to "Missing"/).length
 		).toBeGreaterThan(0);
-		expect(screen.getByText('unreachable-passage')).toBeInTheDocument();
+		expect(screen.getAllByText('unreachable-passage').length).toBeGreaterThan(
+			0
+		);
+		expect(screen.getAllByText(/story-format macros/).length).toBeGreaterThan(
+			0
+		);
+		expect(screen.getAllByText('warning').length).toBeGreaterThan(0);
 		expect(
 			screen.getByRole('button', {name: 'Reveal Source'})
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole('button', {name: 'Reveal Graph'})
 		).toBeInTheDocument();
+	});
+
+	it('dismisses and restores a specific validation diagnostic', async () => {
+		renderComponent();
+
+		expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0);
+
+		fireEvent.click(screen.getByRole('button', {name: 'Dismiss Diagnostic'}));
+
+		await waitFor(() =>
+			expect(screen.queryByText('broken-link')).not.toBeInTheDocument()
+		);
+		expect(screen.getAllByText('unreachable-passage').length).toBeGreaterThan(
+			0
+		);
+
+		fireEvent.click(screen.getByRole('button', {name: /Dismissed/}));
+
+		expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0);
+		expect(
+			screen.getByRole('button', {name: 'Restore Diagnostic'})
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', {name: 'Restore Diagnostic'}));
+
+		await waitFor(() =>
+			expect(screen.queryByText('broken-link')).not.toBeInTheDocument()
+		);
+
+		fireEvent.click(screen.getByRole('button', {name: /Active/}));
+
+		expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0);
 	});
 
 	it('runs executable quick fixes through the core host', async () => {

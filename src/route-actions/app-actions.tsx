@@ -3,7 +3,6 @@ import {useTranslation} from 'react-i18next';
 import {useHistory} from 'react-router-dom';
 import {IconButton} from '../components/design-system';
 import {AboutTwineDialog, AppPrefsDialog, useDialogsContext} from '../dialogs';
-import {StoryFormatsDialog} from '../dialogs/story-formats/story-formats';
 
 export const AppActions: React.FC = () => {
 	const {dispatch} = useDialogsContext();
@@ -18,12 +17,10 @@ export const AppActions: React.FC = () => {
 				onClick={() => dispatch({type: 'addDialog', component: AppPrefsDialog})}
 			/>
 			<IconButton
-				disabled={history.location.pathname === '/story-formats'}
+				disabled={history.location.pathname === '/formats'}
 				icon="file-code"
 				label={t('routeActions.app.storyFormats')}
-				onClick={() =>
-					dispatch({type: 'addDialog', component: StoryFormatsDialog})
-				}
+				onClick={() => history.push('/formats')}
 			/>
 			<IconButton
 				icon="award"

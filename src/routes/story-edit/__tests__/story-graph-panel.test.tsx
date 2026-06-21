@@ -246,6 +246,37 @@ describe('<StoryGraphPanel>', () => {
 		rectSpy.mockRestore();
 	});
 
+	it('pans the graph viewport by dragging empty graph space', () => {
+		const {result} = renderComponent();
+		const viewport = result.container.querySelector(
+			'.story-edit-graph-viewport'
+		) as HTMLElement;
+		const startLeft = viewport.scrollLeft;
+		const startTop = viewport.scrollTop;
+
+		fireEvent.pointerDown(
+			viewport,
+			new PointerEvent('pointerdown', {
+				button: 0,
+				clientX: 120,
+				clientY: 110,
+				pointerId: 9
+			})
+		);
+		fireEvent.pointerMove(
+			viewport,
+			new PointerEvent('pointermove', {
+				button: 0,
+				clientX: 70,
+				clientY: 80,
+				pointerId: 9
+			})
+		);
+
+		expect(viewport.scrollLeft).toBe(startLeft + 50);
+		expect(viewport.scrollTop).toBe(startTop + 30);
+	});
+
 	it('shows pointer-down selection feedback and additive selection immediately', () => {
 		const {next, onSelect, result, start} = renderComponent();
 		const startNode = result.container.querySelector(

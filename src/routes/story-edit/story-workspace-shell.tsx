@@ -17,9 +17,12 @@ import {
 	contentsViewModel,
 	copyAssetSnippetCommand,
 	deleteAssetCommand,
+	diagnosticDismissalsChangedEvent,
+	diagnosticIdentity,
 	diagnosticsViewModel,
 	importAssetCommand,
 	insertAssetSnippetCommand,
+	loadDismissedDiagnosticIds,
 	renameAssetCommand,
 	replaceAssetCommand,
 	revealAssetCommand,
@@ -58,6 +61,7 @@ export interface StoryWorkspaceShellProps {
 	onChangeRightDockCollapsed: (value: boolean) => void;
 	onRevealPassageInGraph: (passage: Passage) => void;
 	onSelectPassage: (passage: Passage) => void;
+	overlay?: React.ReactNode;
 	rightDockCollapsed: boolean;
 	selectedPassageId?: string;
 	story: Story;
@@ -900,9 +904,9 @@ const Inspector: React.FC<{
 									>
 										{item.core.code}
 									</Badge>
-										{diagnosticPassage ? (
-											<button
-												className="story-edit-diagnostic-source"
+									{diagnosticPassage ? (
+										<button
+											className="story-edit-diagnostic-source"
 											onClick={() => onSelectPassage(diagnosticPassage)}
 											type="button"
 										>
@@ -914,26 +918,26 @@ const Inspector: React.FC<{
 											{item.message}
 										</span>
 									)}
-										<div className="story-edit-diagnostic-location">
-											{item.location}
-										</div>
-										{(actions.length > 0 || diagnosticPassage) && (
-											<div className="story-edit-diagnostic-fixes">
-												{diagnosticPassage && (
-													<Button
-														icon="focus-2"
-														onClick={() =>
-															onRevealPassageInGraph(diagnosticPassage)
-														}
-														size="sm"
-														variant="ghost"
-													>
-														{t('routes.storyEdit.workspace.revealInGraph')}
-													</Button>
-												)}
-												{actions.map(action => (
-													<Button
-														disabled={!action.enabled}
+									<div className="story-edit-diagnostic-location">
+										{item.location}
+									</div>
+									{(actions.length > 0 || diagnosticPassage) && (
+										<div className="story-edit-diagnostic-fixes">
+											{diagnosticPassage && (
+												<Button
+													icon="focus-2"
+													onClick={() =>
+														onRevealPassageInGraph(diagnosticPassage)
+													}
+													size="sm"
+													variant="ghost"
+												>
+													{t('routes.storyEdit.workspace.revealInGraph')}
+												</Button>
+											)}
+											{actions.map(action => (
+												<Button
+													disabled={!action.enabled}
 													key={action.command}
 													onClick={action.apply}
 													size="sm"
@@ -1054,16 +1058,18 @@ export const StoryWorkspaceShell: React.FC<
 		leftDockCollapsed,
 		mode,
 		onChangeBottomDrawerOpen,
-			onChangeLeftDockCollapsed,
-			onChangeRightDockCollapsed,
-			onRevealPassageInGraph,
-			onSelectPassage,
-			rightDockCollapsed,
+		onChangeLeftDockCollapsed,
+		onChangeRightDockCollapsed,
+		onRevealPassageInGraph,
+		onSelectPassage,
+		overlay,
+		rightDockCollapsed,
 		selectedPassageId,
 		story
 	} = props;
 	const coreProjectHost = useCoreProjectHost();
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
 
 	React.useEffect(
 		() =>
@@ -1074,19 +1080,64 @@ export const StoryWorkspaceShell: React.FC<
 		[coreProjectHost]
 	);
 
+	React.useEffect(() => {
+		function handleDismissalsChanged() {
+			setDismissalsVersion(version => version + 1);
+		}
+
+		window.addEventListener(
+			diagnosticDismissalsChangedEvent,
+			handleDismissalsChanged
+		);
+
+		return () =>
+			window.removeEventListener(
+				diagnosticDismissalsChangedEvent,
+				handleDismissalsChanged
+			);
+	}, []);
+
 	const index = React.useMemo(
 		() => coreProjectHost.queryStoryIndex(story.id),
 		[coreProjectHost, patchVersion, story]
 	);
-	const contents = React.useMemo(() => contentsViewModel(index), [index]);
+	const dismissedDiagnosticIds = React.useMemo(
+		() => loadDismissedDiagnosticIds(story.id),
+		[dismissalsVersion, story.id]
+	);
+	const activeIndex = React.useMemo(() => {
+		const diagnostics = index.diagnostics.filter(
+			diagnostic => !dismissedDiagnosticIds.has(diagnosticIdentity(diagnostic))
+		);
+		const contentDiagnosticIds = new Set(
+			diagnostics.map(
+				diagnostic =>
+					`diagnostic:${diagnostic.code}:${diagnostic.sourceId}:${diagnostic.start}`
+			)
+		);
+
+		return {
+			...index,
+			contents: index.contents.filter(
+				entry =>
+					(entry.kind !== 'diagnostic' && entry.kind !== 'brokenLink') ||
+					contentDiagnosticIds.has(entry.id)
+			),
+			diagnostics
+		};
+	}, [dismissedDiagnosticIds, index]);
+	const contents = React.useMemo(
+		() => contentsViewModel(activeIndex),
+		[activeIndex]
+	);
 	const diagnostics = React.useMemo(
-		() => diagnosticsViewModel(index, story),
-		[index, story]
+		() => diagnosticsViewModel(activeIndex, story),
+		[activeIndex, story]
 	);
 	const assets = React.useMemo(() => assetManagerViewModel(index), [index]);
 	const selection = React.useMemo(
-		() => workbenchSelection(story, index, selectedPassageId),
-		[index, selectedPassageId, story]
+		() => workbenchSelection(story, activeIndex, selectedPassageId),
+		[activeIndex, selectedPassageId, story]
 	);
 	const passage = selection.passage;
 	const {dispatch: dialogsDispatch} = useDialogsContext();
@@ -1137,12 +1188,12 @@ export const StoryWorkspaceShell: React.FC<
 					}
 				>
 					<NavigatorTabs activeTab={navigatorTab} onChange={setNavigatorTab} />
-						{navigatorTab === 'passages' ? (
-							<PassageNavigator
-								index={index}
-								onSelectPassage={onSelectPassage}
-								selectedPassageId={passage?.id}
-								story={story}
+					{navigatorTab === 'passages' ? (
+						<PassageNavigator
+							index={activeIndex}
+							onSelectPassage={onSelectPassage}
+							selectedPassageId={passage?.id}
+							story={story}
 						/>
 					) : navigatorTab === 'contents' ? (
 						<ContentsNavigator
@@ -1165,11 +1216,11 @@ export const StoryWorkspaceShell: React.FC<
 			{showGraph && graphPanel}
 			{showText && (
 				<div className="story-edit-text-layer">
-						<StoryTextPanel
-							index={index}
-							onRevealPassageInGraph={onRevealPassageInGraph}
-							onSelectPassage={onSelectPassage}
-							selectedPassageId={passage?.id}
+					<StoryTextPanel
+						index={activeIndex}
+						onRevealPassageInGraph={onRevealPassageInGraph}
+						onSelectPassage={onSelectPassage}
+						selectedPassageId={passage?.id}
 						selection={selection}
 						story={story}
 					/>
@@ -1189,11 +1240,11 @@ export const StoryWorkspaceShell: React.FC<
 				>
 					<Inspector
 						assets={assets}
-							diagnostics={diagnostics}
-							host={coreProjectHost}
-							index={index}
-							onRevealPassageInGraph={onRevealPassageInGraph}
-							onSelectPassage={onSelectPassage}
+						diagnostics={diagnostics}
+						host={coreProjectHost}
+						index={index}
+						onRevealPassageInGraph={onRevealPassageInGraph}
+						onSelectPassage={onSelectPassage}
 						selection={selection}
 						story={story}
 					/>
@@ -1206,6 +1257,7 @@ export const StoryWorkspaceShell: React.FC<
 				selection={selection}
 				story={story}
 			/>
+			{overlay}
 		</div>
 	);
 };

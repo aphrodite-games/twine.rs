@@ -67,6 +67,7 @@ describe('AppShell', () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks();
+		window.localStorage.clear();
 		publishStorySaveStatus({kind: 'idle'});
 		story = {
 			...fakeStory(2),

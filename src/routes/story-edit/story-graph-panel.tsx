@@ -53,6 +53,8 @@ interface ViewportState {
 const minimapSize = {height: 120, width: 170};
 const nodeVisualSize = {height: 110, width: 184};
 const canvasPad = 900;
+const graphInteractiveSelector =
+	'.story-edit-graph-node, .story-edit-graph-toolbar, .story-edit-graph-status, .story-edit-graph-minimap';
 
 function excerpt(text: string) {
 	const compact = text.replace(/\s+/g, ' ').trim();
@@ -408,9 +410,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	): Point | undefined {
 		if (
 			!canvasRef.current ||
-			(event.target as HTMLElement).closest(
-				'.story-edit-graph-node, .story-edit-graph-toolbar, .story-edit-graph-status, .story-edit-graph-minimap'
-			)
+			(event.target as HTMLElement).closest(graphInteractiveSelector)
 		) {
 			return undefined;
 		}
@@ -444,10 +444,8 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		event: React.PointerEvent<HTMLDivElement>
 	) {
 		if (
-			event.button !== 2 ||
-			(event.target as HTMLElement).closest(
-				'.story-edit-graph-node, .story-edit-graph-toolbar, .story-edit-graph-status, .story-edit-graph-minimap'
-			)
+			![0, 1, 2].includes(event.button) ||
+			(event.target as HTMLElement).closest(graphInteractiveSelector)
 		) {
 			return;
 		}
@@ -470,7 +468,9 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		};
 		element.setPointerCapture(event.pointerId);
 		element.classList.add('story-edit-graph-viewport--panning');
-		event.preventDefault();
+		if (event.button !== 0) {
+			event.preventDefault();
+		}
 	}
 
 	function handleViewportPointerMove(

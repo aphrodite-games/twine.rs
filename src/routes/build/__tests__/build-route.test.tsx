@@ -74,6 +74,7 @@ describe('<BuildRoute>', () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks();
+		window.localStorage.clear();
 	});
 
 	it('surfaces M6 build targets, capabilities, and output context', () => {
@@ -118,7 +119,9 @@ describe('<BuildRoute>', () => {
 		renderComponent();
 
 		fireEvent.click(screen.getByRole('button', {name: /Test From Selection/}));
-		fireEvent.click(screen.getByRole('button', {name: /Run Test From Selection/}));
+		fireEvent.click(
+			screen.getByRole('button', {name: /Run Test From Selection/})
+		);
 
 		await waitFor(() =>
 			expect(mockTestStory).toHaveBeenCalledWith('story-id', 'passage-0')

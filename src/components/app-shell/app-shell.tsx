@@ -2,7 +2,13 @@ import * as React from 'react';
 import classNames from 'classnames';
 import {useHistory, useLocation} from 'react-router-dom';
 import twineMarkUrl from '../../assets/twine-mark.svg';
-import {markSavedCommand, useCoreProjectHost} from '../../core';
+import {
+	diagnosticDismissalsChangedEvent,
+	diagnosticIdentity,
+	loadDismissedDiagnosticIds,
+	markSavedCommand,
+	useCoreProjectHost
+} from '../../core';
 import {storyFileName} from '../../electron/shared';
 import {useStorySaveStatus} from '../../store/persistence/save-status';
 import {Story, useStoriesContext} from '../../store/stories';
@@ -159,6 +165,7 @@ export const AppShell: React.FC = ({children}) => {
 	const [activeToolbarTab, setActiveToolbarTab] = React.useState('');
 	const [dirty, setDirty] = React.useState(() => coreProjectHost.isDirty());
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
 	const storySaveStatus = useStorySaveStatus();
 	const [buildState, setBuildState] = React.useState<BuildState>({
 		kind: 'idle',
@@ -180,7 +187,26 @@ export const AppShell: React.FC = ({children}) => {
 				: undefined,
 		[coreProjectHost, currentStory, patchVersion]
 	);
-	const diagnosticCount = storyIndex?.diagnostics.length ?? 0;
+	const dismissedDiagnosticIds = React.useMemo(
+		() =>
+			currentStory
+				? loadDismissedDiagnosticIds(currentStory.id)
+				: new Set<string>(),
+		[currentStory, dismissalsVersion]
+	);
+	const activeDiagnostics = React.useMemo(
+		() =>
+			storyIndex
+				? storyIndex.diagnostics.filter(
+						diagnostic =>
+							!dismissedDiagnosticIds.has(diagnosticIdentity(diagnostic))
+					)
+				: [],
+		[dismissedDiagnosticIds, storyIndex]
+	);
+	const diagnosticCount = activeDiagnostics.length;
+	const dismissedDiagnosticCount =
+		(storyIndex?.diagnostics.length ?? 0) - diagnosticCount;
 	const wordCount = storyWordCount(currentStory);
 	const crumbLabels = breadcrumbs(location.pathname, currentStory, mode);
 	const saveStatus =
@@ -222,6 +248,23 @@ export const AppShell: React.FC = ({children}) => {
 			}
 		});
 	}, [coreProjectHost, stories]);
+
+	React.useEffect(() => {
+		function handleDismissalsChanged() {
+			setDismissalsVersion(version => version + 1);
+		}
+
+		window.addEventListener(
+			diagnosticDismissalsChangedEvent,
+			handleDismissalsChanged
+		);
+
+		return () =>
+			window.removeEventListener(
+				diagnosticDismissalsChangedEvent,
+				handleDismissalsChanged
+			);
+	}, []);
 
 	React.useEffect(() => {
 		if (storySaveStatus.kind === 'saved') {
@@ -675,8 +718,8 @@ export const AppShell: React.FC = ({children}) => {
 							/>
 						</header>
 						<div className="app-shell__drawer-body">
-							{storyIndex && storyIndex.diagnostics.length > 0 ? (
-								storyIndex.diagnostics.slice(0, 8).map(diagnostic => (
+							{activeDiagnostics.length > 0 ? (
+								activeDiagnostics.slice(0, 8).map(diagnostic => (
 									<div
 										className={classNames(
 											'app-shell__diag',
@@ -699,7 +742,11 @@ export const AppShell: React.FC = ({children}) => {
 								))
 							) : (
 								<div className="app-shell__drawer-empty">
-									No diagnostics for {currentStory?.name ?? 'this workspace'}
+									No active diagnostics for{' '}
+									{currentStory?.name ?? 'this workspace'}
+									{dismissedDiagnosticCount > 0
+										? ` (${dismissedDiagnosticCount} dismissed)`
+										: ''}
 								</div>
 							)}
 						</div>
@@ -721,6 +768,11 @@ export const AppShell: React.FC = ({children}) => {
 					<button
 						className="app-shell__status-item app-shell__status-button"
 						onClick={() => setDrawerOpen(open => !open)}
+						title={
+							dismissedDiagnosticCount > 0
+								? `${dismissedDiagnosticCount} dismissed diagnostics`
+								: undefined
+						}
 						type="button"
 					>
 						<TablerIcon

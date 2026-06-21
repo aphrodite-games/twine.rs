@@ -1,4 +1,4 @@
-import {act, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen} from '@testing-library/react';
 import {createMemoryHistory} from 'history';
 import {axe} from 'jest-axe';
 import * as React from 'react';
@@ -39,6 +39,10 @@ const TestStoryEditRoute: React.FC = () => {
 
 describe('<StoryEditRoute>', () => {
 	const useZoomShortcutsMock = useZoomShortcuts as jest.Mock;
+
+	beforeEach(() => {
+		window.localStorage.clear();
+	});
 
 	async function renderComponent(
 		story: Story,
@@ -94,6 +98,30 @@ describe('<StoryEditRoute>', () => {
 	it('displays a story graph panel', async () => {
 		await renderComponent(fakeStory());
 		expect(screen.getByLabelText('Story graph')).toBeInTheDocument();
+	});
+
+	it('opens the Go To Passage finder from text mode above the workspace', async () => {
+		const story = fakeStory(1);
+
+		story.passages[0].name = 'Start';
+		story.passages[0].text = 'Opening text.';
+		const {container} = await renderComponent(story);
+
+		fireEvent.click(
+			await screen.findByRole('tab', {
+				name: 'routes.storyEdit.workspace.textMode'
+			})
+		);
+		fireEvent.click(
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.goTo'})
+		);
+
+		expect(
+			screen.getByLabelText('components.passageFuzzyFinder.prompt')
+		).toBeInTheDocument();
+		expect(
+			container.querySelector('.story-edit-workspace > .fuzzy-finder')
+		).toBeTruthy();
 	});
 
 	it('sets up zoom keyboard shortcuts', async () => {

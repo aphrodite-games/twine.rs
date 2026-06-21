@@ -14,6 +14,7 @@ export * from './story-index';
 export * from './graph-projection';
 export * from './project-host';
 export * from './view-models';
+export * from './diagnostic-dismissals';
 
 export type {
 	CoreGraphProjectionOptions,
@@ -136,7 +137,10 @@ export function renamePassageCommand(
 	};
 }
 
-export function renameStoryCommand(storyId: string, name: string): StoryCommand {
+export function renameStoryCommand(
+	storyId: string,
+	name: string
+): StoryCommand {
 	return {
 		type: 'renameStory',
 		name,
@@ -312,7 +316,10 @@ export function replaceAssetCommand(
 	};
 }
 
-export function revealAssetCommand(storyId: string, path: string): StoryCommand {
+export function revealAssetCommand(
+	storyId: string,
+	path: string
+): StoryCommand {
 	return {
 		type: 'revealAsset',
 		path,
