@@ -15,6 +15,7 @@ export const GoToPassageButton: React.FC<GoToPassageButtonProps> = props => {
 			icon="focus-2"
 			label={t('routes.storyEdit.toolbar.goTo')}
 			onClick={onOpenFuzzyFinder}
+			tooltipPosition="bottom"
 		/>
 	);
 };

@@ -1,13 +1,12 @@
 import * as React from 'react';
 import {useParams} from 'react-router-dom';
-import {replaceDom} from '../../util/replace-dom';
 import {usePublishing} from '../../store/use-publishing';
-import {ErrorMessage} from '../../components/error';
 import {useStoriesContext} from '../../store/stories';
+import {StoryPreviewFrame} from '../story-preview-frame';
 
 export const StoryTestRoute: React.FC = () => {
 	const [publishError, setPublishError] = React.useState<Error>();
-	const [inited, setInited] = React.useState(false);
+	const [html, setHtml] = React.useState<string>();
 	const {passageId, storyId} = useParams<{
 		passageId: string;
 		storyId: string;
@@ -17,35 +16,45 @@ export const StoryTestRoute: React.FC = () => {
 	const storyExists = stories.some(story => story.id === storyId);
 
 	React.useEffect(() => {
+		let active = true;
+
 		async function load() {
 			try {
-				replaceDom(
-					await publishStory(storyId, {
-						buildTarget: 'test',
-						formatOptions: 'debug',
-						startId: passageId
-					})
-				);
-				setInited(true);
+				const published = await publishStory(storyId, {
+					buildTarget: 'test',
+					formatOptions: 'debug',
+					startId: passageId
+				});
+
+				if (active) {
+					setHtml(published);
+				}
 			} catch (error) {
-				setPublishError(error as Error);
+				if (active) {
+					setPublishError(error as Error);
+				}
 			}
 		}
 
-		if (!inited && !publishError && storyExists) {
+		setHtml(undefined);
+		setPublishError(undefined);
+
+		if (storyExists) {
 			load();
 		}
-	}, [inited, passageId, publishError, publishStory, storyExists, storyId]);
 
-	if (publishError) {
-		return <ErrorMessage>{publishError.message}</ErrorMessage>;
-	}
+		return () => {
+			active = false;
+		};
+	}, [passageId, publishStory, storyExists, storyId]);
 
-	if (!storyExists) {
-		return (
-			<ErrorMessage>{`There is no story with ID "${storyId}".`}</ErrorMessage>
-		);
-	}
-
-	return null;
+	return (
+		<StoryPreviewFrame
+			error={publishError}
+			html={html}
+			missingStoryMessage={`There is no story with ID "${storyId}".`}
+			storyExists={storyExists}
+			title="Story test preview"
+		/>
+	);
 };

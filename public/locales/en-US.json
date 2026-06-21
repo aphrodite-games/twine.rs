@@ -347,7 +347,7 @@
 		"storyEdit": {
 			"toolbar": {
 				"findAndReplace": "Find and Replace",
-				"goTo": "Go To",
+				"goTo": "Go to Passage",
 				"javaScript": "JavaScript",
 				"passageTags": "Passage Tags",
 				"snapToGrid": "Snap to Grid",
@@ -386,9 +386,10 @@
 				"noPassages": "No passages.",
 				"openBottomDrawer": "Open References",
 				"orphanPassages": "Orphans",
-				"passages": "Passages",
-				"passageStats": "{{wordCount}} words, {{linkCount}} links",
-				"resolvedLinks": "Links",
+					"passages": "Passages",
+					"passageStats": "{{wordCount}} words, {{linkCount}} links",
+					"revealInGraph": "Reveal in Graph",
+					"resolvedLinks": "Links",
 				"rightDock": "Inspector",
 				"selfLinks": "Self",
 				"assets": "Assets",

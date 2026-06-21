@@ -44,45 +44,62 @@ That shape is easy to reason about, but it means many normal operations scan or 
 
 ## Performance Chokepoints
 
-### 1. Story map renders every passage
+### 1. Legacy story map rendered every passage
 
-`src/routes/story-edit/story-edit-route.tsx` passes the entire `story.passages` array into `MarqueeablePassageMap`, `PassageMap`, connection rendering, and fuzzy finder.
+Historical chokepoint: the old primary editor path passed the entire
+`story.passages` array through `MarqueeablePassageMap` → `PassageMap` →
+`PassageConnections`/`PassageCardGroup`, which mounted every passage and every
+SVG link path.
 
-`src/components/passage/passage-map/passage-map.tsx` then renders:
+Current D5 status: the primary story-edit graph now renders through
+`src/routes/story-edit/story-graph-panel.tsx`, backed by `QueryGraphProjection`
+and DS `PassageNode` rendering. Viewport/focus options cross the query boundary,
+and reveal-in-graph is explicit from Text, search, and diagnostics.
 
-- `PassageConnections` for all passages.
-- `PassageCardGroup` for all passages.
+Remaining risk:
 
-There is no viewport-level virtualization. A huge story means thousands of React components, DOM nodes, draggable wrappers, card contents, and SVG link paths.
+- Edges are still rendered as SVG paths, so 10k/50k-node performance is not yet
+  proven.
+- The legacy map components remain in `src/components/passage` and
+  `src/routes/story-edit/marqueeable-passage-map.tsx` for compatibility/tests;
+  they are no longer the primary Workbench route.
+- Rust alone still would not fix scale if future screens remount every node or
+  link; new graph surfaces must keep rendering bounded to projection results.
 
-The file already contains comments about avoiding rerenders during drag and zoom because they have a large performance impact. That suggests the app is already pushing against the architecture's limits.
+Best remaining fix:
 
-Rust alone would not fix this if the UI still mounts every card and link.
-
-Best fix:
-
-- Render only visible cards.
+- Prove the D5 path with 10k/50k graph fixtures.
+- Move dense link rendering to canvas/WebGL or virtualized SVG.
 - Keep drag/selection state local during pointer movement.
-- Draw links on canvas/WebGL or at least virtualize SVG links.
 - Keep text excerpts and layout geometry precomputed.
 
-### 2. Passage cards are sorted and mapped on every passage-array change
+### 2. Legacy passage cards were sorted and mapped on every passage-array change
 
-`src/components/passage/passage-card-group.tsx` sorts all passages by `top` and `left`, then maps them to `PassageCard` components.
+Historical chokepoint: `src/components/passage/passage-card-group.tsx` sorted all
+passages by `top` and `left`, then mapped them to `PassageCard` components.
 
-This is `O(n log n)` for every changed `passages` array. Since reducers frequently create a new `passages` array, memoization does not help much under heavy editing.
+Current D5 status: the primary graph panel consumes projection nodes and renders
+only those nodes, but the legacy card group remains for old tests and unmigrated
+compatibility paths.
 
-Best fix:
+Best remaining fix:
 
-- Maintain a spatial index or sorted visible list in the model layer.
-- Use stable passage IDs and per-passage subscriptions.
+- Keep graph ordering and visibility in the model/query layer.
+- Use stable passage IDs and per-passage subscriptions where React surfaces still
+  need card-level updates.
 - Avoid sorting the whole project when only the viewport needs visible passages.
 
-### 3. Link connections are recomputed from passage text
+### 3. Legacy link connections were recomputed from passage text
 
-`src/components/passage/passage-connections/passage-connections.tsx` calls `passageConnections(passages)` for normal links and again with a format-specific reference parser.
+Historical chokepoint: `src/components/passage/passage-connections/passage-connections.tsx`
+called `passageConnections(passages)` for normal links and again with a
+format-specific reference parser.
 
-`src/store/stories/getters.ts` builds a passage-name map, parses each passage's text, and creates connection maps. This runs whenever the `passages` array changes.
+Current D5 status: graph facts and story intelligence are now queried through
+`CoreProjectHost.queryStoryIndex()`/`queryGraphProjection()` for the primary
+Workbench path. The remaining scale requirement is to keep the app on those
+host/query contracts as D6-D8 screens replace legacy dialogs and compatibility
+components.
 
 `src/util/parse-links.ts` uses regex extraction over passage text. For large stories, link graph work should be incremental instead of recomputed from every passage.
 

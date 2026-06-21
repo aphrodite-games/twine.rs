@@ -9,6 +9,7 @@ import {
 } from './stories.types';
 import {useStoryFormatsContext} from '../story-formats';
 import {useStoreErrorReporter} from '../use-store-error-reporter';
+import {publishStorySaveStatus, StorySaveStatus} from '../persistence/save-status';
 
 export const StoriesContext = React.createContext<StoriesContextProps>({
 	dispatch: () => {},
@@ -18,6 +19,10 @@ export const StoriesContext = React.createContext<StoriesContextProps>({
 StoriesContext.displayName = 'Stories';
 
 export const useStoriesContext = () => React.useContext(StoriesContext);
+
+function queueStorySaveStatus(status: StorySaveStatus) {
+	Promise.resolve().then(() => publishStorySaveStatus(status));
+}
 
 export const StoriesContextProvider: React.FC = props => {
 	const {stories: storiesPersistence} = usePersistence();
@@ -31,8 +36,11 @@ export const StoriesContextProvider: React.FC = props => {
 			const newState = reducer(state, action);
 
 			try {
-				storiesPersistence.saveMiddleware(newState, action, formats);
+				if (storiesPersistence.saveMiddleware(newState, action, formats)) {
+					queueStorySaveStatus({kind: 'saved', savedAt: Date.now()});
+				}
 			} catch (error) {
+				queueStorySaveStatus({kind: 'error', error: error as Error});
 				reportError(error as Error, 'store.errors.cantPersistStories');
 			}
 

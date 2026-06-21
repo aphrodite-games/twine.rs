@@ -15,13 +15,15 @@ import {Point} from '../../util/geometry';
 export interface PassageFuzzyFinderProps {
 	onClose: () => void;
 	onOpen: () => void;
+	onRevealPassageInGraph?: (passage: Story['passages'][number]) => void;
 	open?: boolean;
 	setCenter: (value: Point) => void;
 	story: Story;
 }
 
 export const PassageFuzzyFinder: React.FC<PassageFuzzyFinderProps> = props => {
-	const {onClose, onOpen, open, setCenter, story} = props;
+	const {onClose, onOpen, onRevealPassageInGraph, open, setCenter, story} =
+		props;
 	const {dispatch} = useStoriesContext();
 	const [search, setSearch] = React.useState('');
 	const [debouncedSearch, setDebouncedSearch] = React.useState('');
@@ -57,8 +59,14 @@ export const PassageFuzzyFinder: React.FC<PassageFuzzyFinderProps> = props => {
 	}
 
 	function handleSelectResult(index: number) {
-		setCenter(matches[index]);
-		dispatch(selectPassage(story, matches[index], true));
+		const match = matches[index];
+
+		setCenter(match);
+		if (onRevealPassageInGraph) {
+			onRevealPassageInGraph(match);
+		} else {
+			dispatch(selectPassage(story, match, true));
+		}
 		setSearch('');
 		onClose();
 	}

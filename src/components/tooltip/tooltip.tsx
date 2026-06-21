@@ -23,7 +23,7 @@ export const Tooltip: React.FC<TooltipProps> = props => {
 	const [tooltipEl, setTooltipEl] = React.useState<HTMLDivElement | null>(null);
 	const [arrowEl, setArrowEl] = React.useState<HTMLDivElement | null>(null);
 	const [visible, setVisible] = React.useState(false);
-	const [appearTimeout, setAppearTimeout] = React.useState<number>();
+	const appearTimeout = React.useRef<number>();
 	const {styles, attributes} = usePopper(anchor, tooltipEl, {
 		modifiers: [{name: 'arrow', options: {element: arrowEl}}, {name: 'flip'}],
 		placement: position,
@@ -31,25 +31,29 @@ export const Tooltip: React.FC<TooltipProps> = props => {
 	});
 
 	React.useEffect(() => {
-		const handleOnEnter = () =>
-			setAppearTimeout(window.setTimeout(() => setVisible(true), 500));
+		const handleOnEnter = () => {
+			window.clearTimeout(appearTimeout.current);
+			appearTimeout.current = window.setTimeout(() => setVisible(true), 500);
+		};
 		const handleOnLeave = () => {
-			if (appearTimeout) {
-				window.clearTimeout(appearTimeout);
-			}
-
+			window.clearTimeout(appearTimeout.current);
 			setVisible(false);
 		};
 
 		if (anchor) {
 			anchor.addEventListener('pointerenter', handleOnEnter);
 			anchor.addEventListener('pointerleave', handleOnLeave);
+			anchor.addEventListener('focus', handleOnEnter);
+			anchor.addEventListener('blur', handleOnLeave);
 			return () => {
+				window.clearTimeout(appearTimeout.current);
 				anchor.removeEventListener('pointerenter', handleOnEnter);
 				anchor.removeEventListener('pointerleave', handleOnLeave);
+				anchor.removeEventListener('focus', handleOnEnter);
+				anchor.removeEventListener('blur', handleOnLeave);
 			};
 		}
-	}, [anchor, appearTimeout]);
+	}, [anchor]);
 
 	return (
 		<CSSTransition

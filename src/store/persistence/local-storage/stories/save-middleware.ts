@@ -22,6 +22,8 @@ let lastState: StoriesState;
  * *after* the main reducer runs.
  */
 export function saveMiddleware(state: StoriesState, action: StoriesAction) {
+	let persisted = false;
+
 	switch (action.type) {
 		case 'init':
 		case 'repair':
@@ -42,6 +44,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 				saveStory(transaction, story);
 				savePassage(transaction, passage);
 			});
+			persisted = true;
 			break;
 		}
 
@@ -61,6 +64,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 					);
 				}
 			});
+			persisted = true;
 			break;
 		}
 
@@ -78,6 +82,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 					savePassage(transaction, passage);
 				}
 			});
+			persisted = true;
 			break;
 		}
 
@@ -92,6 +97,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 				saveStory(transaction, story);
 				deletePassageById(transaction, action.passageId);
 			});
+			persisted = true;
 			break;
 		}
 
@@ -107,6 +113,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 					deletePassageById(transaction, passageId);
 				}
 			});
+			persisted = true;
 			break;
 		}
 
@@ -125,6 +132,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 
 				deleteStory(transaction, story);
 			});
+			persisted = true;
 			break;
 		}
 
@@ -137,20 +145,23 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 					saveStory(transaction, story);
 					savePassage(transaction, passage);
 				});
+				persisted = true;
 				break;
 			}
 			break;
 
 		case 'updatePassages': {
 			const story = storyWithId(state, action.storyId);
+			const passageIds = Object.keys(action.passageUpdates).filter(passageId =>
+				isPersistablePassageChange(action.passageUpdates[passageId])
+			);
+
+			if (passageIds.length === 0) {
+				break;
+			}
 
 			doUpdateTransaction(transaction => {
 				saveStory(transaction, story);
-
-				const passageIds = Object.keys(action.passageUpdates).filter(
-					passageId =>
-						isPersistablePassageChange(action.passageUpdates[passageId])
-				);
 
 				for (const passageId of passageIds) {
 					savePassage(
@@ -159,6 +170,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 					);
 				}
 			});
+			persisted = true;
 			break;
 		}
 
@@ -183,6 +195,7 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 
 				story.passages.forEach(passage => savePassage(transaction, passage));
 			});
+			persisted = true;
 			break;
 		}
 
@@ -195,4 +208,5 @@ export function saveMiddleware(state: StoriesState, action: StoriesAction) {
 	}
 
 	lastState = state;
+	return persisted;
 }

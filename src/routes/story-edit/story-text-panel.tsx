@@ -19,6 +19,7 @@ import {VisibleWhitespace} from '../../components/visible-whitespace';
 
 export interface StoryTextPanelProps {
 	index?: CoreStoryIndex;
+	onRevealPassageInGraph?: (passage: Passage) => void;
 	onSelectPassage?: (passage: Passage) => void;
 	selectedPassageId?: string;
 	selection?: WorkbenchSelection;
@@ -55,7 +56,13 @@ function sourceIcon(source: StorySourceTab) {
 }
 
 export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
-	const {index, onSelectPassage, selectedPassageId, story} = props;
+	const {
+		index,
+		onRevealPassageInGraph,
+		onSelectPassage,
+		selectedPassageId,
+		story
+	} = props;
 	const coreProjectHost = useCoreProjectHost();
 	const storyIndex = React.useMemo(
 		() => index ?? coreProjectHost.queryStoryIndex(story.id),
@@ -255,11 +262,21 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 					<Badge mono tone="neutral">
 						{story.storyFormat} {story.storyFormatVersion}
 					</Badge>
-					{activeSource === 'passage' ? (
-						<>
-							{brokenLinks.length > 0 && (
-								<Badge icon="unlink" tone="error">
-									{brokenLinks.length}
+						{activeSource === 'passage' ? (
+							<>
+								{selectedPassage && onRevealPassageInGraph && (
+									<Button
+										icon="focus-2"
+										onClick={() => onRevealPassageInGraph(selectedPassage)}
+										size="sm"
+										variant="ghost"
+									>
+										{t('routes.storyEdit.workspace.revealInGraph')}
+									</Button>
+								)}
+								{brokenLinks.length > 0 && (
+									<Badge icon="unlink" tone="error">
+										{brokenLinks.length}
 								</Badge>
 							)}
 							<Badge icon="arrow-up-right" tone="link">

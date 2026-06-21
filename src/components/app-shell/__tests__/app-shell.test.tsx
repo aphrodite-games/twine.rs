@@ -1,6 +1,7 @@
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import * as React from 'react';
 import {MemoryRouter} from 'react-router-dom';
+import {publishStorySaveStatus} from '../../../store/persistence/save-status';
 import {StoriesContext, Story} from '../../../store/stories';
 import {fakeStory} from '../../../test-util/fakes';
 import {AppShell} from '../app-shell';
@@ -35,8 +36,15 @@ const MockRouteActions: React.FC = () => {
 				Story: <button type="button">Story Action</button>
 			}
 		});
+		appShell.setDock({
+			content: <span>Dock Content</span>,
+			label: 'Inspector'
+		});
 
-		return () => appShell.setToolbar(undefined);
+		return () => {
+			appShell.setDock(undefined);
+			appShell.setToolbar(undefined);
+		};
 	}, [appShell]);
 
 	return null;
@@ -59,6 +67,7 @@ describe('AppShell', () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks();
+		publishStorySaveStatus({kind: 'idle'});
 		story = {
 			...fakeStory(2),
 			id: 'mock-story',
@@ -84,6 +93,10 @@ describe('AppShell', () => {
 		);
 		expect(await screen.findByText('Build Action')).toBeInTheDocument();
 		expect(screen.getByText('Pin Control')).toBeInTheDocument();
+		expect(
+			screen.getByRole('complementary', {name: 'Inspector'})
+		).toBeInTheDocument();
+		expect(screen.getByText('Dock Content')).toBeInTheDocument();
 		expect(screen.getByText('Opening')).toBeInTheDocument();
 		expect(screen.getByText('5 words')).toBeInTheDocument();
 	});
@@ -100,5 +113,23 @@ describe('AppShell', () => {
 
 		await waitFor(() => expect(mockPlayStory).toHaveBeenCalledWith(story.id));
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('reports persistence errors in the status bar', async () => {
+		renderShell(story);
+
+		act(() => {
+			publishStorySaveStatus({
+				error: new Error('Disk is full'),
+				kind: 'error'
+			});
+		});
+
+		const status = await screen.findByText('Save error');
+
+		expect(status.closest('.app-shell__status-item')).toHaveAttribute(
+			'title',
+			'Disk is full'
+		);
 	});
 });

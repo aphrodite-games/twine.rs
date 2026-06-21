@@ -42,9 +42,9 @@ starting line:
 - **DS components are prototypes only.** `docs/design-system/components/**` are
   preview JSX with `.d.ts` + `.prompt.md` contracts; there are no production
   equivalents the app imports.
-- **The graph is the legacy path.** `StoryEditRoute` renders
-  `MarqueeablePassageMap` → `PassageMap` → `PassageCard`, not DS `PassageNode`
-  backed by Rust graph projection.
+- **The graph was the legacy path.** `StoryEditRoute` rendered
+  `MarqueeablePassageMap` → `PassageMap` → `PassageCard`; D5 replaces that
+  surface with DS `PassageNode` and the generated graph-projection contract.
 - **Previews are isolated.** Play/Test/Proof go through
   [`src/store/use-story-launch.ts`](../../src/store/use-story-launch.ts) →
   [`src/util/replace-dom.ts`](../../src/util/replace-dom.ts) (rewrites the whole
@@ -96,23 +96,25 @@ D8, and the M6 graph-projection requirement is satisfied by D5.
 M6 (Story Formats, Build, Test, Publishing) is **partially done** and is closed
 out *by* the D-series rather than as a standalone push. Its engine (Rust
 contracts + the TS data layer) is largely in place — the capability manifest and
-publish-safety are done, and the graph-projection contract
+publish-safety are done, and the graph-projection DTO/command contract
 (`CoreGraphProjection`, `queryGraphProjection`, `graphProjectionUpdated`) plus
 the asset/command contracts (`importAsset`, `insertAssetSnippet`,
-`renameAsset`, …) are generated from Rust and already host-wired. What remains is
-overwhelmingly *rendering those contracts in the design system*:
+`renameAsset`, …) are generated from Rust and host-wired. The current renderer
+projection is a TypeScript parity bridge that implements the generated contract;
+a native/WASM runtime `ProjectSession` bridge is still a core follow-up. What
+remains is overwhelmingly *rendering those contracts in the design system*:
 
 | M6 item | Status | Closed by |
 | --- | --- | --- |
 | Capability manifest (1) | done (engine) | surfaced in D6 |
-| Format host API (2) | partial — types only | loader = engine now; UI = D6 on the D2 shell |
+| Format host API (2) | partial — types/loader/resolver done | UI = D6 on the D2 shell |
 | Local format dev workflow (3) | missing | D6 (+ engine plumbing) |
 | Build / export / package targets (4) | partial — play/test/proof/publish + Twee/Rust export | engine now; Build screen = D7 |
 | Runtime/debug hooks (5) | missing | D8 |
 | Publish-safety (6) | done (engine) | surfaced in D7 |
-| H1 previews on host/query | partial — still `replaceDom` | D8 |
-| H2 graph projection | contract done, rendering missing | D5 |
-| H3 run-from-here | missing (`startId` plumbed) | D4 / D5 / D8 |
+| H1 previews on host/query | partial — app-owned iframe routes; debugger/reveal bridge still missing | D8 |
+| H2 graph projection | D5 done on the app side; native/WASM host bridge still follow-up | D5 + core bridge |
+| H3 run-from-here | partial (`startId` plumbed; not everywhere) | D4 / D5 / D8 |
 
 **Do not build M6's UI in legacy chrome.** Finish the engine gaps (export/package
 targets, format-module loader, stricter publish-safety) as core-first work in
@@ -191,6 +193,10 @@ Exit criteria:
   card.
 - A new screen can be built entirely from DS primitives with zero legacy
   controls.
+- Legacy primitives remain only as compatibility shims inside unmigrated D6/D7
+  dialogs and source-editor internals. No new D-series screen may import
+  `components/control/*`, `components/container/card/*`, or legacy tag/badge
+  primitives unless it is replacing that surface in the same change.
 
 Depends on: D0 (tokens/fonts).
 
@@ -211,13 +217,15 @@ Core deliverables:
   any screen, sourced from a command registry.
 - Retire the per-route toolbar pattern (`components/route-toolbar`) in favor of
   shell-owned command bar slots and context actions.
-- Status bar wired to real signals: dirty state, save status, current
-  selection, build/preview state, diagnostics counts.
+- Status bar wired to real signals: dirty state, persistence-confirmed save
+  status, current selection, build/preview state, diagnostics counts.
 
 Exit criteria:
 
 - Every route renders inside `AppShell`; rail + command bar + status bar are
   always present and consistent.
+- The shell exposes route-owned toolbar and dock registration APIs; route-local
+  docks are migration shims, not the long-term pattern.
 - Command palette works app-wide and can invoke navigation + core commands.
 
 Depends on: D0, D1.
@@ -269,15 +277,19 @@ Core deliverables:
 Exit criteria:
 
 - A side-by-side of the running Text mode against `TextMode.jsx` is visually
-  matching (layout, density, type, color, panels).
+  matching (layout, density, type, color, panels) and is attached as a visual
+  artifact or screenshot pair before D4 is called complete.
 - No legacy color/font aliases remain in the story-edit or source-editor CSS.
+
+Audit artifact: [`visual-audits/D4_D5_AUDIT_2026-06-21.md`](./visual-audits/D4_D5_AUDIT_2026-06-21.md)
+records the D4 screenshot pair and the D5 implementation checks.
 
 Depends on: D2, D1.
 
 ## D5: Workbench Graph Mode — PassageNode + Rust Projection
 
-Replace the legacy passage map with the DS graph, backed by the Rust graph
-projection so it can drive preview/reveal flows.
+Replace the legacy passage map with the DS graph, backed by the generated
+Rust graph-projection contract so it can drive preview/reveal flows.
 
 Source artifacts: `ui_kits/workbench/GraphMode.jsx`,
 `components/data/PassageNode`.
@@ -287,15 +299,18 @@ Core deliverables:
 - Replace `MarqueeablePassageMap` → `PassageMap` → legacy `PassageCard`
   ([`src/components/passage`](../../src/components/passage)) with DS `PassageNode`
   rendered in a DS GraphMode surface.
-- Back the graph with `QueryGraphProjection` from the Rust core (visible nodes,
-  edges, generated/saved layout, selection focus, save-layout) — satisfying the
-  M6 graph-projection requirement.
+- Back the graph with `QueryGraphProjection` DTOs (visible nodes, edges,
+  generated/saved layout, selection focus, viewport filtering, save-layout).
+  Until the native/WASM `ProjectSession` bridge lands, the renderer uses the TS
+  parity implementation and must keep Rust binding/parity tests green.
 - Wire **Split mode** to bind Text + Graph per the Workbench.
 - Graph visual states (broken link, self link, start, search highlight, tag
   indicators) use `--sem-*` tokens.
 
-Exit criteria: graph mode renders DS `PassageNode`s from Rust projection;
-reveal-in-graph works from text, search, and diagnostics; Split mode is live.
+Exit criteria: graph mode renders DS `PassageNode`s from the projection
+contract; reveal-in-graph works from text, search, and diagnostics; Split mode is
+live; viewport/focus options are passed through the query boundary; generated
+layout save flows through the host.
 
 Depends on: D4; Rust `QueryGraphProjection`.
 
@@ -347,16 +362,16 @@ Depends on: D2; build content from M6.
 
 ## D8: Preview & Debug Surface
 
-Replace `replaceDom`/scratch-HTML previews with an app-owned, inspectable
-preview pane — the M6 "fully functional GUI previews" deliverable.
+Promote the app-owned preview routes into an inspectable preview/debug pane —
+the M6 "fully functional GUI previews" deliverable.
 
 Source artifacts: `ui_kits/play/index.html`.
 
 Core deliverables:
 
 - An app-owned preview surface (pane or DS-framed window) that hosts the built
-  story instead of [`src/util/replace-dom.ts`](../../src/util/replace-dom.ts)
-  rewriting the whole document.
+  story. The browser Play/Test/Proof routes now use iframe previews; D8 finishes
+  the Electron scratch-window path and the debugger/reveal bridge.
 - A DS **debug strip**: current passage, variable/state inspection, logs,
   viewport controls, source reveal, graph reveal (via D5 projection),
   diagnostics, and asset inspection.
@@ -364,8 +379,9 @@ Core deliverables:
   references, wired through `use-story-launch` + the build package, with
   source/graph reveal optional when graph metadata is absent.
 
-Exit criteria: Play/Test/Proof open inside the DS preview surface with a working
-debug strip; the app is never swapped out via `replaceDom`.
+Exit criteria: Play/Test/Proof open inside the DS preview surface in both browser
+and desktop contexts with a working debug strip; the app is never swapped out via
+`replaceDom`.
 
 Depends on: D2, D4, D5; M6 build package + capability report.
 
@@ -446,7 +462,9 @@ but violates them is **not** done.
 - **Reads go through typed queries.** Screens render `QueryStoryIndex`,
   `QueryGraphProjection`, and the file-backed asset inventory DTOs. The UI does
   **not** parse Twee, compute backlinks, derive broken links, or lay out the
-  graph — Rust produces the semantic facts, the DS renders them.
+  graph ad hoc. During the TS parity-bridge phase, renderer query code must
+  preserve Rust-generated DTO shapes and parity tests; once the native/WASM host
+  lands, Rust produces those semantic facts and the DS renders them.
 - **Snapshots + patch streams.** Initial load is one snapshot; ongoing work is
   `subscribeToPatches()` patch batches from a live Rust `ProjectSession`. Replace
   the current store-synthesized patches with real core patches. No giant

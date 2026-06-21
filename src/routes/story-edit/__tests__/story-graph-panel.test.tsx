@@ -1,5 +1,6 @@
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import * as React from 'react';
+import {StoreCoreProjectHost} from '../../../core/project-host';
 import {StoriesContext} from '../../../store/stories';
 import {UndoableStoriesContext} from '../../../store/undoable-stories';
 import {fakePassage, fakeStory} from '../../../test-util';
@@ -43,8 +44,14 @@ function graphStory(generatedLayout = false) {
 	return {next, start, story};
 }
 
-function renderComponent(generatedLayout = false) {
+function renderComponent(
+	generatedLayout = false,
+	configure?: (context: ReturnType<typeof graphStory>) => void
+) {
 	const {next, start, story} = graphStory(generatedLayout);
+
+	configure?.({next, start, story});
+
 	const onCreate = jest.fn();
 	const onDeselect = jest.fn();
 	const onEdit = jest.fn();
@@ -97,6 +104,8 @@ function nodeButton(container: HTMLElement, passageId: string) {
 }
 
 describe('<StoryGraphPanel>', () => {
+	afterEach(() => jest.restoreAllMocks());
+
 	it('renders passage nodes and projected link edges', () => {
 		const {result} = renderComponent();
 
@@ -114,6 +123,66 @@ describe('<StoryGraphPanel>', () => {
 
 		expect(result.container.querySelector('[data-kind="resolved"]')).toBeTruthy();
 		expect(result.container.querySelector('[data-kind="broken"]')).toBeNull();
+	});
+
+	it('passes the measured viewport into graph projection queries', async () => {
+		const widthSpy = jest
+			.spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+			.mockReturnValue(320);
+		const heightSpy = jest
+			.spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+			.mockReturnValue(240);
+		const querySpy = jest.spyOn(
+			StoreCoreProjectHost.prototype,
+			'queryGraphProjection'
+		);
+		const {story} = renderComponent();
+
+		await waitFor(() =>
+			expect(querySpy).toHaveBeenCalledWith(
+				story.id,
+				expect.objectContaining({
+					viewport: expect.objectContaining({
+						height: 240,
+						left: 0,
+						top: 0,
+						width: 320
+					})
+				})
+			)
+		);
+
+		widthSpy.mockRestore();
+		heightSpy.mockRestore();
+	});
+
+	it('focuses every selected passage when graph focus is enabled', async () => {
+		const querySpy = jest.spyOn(
+			StoreCoreProjectHost.prototype,
+			'queryGraphProjection'
+		);
+		const {start, story} = renderComponent(false, ({next, start}) => {
+			start.selected = true;
+			next.selected = true;
+		});
+
+		fireEvent.click(
+			screen.getByRole('button', {name: 'Focus selected passages'})
+		);
+
+		await waitFor(() =>
+			expect(querySpy).toHaveBeenCalledWith(
+				story.id,
+				expect.objectContaining({
+					focus: expect.objectContaining({
+						direction: 'both',
+						passageIds: [start.id, 'next'],
+						radius: 1
+					}),
+					viewport: null
+				})
+			)
+		);
 	});
 
 	it('selects, edits, and creates passages from graph interactions', () => {

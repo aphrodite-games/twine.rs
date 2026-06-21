@@ -44,7 +44,9 @@ Demand clusters to design around:
 
 ## Plain-Language Answer To Passage Map Scale And External Edits
 
-`twine.rs` addresses large passage maps by giving authors real project structure first, then letting them work through Text, Contents, Graph, or Split views instead of forcing the whole story into one giant visual map. Visual groups, collapsed areas, saved map layouts, generated layouts, and auto-grouping rules live in sidecar story-graph metadata; on export that sidecar is deterministically bundled into a reserved `StoryGraph` passage and parsed back out into sidecar data on import, while outside edits are detected, reindexed, and merged through explicit review when needed.
+`twine.rs` addresses large passage maps by giving authors real project structure first, then letting them work through Text, Contents, Graph, or Split views instead of forcing the whole story into one giant visual map. Visual groups, collapsed areas, saved map layouts, generated layouts, and auto-grouping rules live in sidecar story-graph metadata. When a full-fidelity single-file export needs to preserve that data, the sidecar is deterministically bundled into one reserved metadata passage named `StoryGraph` and parsed back out into sidecar data on import. `StoryGraph` is not story prose, not a visible graph node, and not a model where every group becomes a fake passage. Outside edits are detected, reindexed, and merged through explicit review.
+
+Normal Twine compatibility is an explicit mode, not an accident. Imported Twine HTML/Twee passage positions should be read from the normal passage-level `position`/`size` metadata and converted into `.twine/graph.json` sidecar layout data. Compatibility export should do the reverse: take the current sidecar layout and bake the best possible position-based representation back into ordinary Twine passage metadata, while warning about graph-only structure such as groups, collapse state, saved views, and annotations that cannot be represented by normal Twine layout fields. This keeps stories moving back and forth without breaking basic map placement.
 
 ## Core Product Model: Text-Native, Graph-Native, Split-Native
 
@@ -62,13 +64,15 @@ Project format implication: story content, author-defined passage hierarchy, and
 
 The full-fidelity interchange format is the `twine.rs` project folder or project archive. It must preserve story content, source files, assets, IFIDs, tags, custom attributes, unknown metadata, author-defined hierarchy, graph positions, visual groups, collapsed state, annotations, saved views, and workspace/editor metadata. The canonical editable home for graph-specific data is the project sidecar, not a prose passage.
 
-Twee export is a portable source interchange format. It should preserve story content and compatible metadata where the Twee notation can carry it. When a single exported file needs to round-trip graph structure, `twine.rs` should deterministically bundle the sidecar graph data into a reserved passage named `StoryGraph`; plain/compatibility Twee export may omit this passage or warn that visual organization metadata is being left behind.
+Twee export is a portable source interchange format. It should preserve story content and compatible metadata where the Twee notation can carry it. When a single exported file needs to round-trip graph structure, `twine.rs` should deterministically bundle the sidecar graph data into a single reserved passage named `StoryGraph`; plain/compatibility Twee export may omit this passage or warn that visual organization metadata is being left behind.
 
-Story HTML export is a playable/runtime artifact and a legacy import/export path, not the canonical home for editor-only structure. Project-compatible Story HTML should include the deterministic `StoryGraph` passage as a `tw-passagedata` carrier when full-fidelity round-tripping is requested; publish/play output should exclude it by default unless the author explicitly asks to include editor metadata.
+Story HTML export is a playable/runtime artifact and a legacy import/export path, not the canonical home for editor-only structure. Project-compatible Story HTML should include the deterministic `StoryGraph` passage as a `tw-passagedata` carrier when full-fidelity round-tripping is requested; publish/play output should exclude it by default unless the author explicitly asks to include editor metadata. A dedicated `<tw-passagegroup>` element may be accepted as future-compatible import input if encountered, but it is not the primary preservation carrier until Twine-family tools consistently preserve unknown metadata elements.
+
+Normal Twine compatibility mode should intentionally avoid requiring `StoryGraph`. It should preserve what standard Twine understands by writing passage positions and sizes into `tw-passagedata` attributes for HTML and passage header metadata for Twee. On import, those baked-in positions should be lifted into sidecar graph metadata so the internal project stays source-clean. Compatibility mode is lossy for graph-native features that normal Twine cannot express, but it must be predictable, reversible for basic positions, and explicit about omissions.
 
 Import rule: never silently discard recognized or unknown metadata. Anything that cannot be represented losslessly in the target format must either remain in the project model, be preserved in a sidecar/archive, or appear in migration/export review with a clear warning.
 
-Story graph bundle rule: the reserved passage name is `StoryGraph`. This passage is not the canonical editable data model; it is the deterministic export envelope for the sidecar story-graph metadata. The app should reserve this passage name, hide it from normal passage lists and graph views by default, exclude it from play/test/publish by default, validate its JSON, and surface it through Graph Metadata tools instead of treating it as prose.
+Story graph bundle rule: the reserved passage name is `StoryGraph`. This passage is not the canonical editable data model; it is the deterministic export envelope for the sidecar story-graph metadata. The app should reserve this passage name, hide it from normal passage lists and graph views by default, exclude it from play/test/publish by default, validate its JSON, and surface it through Graph Metadata tools instead of treating it as prose. It should be one bundle passage, not one synthetic passage per group, so other passage-centric tools have a good chance of preserving the data without polluting the author's story graph.
 
 The sidecar data bundled into `StoryGraph` may contain manual grouping, collapsed state, saved graph layouts, annotations, workspace view state, and derived organization rules. Derived rules can group passages by folder path, passage-name pattern, tag, outgoing/incoming link shape, connected component, reachability island, hub/spoke neighborhood, or graph-clustering algorithm; manual overrides and pinned groups must use stable IDs so external renames and reindexes do not destroy author intent.
 
@@ -106,7 +110,7 @@ What works well: this is the core visual Twine feeling. The author can see nonli
 
 Current limits: the map is a React/DOM/SVG surface that gets expensive as passages and links grow. It assumes the map is the main editing surface. Link clutter, search reveal, selection, grouping, and large-scale navigation are limited. Every feature competes for the same surface.
 
-What `twine.rs` should look like: graph mode should be a dedicated high-performance editor, but not mandatory for every project. It should pan/zoom smoothly at 10k to 50k passages, render only visible nodes, draw edges on canvas/WebGL, expose link layers and diagnostics layers, include a minimap, support lasso selection, group/collapse, align/distribute, snap/grid, annotations, double-click creation, drag-to-connect, and reveal-in-source. If no saved layout exists, it should generate a temporary layout and offer to persist it.
+What `twine.rs` should look like: graph mode should be a dedicated high-performance editor, but not mandatory for every project. It should pan/zoom smoothly at 10k to 50k passages by moving heavy graph facts into indexes, querying only the current viewport, rendering visible passage cards, and drawing only visible or requested edge layers on canvas/WebGL. React should not own the whole map; it should receive small visible-node/link projections. The target is that ordinary pan/zoom viewport updates stay effectively instant, with sub-millisecond projection/diff work as the aspiration for large indexed projects. Graph mode should expose link layers and diagnostics layers, include a minimap, support lasso selection, group/collapse, align/distribute, snap/grid, annotations, double-click creation, drag-to-connect, and reveal-in-source. If no saved layout exists, it should generate a temporary layout and offer to persist it.
 
 ### Passage Editor / Dialog Stack
 
@@ -308,11 +312,20 @@ Core deliverables:
 - A canonical multi-file project layout with `twine.toml`, nested `passages/` folders, `scripts/`, `styles/`, `assets/`, and generated indexes clearly separated.
 - First-class passage hierarchy metadata for folders/sections/chapters/books: stable scope IDs, display names, explicit ordering, membership, and round-trip-safe storage so authors do not need Tweego conventions just to keep large stories organized.
 - Optional story-graph sidecar metadata. Passage positions, card sizes, groups, saved layouts, annotations, and derived organization rules are sidecar/project metadata, not required for a valid source project.
-- A reserved `StoryGraph` passage for full-fidelity single-file Twee/Story HTML round trips. Export deterministically bundles sidecar story-graph data into this passage; import parses it back out into sidecar data and removes it from normal story content.
+- Normal Twine compatibility mode: import passage-baked positions and sizes from Twine HTML/Twee into sidecar graph metadata, and export sidecar positions back into standard Twine passage position/size fields when the author chooses compatibility output.
+- A reserved `StoryGraph` metadata passage for full-fidelity single-file Twee/Story HTML round trips. Export deterministically bundles sidecar story-graph data into this one passage; import parses it back out into sidecar data and removes it from normal story content. Groups must not be represented as fake passages, and `<tw-passagegroup>` should be treated as an optional future-compatible input form rather than the preservation backbone.
 - Importers for Twine HTML, Twee, JSON-style interchange, Twine 1.x where practical, and existing browser/localStorage stories.
 - Lossless preservation of IFID, story tags, passage tags, custom passage attributes, unknown metadata, sort order, folder/chapter/book membership, color metadata, start passage, and story format selection.
 - External edit handling: watch project folders, detect edits from external editors/Git/scripts, incrementally reparse and reindex changed files, auto-apply non-conflicting disk changes, and route conflicts through an explicit review/merge flow rather than clobbering either source or in-app changes.
 - A transactional save model with undoable structural edits, dirty-state indicators, backup reminders, explicit local/cloud/storage messaging, and user-selected project locations.
+
+Implementation locks after the D1-D5/M0-M6 audit:
+
+- **DONE in engine:** Normal Twine `tw-passagedata position/size` attributes and Twee passage header position metadata parse into passage layout fields.
+- **DONE in engine:** Passage layout exports back into ordinary Twine HTML/Twee `position`/`size` metadata when that layout is present.
+- **MISSING in app integration:** New/Open Project still creates/imports legacy app stories instead of creating/opening a file-backed `twine.rs` project folder through `FileProjectStore`/`ProjectSession`.
+- **MISSING in app integration:** Live project-folder watching, external edit detection, incremental reparse/reindex, and conflict review are not yet wired into the Electron/React app.
+- **MISSING in UI:** Export review warnings must distinguish basic position layout, which compatibility mode can preserve, from groups, collapsed state, annotations, saved views, and derived rules, which require project/archive or `StoryGraph` fidelity.
 
 Highest-signal requests in this milestone:
 
@@ -353,7 +366,7 @@ Highest-signal requests in this milestone:
 
 ### M2: Fast Native Story Graph
 
-Turn graph mode into a native-feeling story editor that can pan, zoom, select, link, group, annotate, and inspect huge stories without DOM/SVG exhaustion. Graph mode must be excellent when layout exists and graceful when it does not.
+Turn graph mode into a native-feeling story editor that can pan, zoom, select, link, group, annotate, and inspect huge stories without DOM/SVG exhaustion. Heavy graph facts live in indexes; the UI queries viewport projections and renders only what is visible or intentionally focused. Graph mode must be excellent when layout exists and graceful when it does not.
 
 Primary screen: Graph Canvas.
 
@@ -361,12 +374,19 @@ Recorded enhancement requests: **25**. Priority mix: P2=1, P3=16, P4=7, unpriori
 
 Core deliverables:
 
-- Virtualized node rendering, canvas/WebGL link rendering, index-backed link layers, link visibility toggles, and selected-neighborhood focus.
+- Virtualized node rendering, canvas/WebGL link rendering, index-backed link layers, viewport-only edge drawing, link visibility toggles, and selected-neighborhood focus.
+- Performance contract for massive stories: 10k passages should pan/zoom smoothly, 50k passages should remain searchable/filterable/navigable without attempting to draw everything, and ordinary viewport projection/diff work should aim for sub-millisecond latency on indexed data.
 - Ephemeral auto-layout for projects with no saved positions, plus an explicit Save Layout action if the author wants to persist graph coordinates.
 - Scoped graph views for folders/sections/chapters/books, including breadcrumbs, scope pickers, collapse/expand, "show neighboring links" controls, and clear cross-scope edge indicators so a 10k-passage story can be edited one chapter at a time.
 - Programmatic grouping suggestions from passage names, folder paths, tags, link topology, connected components, reachability islands, and graph clustering. Suggested groups stay derived until the author pins or edits them, then they become stable project metadata.
 - Map interactions authors expect: double-click create, right-click menus, connector-drag linking, snap/grid, align/distribute, copy/paste, layers/groups, annotations, and minimap reveal.
 - Graph-specific visual states for broken links, self links, start passage, empty tagged passages, tag indicators, search highlights, and duplicate/renamed passages.
+
+Future implementation locks (not yet implemented):
+
+- **MISSING:** Viewport projection path where graph facts, adjacency, link layers, layout lookup, and visibility tests are index-backed, and React receives only visible passage cards plus visible/requested edges.
+- **MISSING:** Compatibility bridge that can render imported normal-Twine position metadata through the same sidecar-backed graph projection after positions are lifted into `.twine/graph.json`.
+- **MISSING:** Performance validation fixtures for 10k and 50k passage projects, including pan/zoom latency, viewport projection latency, edge-layer filtering, search/filter responsiveness, and memory ceilings.
 
 Highest-signal requests in this milestone:
 
@@ -453,7 +473,7 @@ Completed foundation:
 Remaining intentional shims before/inside M5:
 
 - `CoreProjectHost.subscribeToPatches()` currently synthesizes `storyIndexUpdated` patches from store changes. Replace this with live Rust `ProjectSession` patch batches once Rust owns project mutation.
-- `StoreCoreProjectHost` intentionally leaves several generated commands as no-ops while the legacy store backs the app, including graph projection/save-layout query paths. Do not add new legacy-only M5 flows where a host command can express the operation.
+- `StoreCoreProjectHost` is still a compatibility host while the legacy store backs the app. Graph projection, generated-layout save, story source updates, quick fixes, and asset commands now have real store-backed behavior where possible; remaining generated commands should continue to land on the host boundary instead of adding new legacy-only M5 flows.
 - Several screens still mutate legacy state directly. Close those gaps opportunistically during M5 by moving asset, editor, search/replace, tag, graph-layout, and quick-fix actions through `CoreProjectHost.applyStoryCommand()` or new generated commands.
 - `AssetManagerViewModel` is currently reference-backed, using indexed asset references in passages/script/style. M5 must replace this with a file-backed asset inventory from the real project folder: actual files in `assets/`, missing references, unused files, kind, size, dimensions/duration, modified time, snippet suggestions, and publish-copy status.
 - The copied workbench CSS is now app-owned and wired to live Contents/Diagnostics fragments. M5 should continue porting prototype JSX screen-by-screen, not paste standalone HTML/Babel prototypes into `src/`.
@@ -480,6 +500,13 @@ M5 implementation checklist from the M1-M4 audit:
 - Add missing-asset and unused-asset diagnostics, find-usage results, and publish-copy rules. Asset references must be first-class in Contents, Search, Diagnostics, Import Review, and Export/Package.
 - Keep asset previews functional in Text, Graph, and Split modes: thumbnails, inline editor previews, inspector previews, and graph-card/media previews must all resolve through the same inventory rather than ad hoc path parsing.
 
+M5 implementation status (audited 2026-06-21 — **partially done**):
+
+- **DONE in engine/contracts:** file-backed Rust asset operations exist when a `ProjectSession` has a project root; the TypeScript `CoreProjectHost` exposes asset commands and publishes asset patches; the workbench has a reference-backed Asset Manager surface.
+- **PARTIAL in UI:** Text/Split can insert snippets, copy snippets, reveal paths, validate references, and show reference-derived asset previews through the host.
+- **MISSING in app integration:** the React/Electron app still does not open stories as file-backed project roots, so the primary Asset Manager view remains reference-backed/in-memory instead of reading real files from `assets/`.
+- **MISSING in D6:** the standalone Assets screen must promote the workbench fallback into a full file inventory with missing/unused diagnostics, metadata, thumbnails, import conflict handling, and publish-copy controls.
+
 Highest-signal requests in this milestone:
 
 - [#114](https://github.com/klembot/twinejs/issues/114) Importing image resources (P2 (should), 9 comments)
@@ -499,15 +526,15 @@ Core deliverables:
 - A story-format capability manifest for parser, exporter, syntax, completions, diagnostics, docs, editor toolbar actions, menu items, preprocessing, statistics, dev-only tools, lazy-loaded modules, bundle inclusion policy, and migration compatibility.
 - A format host API that lets custom formats add editor/workbench UI enhancements through declared app-owned extension points instead of injecting UI code into the final story runtime.
 - Local story-format development workflow: load a format from a folder, connect to a dev server, hot reload/HMR editor extensions and preview code, surface source maps/logs, and reload formats without restarting the app.
-- Build targets for Play, Test From Selection, Proof, Export HTML, Export Twee, Export JSON, Package, Publish, and source/HTML inspection with warnings before output.
-- Export/import fidelity boundaries: project folder/archive is the full-fidelity format; full-fidelity single-file source export can carry the sidecar in the reserved `StoryGraph` passage; Twee, Story HTML, JSON, package, and publish targets must clearly state which story data, graph metadata, author hierarchy, derived grouping rules, and editor/workspace metadata they preserve or intentionally omit.
+- Build targets for Play, Test From Selection, Proof, Export HTML, Export Twee, Export JSON, Package, Publish, compatibility export, and source/HTML inspection with warnings before output.
+- Export/import fidelity boundaries: project folder/archive is the full-fidelity format; full-fidelity single-file source export can carry the sidecar in one reserved `StoryGraph` metadata passage; Twee, Story HTML, JSON, package, and publish targets must clearly state which story data, graph metadata, author hierarchy, derived grouping rules, and editor/workspace metadata they preserve or intentionally omit. Compatibility mode should omit `StoryGraph` by default and instead write the best normal-Twine position representation into passage metadata; project-compatible mode should include `StoryGraph` as a `tw-passagedata` carrier so passage-centric tools are more likely to preserve richer metadata.
 - Runtime/debug hooks for current passage, variable/state inspection, launched-from-editor detection, format devtools panels, JSON/story-data injection inspection, Open Graph metadata, localization, compression, excluded passages, and format-version rollback.
 - Publish-safety checks that prove dev-only tooling, editor UI extensions, diagnostics helpers, HMR clients, and local dev-server glue are excluded from exported HTML/packages unless explicitly marked as runtime code.
 
 Preview/debug handoff from the M1-M5 path:
 
 - Fully functional GUI previews depend on the M3 source editor, M4 story index, M5 asset inventory, and M2 graph projection all reporting through host/query contracts. M6 should wire Play/Test/Proof previews to those contracts instead of launching isolated preview code that cannot reveal source, reveal graph, inspect assets, or report diagnostics.
-- The graph panel migration to `QueryGraphProjection` is owned by **D5** (Workbench Graph Mode) and is a hard dependency for fully functional GUI previews (**D8**) — it is not optional and must not be deferred past D5. The Rust contract already exists: the generated `CoreGraphProjection` DTO, the `queryGraphProjection` command, and the `graphProjectionUpdated`/`layoutSaved` patches are in place, and `CoreProjectHost` already has a query case. What remains is replacing the legacy passage map with DS `PassageNode` rendering on that projection (visible nodes, edges, generated layout, selection focus, save-layout).
+- The graph panel migration to `QueryGraphProjection` is owned by **D5** (Workbench Graph Mode) and is a hard dependency for fully functional GUI previews (**D8**) — it is not optional and must not be deferred past D5. The Rust contract already exists: the generated `CoreGraphProjection` DTO, the `queryGraphProjection` command, and the `graphProjectionUpdated`/`layoutSaved` patches are in place. D5 now renders DS `PassageNode`s from that projection, passes viewport/focus options through the query boundary, saves generated layout through the host, and exposes explicit reveal-in-graph affordances from text, search, and diagnostics.
 - Runtime previews should support "run from here" from Text, Graph, Split, search results, diagnostics, and asset references, with source/graph reveal kept optional when graph metadata is absent.
 
 M6 implementation status (audited 2026-06-21 — **partially done**):
@@ -516,16 +543,17 @@ M6 splits along an engine/UI seam. The **engine** (Rust contracts plus the TypeS
 
 - Capability manifest (deliverable 1): **DONE** — `src/util/story-format/capabilities.ts` derives the full manifest; tested.
 - Publish-safety checks (deliverable 6): **DONE** — `inspectStoryFormatPublishSafety()` + `assertPublishSafety()` enforce dev-only exclusion on the publish target; tested.
-- Build targets (deliverable 4): **PARTIAL** — `play`/`test`/`proof`/`publish` run through `createStoryBuildPackage()`; Twee export (`src/util/twee.ts`) and Rust HTML/JSON export (`twine_export`) exist, but Export HTML/JSON/Package have no first-class UI. *Finish the engine wiring now; the Build screen is D7.*
-- Export/import fidelity boundary: **PSEUDO SPEC** — the roadmap now treats the `twine.rs` project folder/archive as the full-fidelity format and allows full-fidelity single-file source export by deterministically bundling sidecar story-graph data into the reserved `StoryGraph` passage. Existing Rust model/store/export work already supports sidecar layout and metadata preservation in part; remaining work is archive packaging, `StoryGraph` parse/export, export warnings, and publish-time exclusion.
-- Format host API (deliverable 2): **PARTIAL** — module slots/types declared (`StoryFormatModuleSlot`, `StoryFormatDeclaredModule`); no loader/resolver/UI. *Loader/resolver is engine work; the extension-point UI lands with D6 (Formats) on the D2 shell.*
+- Build targets (deliverable 4): **PARTIAL** — `play`/`test`/`proof`/`publish` run through `createStoryBuildPackage()`; Export HTML/JSON/Twee/Package targets exist in the package builder, and Rust HTML/JSON export (`twine_export`) exists, but Export HTML/JSON/Package have no first-class Build screen UI. *The Build screen is D7.*
+- Export/import fidelity boundary: **PSEUDO SPEC** — the roadmap now treats the `twine.rs` project folder/archive as the full-fidelity format and allows full-fidelity single-file source export by deterministically bundling sidecar story-graph data into one reserved `StoryGraph` metadata passage. Normal Twine compatibility mode is also a required export/import path: import passage-level `position`/`size` into sidecar layout, and export sidecar layout back into passage-level `position`/`size` without requiring `StoryGraph`. Existing Rust model/store/export work already supports sidecar layout and metadata preservation in part; remaining work is archive packaging, `StoryGraph` parse/export, compatibility export settings, export warnings, publish-time exclusion, and optional import support for future `<tw-passagegroup>` elements without making them the canonical model.
+- Normal Twine compatibility export setting: **MISSING** — the Build/Export UI must offer a compatibility output mode that omits `StoryGraph` by default, writes sidecar positions into normal Twine position/size metadata, and warns when richer graph metadata will not round-trip through standard Twine.
+- Format host API (deliverable 2): **PARTIAL** — module slots/types, capability derivation, module resolution, and module loading are implemented and tested; extension-point UI and format-management screens still land with D6 (Formats) on the D2 shell.
 - Local format dev workflow (deliverable 3): **MISSING** — only option types exist. *Dev-server/HMR plumbing pairs with the D6 Formats screen.*
 - Runtime/debug hooks (deliverable 5): **MISSING**. *Owned by D8.*
-- H1 (previews on host/query contracts): **PARTIAL** — previews call `usePublishing()` → `CoreProjectHost`, but still render via `replaceDom()`/scratch HTML. The app-owned preview surface is **D8**.
-- H2 (graph projection): **contract DONE, rendering MISSING** — see the bullet above; **D5**.
-- H3 ("run from here" everywhere): **MISSING** — `startId` is plumbed but there are no affordances; lands across **D4/D5/D8**.
+- H1 (previews on host/query contracts): **PARTIAL** — previews call `usePublishing()` → `CoreProjectHost` and now render in app-owned iframe surfaces instead of `replaceDom()`; debugger/source/graph reveal bridges are still **D8**.
+- H2 (graph projection): **DONE for D5** — DS graph rendering, viewport/focus query options, generated layout save, and explicit reveal-in-graph are wired on the app side. Native/WASM `ProjectSession` bridging remains follow-up.
+- H3 ("run from here" everywhere): **PARTIAL** — `startId` is plumbed and passage-level Test From Here exists, but run-from-here is not yet exposed from every Text/Graph/Split/search/diagnostic/preview context; remaining work lands across **D4/D5/D8**.
 
-Sequencing implication: **do not build any M6 UI in the legacy shell.** Finish the engine gaps now (export/package targets, format-module loader, stricter publish-safety) as core-first work in parallel with **D0**; then the screen migrations close out M6 as they bring the engine onscreen — **D5** closes H2, **D6** surfaces deliverables 1–3, **D7** surfaces deliverables 4 and 6, and **D8** closes H1, H3, and deliverable 5. Full closure map in [`TWINE_RS_DESIGN_SYSTEM_SPINE.md`](./TWINE_RS_DESIGN_SYSTEM_SPINE.md).
+Sequencing implication: **do not build any M6 UI in the legacy shell.** The core-first work is now mostly in place; the remaining closures are screen migrations and app integration — **D5** closes H2, **D6** surfaces deliverables 1–3, **D7** surfaces deliverables 4 and 6, and **D8** closes H1, H3, and deliverable 5. Full closure map in [`TWINE_RS_DESIGN_SYSTEM_SPINE.md`](./TWINE_RS_DESIGN_SYSTEM_SPINE.md).
 
 Highest-signal requests in this milestone:
 

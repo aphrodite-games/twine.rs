@@ -26,7 +26,7 @@ describe('stories local storage save middleware', () => {
 	});
 
 	it('takes no action when an init action is received', () => {
-		saveMiddleware(state, {type: 'init', state: []});
+		expect(saveMiddleware(state, {type: 'init', state: []})).toBe(false);
 		expect(doUpdateTransactionMock).not.toHaveBeenCalled();
 		expect(savePassageMock).not.toHaveBeenCalled();
 		expect(saveStoryMock).not.toHaveBeenCalled();
@@ -43,11 +43,13 @@ describe('stories local storage save middleware', () => {
 		it('saves the story using a transaction', () => {
 			const transaction = {passageIds: '', storyIds: ''};
 
-			saveMiddleware(state, {
-				type: 'createPassage',
-				props: {name: state[0].passages[0].name},
-				storyId: state[0].id
-			});
+			expect(
+				saveMiddleware(state, {
+					type: 'createPassage',
+					props: {name: state[0].passages[0].name},
+					storyId: state[0].id
+				})
+			).toBe(true);
 			expect(doUpdateTransactionMock).toHaveBeenCalledTimes(1);
 			doUpdateTransactionMock.mock.calls[0][0](transaction);
 			expect(savePassageMock.mock.calls).toEqual([
@@ -285,12 +287,14 @@ describe('stories local storage save middleware', () => {
 		});
 
 		it('does nothing if the change is trivial', () => {
-			saveMiddleware(state, {
-				type: 'updatePassage',
-				props: {selected: true},
-				passageId: state[0].passages[0].id,
-				storyId: state[0].id
-			});
+			expect(
+				saveMiddleware(state, {
+					type: 'updatePassage',
+					props: {selected: true},
+					passageId: state[0].passages[0].id,
+					storyId: state[0].id
+				})
+			).toBe(false);
 			expect(doUpdateTransactionMock).not.toHaveBeenCalled();
 			expect(savePassageMock).not.toHaveBeenCalled();
 		});
@@ -340,16 +344,17 @@ describe('stories local storage save middleware', () => {
 		});
 
 		it('does nothing if the change is trivial', () => {
-			saveMiddleware(state, {
-				type: 'updatePassages',
-				passageUpdates: {
-					[state[0].passages[0].id]: {selected: true}
-				},
-				storyId: state[0].id
-			});
+			expect(
+				saveMiddleware(state, {
+					type: 'updatePassages',
+					passageUpdates: {
+						[state[0].passages[0].id]: {selected: true}
+					},
+					storyId: state[0].id
+				})
+			).toBe(false);
 
-			// This will start a transaction, but that transaction should do nothing.
-
+			expect(doUpdateTransactionMock).not.toHaveBeenCalled();
 			expect(savePassageMock).not.toHaveBeenCalled();
 		});
 

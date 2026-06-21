@@ -20,7 +20,7 @@ import type {CoreGraphNode} from '../../core/bindings/CoreGraphNode';
 import type {CoreLinkLayerOptions} from '../../core/bindings/CoreLinkLayerOptions';
 import type {CoreRect} from '../../core/bindings/CoreRect';
 import {Passage, Story} from '../../store/stories';
-import {Point} from '../../util/geometry';
+import {Point, rectsIntersect} from '../../util/geometry';
 
 export interface StoryGraphPanelProps {
 	onCreate: (point: Point) => void;
@@ -69,6 +69,15 @@ function visualRect(rect: CoreRect): CoreRect {
 		...rect,
 		height: Math.max(rect.height, nodeVisualSize.height),
 		width: Math.max(rect.width, nodeVisualSize.width)
+	};
+}
+
+function passageRect(passage: Passage): CoreRect {
+	return {
+		height: passage.height,
+		left: passage.left,
+		top: passage.top,
+		width: passage.width
 	};
 }
 
@@ -200,20 +209,43 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		y: number;
 	}>();
 	const recentlyDragged = React.useRef(false);
+	const selectedPassageIds = React.useMemo(() => {
+		const selectedIds = story.passages
+			.filter(passage => passage.selected)
+			.map(passage => passage.id);
+
+		return selectedIds.length > 0
+			? selectedIds
+			: selectedPassageId
+				? [selectedPassageId]
+				: [];
+	}, [selectedPassageId, story.passages]);
+	const selectedPassage = selectedPassageId
+		? story.passages.find(passage => passage.id === selectedPassageId)
+		: undefined;
+	const measuredViewport =
+		viewport.height > 1 && viewport.width > 1 ? viewport : null;
+	const selectedPassageInViewport =
+		!selectedPassage ||
+		!measuredViewport ||
+		rectsIntersect(visualRect(passageRect(selectedPassage)), measuredViewport);
+	const queryViewport =
+		focusSelection || !selectedPassageInViewport ? null : measuredViewport;
 	const projection = React.useMemo(
 		() =>
 			host.queryGraphProjection(story.id, {
 				focus:
-					focusSelection && selectedPassageId
+					focusSelection && selectedPassageIds.length > 0
 						? {
 								direction: 'both',
-								passageIds: [selectedPassageId],
+								passageIds: selectedPassageIds,
 								radius: 1
 							}
 						: null,
-				layers
+				layers,
+				viewport: queryViewport
 			}),
-		[focusSelection, host, layers, selectedPassageId, story.id, story]
+		[focusSelection, host, layers, queryViewport, selectedPassageIds, story.id, story]
 	);
 	const nodeById = React.useMemo(
 		() => new Map(projection.nodes.map(node => [node.id, node])),
@@ -663,11 +695,12 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 					/>
 					<IconButton
 						active={focusSelection}
-						disabled={!selectedPassageId}
+						disabled={selectedPassageIds.length === 0}
 						icon="focus-2"
-						label="Focus selection"
+						label="Focus selected passages"
 						onClick={() => setFocusSelection(value => !value)}
 						size="sm"
+						tooltipPosition="bottom"
 					/>
 				</div>
 				<SegmentedControl

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import {axe} from 'jest-axe';
-import {fireEvent, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen} from '@testing-library/react';
 import {
 	Badge,
 	Button,
@@ -17,6 +17,8 @@ import {
 } from '..';
 
 describe('design-system primitives', () => {
+	afterEach(() => jest.useRealTimers());
+
 	it('renders buttons with variants, icons, loading state, and block sizing', () => {
 		const {container} = render(
 			<Button block icon="package-export" loading variant="primary">
@@ -45,10 +47,28 @@ describe('design-system primitives', () => {
 		render(<IconButton active icon="grid-dots" label="Snap to grid" solid />);
 
 		const button = screen.getByRole('button', {name: 'Snap to grid'});
-		expect(button).toHaveAttribute('title', 'Snap to grid');
+		expect(button).not.toHaveAttribute('title');
 		expect(button).toHaveAttribute('aria-pressed', 'true');
 		expect(button).toHaveClass('tw-iconbtn--active');
 		expect(button).toHaveClass('tw-iconbtn--solid');
+	});
+
+	it('shows icon button tooltips on focus', () => {
+		jest.useFakeTimers();
+		render(
+			<IconButton
+				icon="focus-2"
+				label="Go to Passage"
+				tooltipPosition="bottom"
+			/>
+		);
+
+		fireEvent.focus(screen.getByRole('button', {name: 'Go to Passage'}));
+		act(() => {
+			jest.runAllTimers();
+		});
+
+		expect(screen.getByText('Go to Passage')).toBeInTheDocument();
 	});
 
 	it('renders inputs with labels, keyboard hints, and invalid state', () => {

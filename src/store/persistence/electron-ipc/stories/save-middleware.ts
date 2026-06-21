@@ -30,6 +30,7 @@ export function saveMiddleware(
 	formats: StoryFormatsState
 ) {
 	const {twineElectron} = window as TwineElectronWindow;
+	let persisted = false;
 
 	if (!twineElectron) {
 		throw new Error('Electron bridge is not present on window.');
@@ -49,6 +50,7 @@ export function saveMiddleware(
 			}
 
 			saveStory(storyWithName(state, action.props.name), formats);
+			persisted = true;
 			break;
 
 		case 'deleteStory': {
@@ -56,6 +58,7 @@ export function saveMiddleware(
 			// to delete.
 
 			twineElectron.deleteStory(storyWithId(lastState, action.storyId));
+			persisted = true;
 			break;
 		}
 
@@ -79,6 +82,7 @@ export function saveMiddleware(
 
 					saveStory(storyWithId(state, action.storyId), formats);
 				}
+				persisted = true;
 			}
 			break;
 
@@ -87,12 +91,14 @@ export function saveMiddleware(
 		case 'deletePassage':
 		case 'deletePassages':
 			saveStory(storyWithId(state, action.storyId), formats);
+			persisted = true;
 			break;
 
 		case 'updatePassage':
 			// Skip updates that wouldn't be saved.
 			if (isPersistablePassageChange(action.props)) {
 				saveStory(storyWithId(state, action.storyId), formats);
+				persisted = true;
 			}
 			break;
 
@@ -104,6 +110,7 @@ export function saveMiddleware(
 				)
 			) {
 				saveStory(storyWithId(state, action.storyId), formats);
+				persisted = true;
 			}
 			break;
 
@@ -116,4 +123,5 @@ export function saveMiddleware(
 	}
 
 	lastState = [...state];
+	return persisted;
 }

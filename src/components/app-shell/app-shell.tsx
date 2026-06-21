@@ -4,6 +4,7 @@ import {useHistory, useLocation} from 'react-router-dom';
 import twineMarkUrl from '../../assets/twine-mark.svg';
 import {markSavedCommand, useCoreProjectHost} from '../../core';
 import {storyFileName} from '../../electron/shared';
+import {useStorySaveStatus} from '../../store/persistence/save-status';
 import {Story, useStoriesContext} from '../../store/stories';
 import {usePublishing} from '../../store/use-publishing';
 import {useStoryLaunch} from '../../store/use-story-launch';
@@ -17,7 +18,11 @@ import {
 	TablerIcon
 } from '../design-system';
 import {AppCommand} from './command-registry';
-import {AppShellContext, ShellToolbarRegistration} from './app-shell-context';
+import {
+	AppShellContext,
+	ShellDockRegistration,
+	ShellToolbarRegistration
+} from './app-shell-context';
 import {CommandPalette} from './command-palette';
 import './app-shell.css';
 
@@ -122,10 +127,11 @@ export const AppShell: React.FC = ({children}) => {
 	const [paletteOpen, setPaletteOpen] = React.useState(false);
 	const [drawerOpen, setDrawerOpen] = React.useState(false);
 	const [toolbar, setToolbar] = React.useState<ShellToolbarRegistration>();
+	const [dock, setDock] = React.useState<ShellDockRegistration>();
 	const [activeToolbarTab, setActiveToolbarTab] = React.useState('');
 	const [dirty, setDirty] = React.useState(() => coreProjectHost.isDirty());
 	const [patchVersion, setPatchVersion] = React.useState(0);
-	const markSavedQueued = React.useRef(false);
+	const storySaveStatus = useStorySaveStatus();
 	const [buildState, setBuildState] = React.useState<BuildState>({
 		kind: 'idle',
 		label: 'Ready'
@@ -149,6 +155,16 @@ export const AppShell: React.FC = ({children}) => {
 	const diagnosticCount = storyIndex?.diagnostics.length ?? 0;
 	const wordCount = storyWordCount(currentStory);
 	const crumbLabels = breadcrumbs(location.pathname, currentStory, mode);
+	const saveStatus =
+		storySaveStatus.kind === 'error'
+			? {
+					icon: 'alert-octagon',
+					label: 'Save error',
+					title: storySaveStatus.error.message
+				}
+			: dirty
+				? {icon: 'database-import', label: 'Saving', title: undefined}
+				: {icon: 'database', label: 'Saved', title: undefined};
 
 	React.useEffect(() => {
 		if (routeTabs.length === 0) {
@@ -160,25 +176,7 @@ export const AppShell: React.FC = ({children}) => {
 	}, [routeTabs]);
 
 	React.useEffect(() => {
-		function queueMarkSaved() {
-			if (markSavedQueued.current) {
-				return;
-			}
-
-			markSavedQueued.current = true;
-			Promise.resolve().then(() => {
-				markSavedQueued.current = false;
-				coreProjectHost.applyStoryCommand(markSavedCommand());
-			});
-		}
-
-		const currentDirty = coreProjectHost.isDirty();
-
-		setDirty(currentDirty);
-
-		if (currentDirty) {
-			queueMarkSaved();
-		}
+		setDirty(coreProjectHost.isDirty());
 
 		return coreProjectHost.subscribeToPatches(batch => {
 			let sawStoryIndexPatch = false;
@@ -186,10 +184,6 @@ export const AppShell: React.FC = ({children}) => {
 			for (const patch of batch.patches) {
 				if (patch.type === 'dirtyStateChanged') {
 					setDirty(patch.dirty);
-
-					if (patch.dirty) {
-						queueMarkSaved();
-					}
 				} else if (patch.type === 'storyIndexUpdated') {
 					sawStoryIndexPatch = true;
 				}
@@ -200,6 +194,12 @@ export const AppShell: React.FC = ({children}) => {
 			}
 		});
 	}, [coreProjectHost, stories]);
+
+	React.useEffect(() => {
+		if (storySaveStatus.kind === 'saved') {
+			coreProjectHost.applyStoryCommand(markSavedCommand());
+		}
+	}, [coreProjectHost, storySaveStatus]);
 
 	React.useEffect(() => {
 		function handleKeyDown(event: KeyboardEvent) {
@@ -217,6 +217,7 @@ export const AppShell: React.FC = ({children}) => {
 	const shellContext = React.useMemo(
 		() => ({
 			inShell: true,
+			setDock,
 			setToolbar
 		}),
 		[]
@@ -509,6 +510,11 @@ export const AppShell: React.FC = ({children}) => {
 				<main className="app-shell__center">
 					<div className="app-shell__route">{children}</div>
 				</main>
+				{dock && (
+					<aside className="app-shell__dock" aria-label={dock.label}>
+						{dock.content}
+					</aside>
+				)}
 				{drawerOpen && (
 					<aside className="app-shell__drawer" aria-label="Diagnostics">
 						<header className="app-shell__drawer-head">
@@ -563,9 +569,9 @@ export const AppShell: React.FC = ({children}) => {
 						<TablerIcon icon="focus-2" />
 						{storySelectionLabel(currentStory)}
 					</span>
-					<span className="app-shell__status-item">
-						<TablerIcon icon={dirty ? 'database-import' : 'database'} />
-						{dirty ? 'Saving' : 'Saved'}
+					<span className="app-shell__status-item" title={saveStatus.title}>
+						<TablerIcon icon={saveStatus.icon} />
+						{saveStatus.label}
 					</span>
 					<button
 						className="app-shell__status-item app-shell__status-button"

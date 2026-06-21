@@ -1,4 +1,4 @@
-import {render, waitFor} from '@testing-library/react';
+import {render, screen, waitFor} from '@testing-library/react';
 import {createHashHistory} from 'history';
 import * as React from 'react';
 import {HashRouter, Route} from 'react-router-dom';
@@ -31,7 +31,7 @@ describe('<StoryTestRoute>', () => {
 		);
 	}
 
-	it('replaces the DOM with a testing version of the story in :storyId', async () => {
+	it('renders a testing version of the story in an app-owned preview frame', async () => {
 		const publishStory = jest.fn(
 			jest.fn(() => Promise.resolve('mock-published-story'))
 		);
@@ -39,14 +39,17 @@ describe('<StoryTestRoute>', () => {
 		usePublishingMock.mockReturnValue({publishStory});
 		renderComponent('/stories/123/test');
 		await waitFor(() =>
-			expect(document.body.textContent).toBe('mock-published-story')
+			expect(screen.getByTitle('Story test preview')).toHaveAttribute(
+				'srcdoc',
+				'mock-published-story'
+			)
 		);
 		expect(publishStory.mock.calls).toEqual([
 			['123', {buildTarget: 'test', formatOptions: 'debug', startId: undefined}]
 		]);
 	});
 
-	it('replaces the DOM with a testing version of the story in :storyId with a start passage specified by :passageId', async () => {
+	it('renders a testing version of the story in :storyId with a start passage specified by :passageId', async () => {
 		const publishStory = jest.fn(
 			jest.fn(() => Promise.resolve('mock-published-story'))
 		);
@@ -54,7 +57,10 @@ describe('<StoryTestRoute>', () => {
 		usePublishingMock.mockReturnValue({publishStory});
 		renderComponent('/stories/123/test/456');
 		await waitFor(() =>
-			expect(document.body.textContent).toBe('mock-published-story')
+			expect(screen.getByTitle('Story test preview')).toHaveAttribute(
+				'srcdoc',
+				'mock-published-story'
+			)
 		);
 		expect(publishStory.mock.calls).toEqual([
 			['123', {buildTarget: 'test', formatOptions: 'debug', startId: '456'}]

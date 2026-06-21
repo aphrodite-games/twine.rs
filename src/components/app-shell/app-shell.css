@@ -219,6 +219,22 @@
 	width: 100%;
 }
 
+.app-shell__dock {
+	align-self: stretch;
+	background: var(--bg-dock);
+	border-left: 1px solid var(--border-faint);
+	box-shadow: var(--shadow-large);
+	display: flex;
+	flex-direction: column;
+	grid-area: center;
+	justify-self: end;
+	max-width: calc(100vw - var(--app-shell-rail-w));
+	overflow: auto;
+	position: relative;
+	width: min(360px, calc(100vw - var(--app-shell-rail-w)));
+	z-index: 35;
+}
+
 .app-shell__drawer {
 	background: var(--bg-dock);
 	border-left: 1px solid var(--border-faint);
@@ -569,6 +585,10 @@
 
 	.app-shell__route .story-edit-right-dock {
 		display: none;
+	}
+
+	.app-shell__dock {
+		width: min(320px, calc(100vw - var(--app-shell-rail-w)));
 	}
 
 	.app-shell__route .story-edit-text-layer,

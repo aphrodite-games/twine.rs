@@ -56,6 +56,7 @@ export interface StoryWorkspaceShellProps {
 	onChangeBottomDrawerOpen: (value: boolean) => void;
 	onChangeLeftDockCollapsed: (value: boolean) => void;
 	onChangeRightDockCollapsed: (value: boolean) => void;
+	onRevealPassageInGraph: (passage: Passage) => void;
 	onSelectPassage: (passage: Passage) => void;
 	rightDockCollapsed: boolean;
 	selectedPassageId?: string;
@@ -730,12 +731,21 @@ const Inspector: React.FC<{
 	diagnostics: DiagnosticsViewModel;
 	host: CoreProjectHost;
 	index: CoreStoryIndex;
+	onRevealPassageInGraph: (passage: Passage) => void;
 	onSelectPassage: (passage: Passage) => void;
 	selection: WorkbenchSelection;
 	story: Story;
 }> = props => {
-	const {assets, diagnostics, host, index, onSelectPassage, selection, story} =
-		props;
+	const {
+		assets,
+		diagnostics,
+		host,
+		index,
+		onRevealPassageInGraph,
+		onSelectPassage,
+		selection,
+		story
+	} = props;
 	const {passage} = selection;
 	const {t} = useTranslation();
 	const backlinks = selection.backlinks;
@@ -890,9 +900,9 @@ const Inspector: React.FC<{
 									>
 										{item.core.code}
 									</Badge>
-									{diagnosticPassage ? (
-										<button
-											className="story-edit-diagnostic-source"
+										{diagnosticPassage ? (
+											<button
+												className="story-edit-diagnostic-source"
 											onClick={() => onSelectPassage(diagnosticPassage)}
 											type="button"
 										>
@@ -904,14 +914,26 @@ const Inspector: React.FC<{
 											{item.message}
 										</span>
 									)}
-									<div className="story-edit-diagnostic-location">
-										{item.location}
-									</div>
-									{actions.length > 0 && (
-										<div className="story-edit-diagnostic-fixes">
-											{actions.map(action => (
-												<Button
-													disabled={!action.enabled}
+										<div className="story-edit-diagnostic-location">
+											{item.location}
+										</div>
+										{(actions.length > 0 || diagnosticPassage) && (
+											<div className="story-edit-diagnostic-fixes">
+												{diagnosticPassage && (
+													<Button
+														icon="focus-2"
+														onClick={() =>
+															onRevealPassageInGraph(diagnosticPassage)
+														}
+														size="sm"
+														variant="ghost"
+													>
+														{t('routes.storyEdit.workspace.revealInGraph')}
+													</Button>
+												)}
+												{actions.map(action => (
+													<Button
+														disabled={!action.enabled}
 													key={action.command}
 													onClick={action.apply}
 													size="sm"
@@ -1032,10 +1054,11 @@ export const StoryWorkspaceShell: React.FC<
 		leftDockCollapsed,
 		mode,
 		onChangeBottomDrawerOpen,
-		onChangeLeftDockCollapsed,
-		onChangeRightDockCollapsed,
-		onSelectPassage,
-		rightDockCollapsed,
+			onChangeLeftDockCollapsed,
+			onChangeRightDockCollapsed,
+			onRevealPassageInGraph,
+			onSelectPassage,
+			rightDockCollapsed,
 		selectedPassageId,
 		story
 	} = props;
@@ -1114,12 +1137,12 @@ export const StoryWorkspaceShell: React.FC<
 					}
 				>
 					<NavigatorTabs activeTab={navigatorTab} onChange={setNavigatorTab} />
-					{navigatorTab === 'passages' ? (
-						<PassageNavigator
-							index={index}
-							onSelectPassage={onSelectPassage}
-							selectedPassageId={passage?.id}
-							story={story}
+						{navigatorTab === 'passages' ? (
+							<PassageNavigator
+								index={index}
+								onSelectPassage={onSelectPassage}
+								selectedPassageId={passage?.id}
+								story={story}
 						/>
 					) : navigatorTab === 'contents' ? (
 						<ContentsNavigator
@@ -1142,10 +1165,11 @@ export const StoryWorkspaceShell: React.FC<
 			{showGraph && graphPanel}
 			{showText && (
 				<div className="story-edit-text-layer">
-					<StoryTextPanel
-						index={index}
-						onSelectPassage={onSelectPassage}
-						selectedPassageId={passage?.id}
+						<StoryTextPanel
+							index={index}
+							onRevealPassageInGraph={onRevealPassageInGraph}
+							onSelectPassage={onSelectPassage}
+							selectedPassageId={passage?.id}
 						selection={selection}
 						story={story}
 					/>
@@ -1165,10 +1189,11 @@ export const StoryWorkspaceShell: React.FC<
 				>
 					<Inspector
 						assets={assets}
-						diagnostics={diagnostics}
-						host={coreProjectHost}
-						index={index}
-						onSelectPassage={onSelectPassage}
+							diagnostics={diagnostics}
+							host={coreProjectHost}
+							index={index}
+							onRevealPassageInGraph={onRevealPassageInGraph}
+							onSelectPassage={onSelectPassage}
 						selection={selection}
 						story={story}
 					/>

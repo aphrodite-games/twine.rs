@@ -99,9 +99,9 @@ const config: PlaywrightTestConfig = {
 
 	/* Run your local dev server before starting the tests */
 	webServer: {
-		command: 'npm run start',
-		port: 5173,
-		reuseExistingServer: !process.env.CI
+		command: 'npm run start -- --host 127.0.0.1',
+		reuseExistingServer: !process.env.CI,
+		url: 'http://127.0.0.1:5173'
 	}
 };
 

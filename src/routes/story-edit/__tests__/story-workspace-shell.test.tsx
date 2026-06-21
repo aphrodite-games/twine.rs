@@ -50,6 +50,7 @@ function renderComponent(
 ) {
 	const {next, start, story} = storyWithLinkedPassages();
 	const onSelectPassage = jest.fn();
+	const onRevealPassageInGraph = jest.fn();
 	const dialogsDispatch = context?.dialogsDispatch ?? jest.fn();
 	const storyDispatch = context?.storyDispatch ?? jest.fn();
 
@@ -63,10 +64,11 @@ function renderComponent(
 					graphPanel={<div data-testid="graph-panel" />}
 					leftDockCollapsed={false}
 					mode={mode}
-					onChangeBottomDrawerOpen={jest.fn()}
-					onChangeLeftDockCollapsed={jest.fn()}
-					onChangeRightDockCollapsed={jest.fn()}
-					onSelectPassage={onSelectPassage}
+						onChangeBottomDrawerOpen={jest.fn()}
+						onChangeLeftDockCollapsed={jest.fn()}
+						onChangeRightDockCollapsed={jest.fn()}
+						onRevealPassageInGraph={onRevealPassageInGraph}
+						onSelectPassage={onSelectPassage}
 					rightDockCollapsed={false}
 					selectedPassageId={start.id}
 					story={story}
@@ -76,7 +78,15 @@ function renderComponent(
 		</DialogsContext.Provider>
 	);
 
-	return {dialogsDispatch, next, onSelectPassage, start, story, storyDispatch};
+	return {
+		dialogsDispatch,
+		next,
+		onRevealPassageInGraph,
+		onSelectPassage,
+		start,
+		story,
+		storyDispatch
+	};
 }
 
 describe('<StoryWorkspaceShell>', () => {
@@ -289,5 +299,15 @@ describe('<StoryWorkspaceShell>', () => {
 			},
 			'undoChange.newPassage'
 		);
+	});
+
+	it('reveals diagnostics in the graph explicitly', () => {
+		const {onRevealPassageInGraph, start} = renderComponent('text');
+
+		screen.getByRole('button', {
+			name: 'routes.storyEdit.workspace.revealInGraph'
+		}).click();
+
+		expect(onRevealPassageInGraph).toHaveBeenCalledWith(start);
 	});
 });

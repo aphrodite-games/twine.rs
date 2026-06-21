@@ -6,13 +6,20 @@ export interface ShellToolbarRegistration {
 	tabs: Record<string, React.ReactNode>;
 }
 
+export interface ShellDockRegistration {
+	content: React.ReactNode;
+	label: string;
+}
+
 export interface AppShellContextValue {
 	inShell: boolean;
+	setDock: (registration: ShellDockRegistration | undefined) => void;
 	setToolbar: (registration: ShellToolbarRegistration | undefined) => void;
 }
 
 const defaultContext: AppShellContextValue = {
 	inShell: false,
+	setDock: () => undefined,
 	setToolbar: () => undefined
 };
 

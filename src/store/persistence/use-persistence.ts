@@ -17,7 +17,7 @@ export interface PersistenceHooks {
 			state: StoriesState,
 			action: StoriesAction,
 			formats: StoryFormatsState
-		) => void;
+		) => boolean;
 	};
 	storyFormats: {
 		load: () => Promise<StoryFormatsState>;

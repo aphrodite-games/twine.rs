@@ -96,16 +96,15 @@ export const CodeArea: React.FC<CodeAreaProps> = props => {
 					onBeforeChange={handleCodeMirrorBeforeChange}
 				/>
 			) : (
-				<textarea
-					className="visible"
-					id={id}
-					onChange={({target}) => onChangeText(target.value)}
-					placeholder={otherProps.options?.placeholder}
-					style={style}
-				>
-					{otherProps.value}
-				</textarea>
-			)}
-		</div>
-	);
-};
+					<textarea
+						className="visible"
+						id={id}
+						onChange={({target}) => onChangeText(target.value)}
+						placeholder={otherProps.options?.placeholder}
+						style={style}
+						value={otherProps.value}
+					/>
+				)}
+			</div>
+		);
+	};

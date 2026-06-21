@@ -63,6 +63,20 @@ describe('<Tooltip>', () => {
 		cleanup();
 	});
 
+	it('displays the tooltip when the anchor receives keyboard focus', () => {
+		jest.useFakeTimers();
+		renderComponent();
+		fireEvent.focus(screen.getByText('anchor'));
+		expect(screen.queryByText('mock-tooltip')).not.toBeInTheDocument();
+		act(() => {
+			jest.runAllTimers();
+		});
+		expect(screen.getByText('mock-tooltip')).toBeInTheDocument();
+		fireEvent.blur(screen.getByText('anchor'));
+		expect(screen.queryByText('mock-tooltip')).not.toBeInTheDocument();
+		cleanup();
+	});
+
 	it('hides the tooltip from assistive technology', () => {
 		jest.useFakeTimers();
 		renderComponent();

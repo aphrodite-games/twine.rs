@@ -60,6 +60,16 @@ export const InnerStoryEditRoute: React.FC = () => {
 		},
 		[handleChoosePassage, workspace]
 	);
+	const handleRevealPassageInGraph = React.useCallback(
+		(passage: Passage) => {
+			handleChoosePassage(passage);
+
+			if (workspace.mode === 'text') {
+				workspace.setMode('split');
+			}
+		},
+		[handleChoosePassage, workspace]
+	);
 	const handleSelectPassageInMap = React.useCallback(
 		(passage: Passage, exclusive: boolean) => {
 			workspace.setSelectedPassageId(passage.id);
@@ -104,21 +114,23 @@ export const InnerStoryEditRoute: React.FC = () => {
 								zoom={story.zoom}
 							/>
 							<PassageFuzzyFinder
-								onClose={() => setFuzzyFinderOpen(false)}
-								onOpen={() => setFuzzyFinderOpen(true)}
-								open={fuzzyFinderOpen}
-								setCenter={setCenter}
-								story={story}
+									onClose={() => setFuzzyFinderOpen(false)}
+									onOpen={() => setFuzzyFinderOpen(true)}
+									onRevealPassageInGraph={handleRevealPassageInGraph}
+									open={fuzzyFinderOpen}
+									setCenter={setCenter}
+									story={story}
 							/>
 						</>
 					}
 					leftDockCollapsed={workspace.leftDockCollapsed}
 					mode={workspace.mode}
 					onChangeBottomDrawerOpen={workspace.setBottomDrawerOpen}
-					onChangeLeftDockCollapsed={workspace.setLeftDockCollapsed}
-					onChangeRightDockCollapsed={workspace.setRightDockCollapsed}
-					onSelectPassage={handleChoosePassage}
-					rightDockCollapsed={workspace.rightDockCollapsed}
+						onChangeLeftDockCollapsed={workspace.setLeftDockCollapsed}
+						onChangeRightDockCollapsed={workspace.setRightDockCollapsed}
+						onRevealPassageInGraph={handleRevealPassageInGraph}
+						onSelectPassage={handleChoosePassage}
+						rightDockCollapsed={workspace.rightDockCollapsed}
 					selectedPassageId={workspace.selectedPassageId}
 					story={story}
 				/>
