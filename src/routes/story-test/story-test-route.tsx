@@ -18,6 +18,7 @@ export const StoryTestRoute: React.FC = () => {
 			try {
 				replaceDom(
 					await publishStory(storyId, {
+						buildTarget: 'test',
 						formatOptions: 'debug',
 						startId: passageId
 					})

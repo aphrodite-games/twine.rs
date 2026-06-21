@@ -193,12 +193,12 @@ The tradeoff is real: switching to Svelte would mean porting the design system a
 
 ## Svelte, React, Or Pure Rust UI
 
-| Choice | Best For | Risk | Verdict |
-| --- | --- | --- | --- |
-| React + Vite | Fastest path from TwineJS and current design system | Can become state-management-heavy in a dense IDE | Recommended first choice |
-| Svelte 5 + Vite | Clean long-term UI, compact components, excellent dense reactivity | Requires porting React design system components and moving away from 1:1 migration | Strong alternative, not main line |
-| Leptos/Dioxus | Rust-first UI experiments and full-stack Rust demos | Editor ecosystem, DOM integration, graph tooling, accessibility, and hiring/community risk | Not ideal for this app's main UI |
-| Pure WASM UI | Maximum Rust purity | Slower UI iteration, harder editor integration, weaker design-system ergonomics | Wrong center of gravity |
+| Choice          | Best For                                                           | Risk                                                                                       | Verdict                           |
+| --------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------------- |
+| React + Vite    | Fastest path from TwineJS and current design system                | Can become state-management-heavy in a dense IDE                                           | Recommended first choice          |
+| Svelte 5 + Vite | Clean long-term UI, compact components, excellent dense reactivity | Requires porting React design system components and moving away from 1:1 migration         | Strong alternative, not main line |
+| Leptos/Dioxus   | Rust-first UI experiments and full-stack Rust demos                | Editor ecosystem, DOM integration, graph tooling, accessibility, and hiring/community risk | Not ideal for this app's main UI  |
+| Pure WASM UI    | Maximum Rust purity                                                | Slower UI iteration, harder editor integration, weaker design-system ergonomics            | Wrong center of gravity           |
 
 Pure Rust UI frameworks are interesting, but this project wants to be an excellent writing and graph-editing IDE. CodeMirror, web layout, browser accessibility, and TypeScript ecosystem leverage matter more than proving every UI element can be Rust.
 
@@ -370,12 +370,15 @@ Short-term:
 - Keep compatibility with existing story format packages.
 - Let the UI preview/play compiled output in a WebView/browser frame.
 - Let Rust handle project assembly, manifest validation, and source preparation.
+- Treat editor/dev tooling as separate from the published story runtime even for legacy formats. The first safety rule is that debugging panels, editor UI helpers, HMR clients, and local dev-server glue never ride along in exported HTML unless a manifest explicitly marks them as runtime code.
 
 Medium-term:
 
 - Define a story format capability manifest.
 - Separate "build", "preview", "debug", and "publish" capabilities.
 - Add a format host boundary so Harlowe forks can declare parser/build/debug affordances.
+- Add declared module slots for runtime code, preview-only code, editor/workbench extensions, diagnostics, and devtools. Load editor/dev modules lazily through the host instead of requiring custom formats to inject UI into the story bundle.
+- Support local format development folders with dev-server URLs, hot reload/HMR for editor extensions and preview code, source maps, structured logs, and a "reload format" loop that does not require restarting the app.
 
 Long-term:
 
@@ -387,8 +390,10 @@ Long-term:
   - Documentation hovers.
   - Variable analysis.
   - Build hooks.
+  - Devtools panels.
+  - Publish-bundle inspection.
 
-Do not require every story format to be rewritten in Rust. The app should support Rust-native intelligence around JS story formats while making room for deeper Rust-backed formats over time.
+Do not require every story format to be rewritten in Rust. The app should support Rust-native intelligence around JS story formats while making room for deeper Rust-backed formats over time. The contract should make it pleasant to build serious custom format tooling, but strict about which code belongs to the editor, preview/debug environment, and final published story.
 
 ## Desktop Vs Browser
 

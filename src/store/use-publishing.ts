@@ -1,12 +1,11 @@
 import * as React from 'react';
+import {publishArchive, publishStory, PublishOptions} from '../util/publish';
 import {
-	publishArchive,
-	publishStory,
-	publishStoryWithFormat,
-	PublishOptions
-} from '../util/publish';
-import {knownAssetInventoryForStory} from '../core/project-host';
-import {storyToCoreIndex} from '../core/story-index';
+	createStoryBuildPackage,
+	StoryBuildPackage,
+	StoryBuildTarget
+} from '../util/build-package';
+import {useCoreProjectHost} from '../core/project-host';
 import {usePrefsContext} from './prefs';
 import {
 	formatWithNameAndVersion,
@@ -16,12 +15,21 @@ import {
 import {storyWithId, useStoriesContext} from './stories';
 import {getAppInfo} from '../util/app-info';
 
+export type PublishStoryOptions = PublishOptions & {
+	buildTarget?: StoryBuildTarget;
+};
+
 export interface UsePublishingProps {
+	proofStoryPackage: (storyId: string) => Promise<StoryBuildPackage>;
 	proofStory: (storyId: string) => Promise<string>;
 	publishArchive: (storyIds?: string[]) => Promise<string>;
+	publishStoryPackage: (
+		storyId: string,
+		publishOptions?: PublishStoryOptions
+	) => Promise<StoryBuildPackage>;
 	publishStory: (
 		storyId: string,
-		publishOptions?: PublishOptions
+		publishOptions?: PublishStoryOptions
 	) => Promise<string>;
 	publishStoryData: (storyId: string) => string;
 }
@@ -38,16 +46,13 @@ export function usePublishing(): UsePublishingProps {
 	const {prefs} = usePrefsContext();
 	const {dispatch: storyFormatsDispatch, formats} = useStoryFormatsContext();
 	const {stories} = useStoriesContext();
+	const coreProjectHost = useCoreProjectHost();
 
 	const assetInventoryForStory = React.useCallback(
 		(storyId: string) => {
-			const story = storyWithId(stories, storyId);
-
-			return storyToCoreIndex(story, {
-				knownAssets: knownAssetInventoryForStory(storyId)
-			}).assetInventory;
+			return coreProjectHost.queryStoryIndex(storyId).assetInventory;
 		},
-		[stories]
+		[coreProjectHost]
 	);
 
 	return {
@@ -63,20 +68,48 @@ export function usePublishing(): UsePublishingProps {
 					prefs.proofingFormat.name,
 					prefs.proofingFormat.version
 				);
-				const formatProperties = await loadFormatProperties(format)(
-					storyFormatsDispatch
-				);
+				const formatProperties =
+					await loadFormatProperties(format)(storyFormatsDispatch);
 
 				if (!formatProperties) {
 					throw new Error(`Couldn't load story format properties`);
 				}
 
-				return publishStoryWithFormat(
-					story,
-					formatProperties.source,
-					getAppInfo(),
-					{assetInventory: assetInventoryForStory(storyId)}
+				return createStoryBuildPackage(story, getAppInfo(), {
+					assetInventory: assetInventoryForStory(storyId),
+					formatProperties,
+					target: 'proof'
+				}).html;
+			},
+			[
+				assetInventoryForStory,
+				formats,
+				prefs.proofingFormat.name,
+				prefs.proofingFormat.version,
+				stories,
+				storyFormatsDispatch
+			]
+		),
+		proofStoryPackage: React.useCallback(
+			async storyId => {
+				const story = storyWithId(stories, storyId);
+				const format = formatWithNameAndVersion(
+					formats,
+					prefs.proofingFormat.name,
+					prefs.proofingFormat.version
 				);
+				const formatProperties =
+					await loadFormatProperties(format)(storyFormatsDispatch);
+
+				if (!formatProperties) {
+					throw new Error(`Couldn't load story format properties`);
+				}
+
+				return createStoryBuildPackage(story, getAppInfo(), {
+					assetInventory: assetInventoryForStory(storyId),
+					formatProperties,
+					target: 'proof'
+				});
 			},
 			[
 				assetInventoryForStory,
@@ -95,25 +128,49 @@ export function usePublishing(): UsePublishingProps {
 					story.storyFormat,
 					story.storyFormatVersion
 				);
-				const formatProperties = await loadFormatProperties(format)(
-					storyFormatsDispatch
-				);
+				const formatProperties =
+					await loadFormatProperties(format)(storyFormatsDispatch);
 
 				if (!formatProperties) {
 					throw new Error(`Couldn't load story format properties`);
 				}
 
-				return publishStoryWithFormat(
-					story,
-					formatProperties.source,
-					getAppInfo(),
-					{
-						...publishOptions,
-						assetInventory:
-							publishOptions?.assetInventory ??
-							assetInventoryForStory(storyId)
-					}
+				const {buildTarget = 'play', ...htmlOptions} = publishOptions ?? {};
+
+				return createStoryBuildPackage(story, getAppInfo(), {
+					...htmlOptions,
+					assetInventory:
+						publishOptions?.assetInventory ?? assetInventoryForStory(storyId),
+					formatProperties,
+					target: buildTarget
+				}).html;
+			},
+			[assetInventoryForStory, formats, stories, storyFormatsDispatch]
+		),
+		publishStoryPackage: React.useCallback(
+			async (storyId, publishOptions) => {
+				const story = storyWithId(stories, storyId);
+				const format = formatWithNameAndVersion(
+					formats,
+					story.storyFormat,
+					story.storyFormatVersion
 				);
+				const formatProperties =
+					await loadFormatProperties(format)(storyFormatsDispatch);
+
+				if (!formatProperties) {
+					throw new Error(`Couldn't load story format properties`);
+				}
+
+				const {buildTarget = 'play', ...htmlOptions} = publishOptions ?? {};
+
+				return createStoryBuildPackage(story, getAppInfo(), {
+					...htmlOptions,
+					assetInventory:
+						publishOptions?.assetInventory ?? assetInventoryForStory(storyId),
+					formatProperties,
+					target: buildTarget
+				});
 			},
 			[assetInventoryForStory, formats, stories, storyFormatsDispatch]
 		),

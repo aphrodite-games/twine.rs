@@ -75,7 +75,10 @@ export const BuildActions: React.FC<BuildActionsProps> = ({story}) => {
 		resetErrors();
 
 		try {
-			saveHtml(await publishStory(story.id), storyFileName(story));
+			saveHtml(
+				await publishStory(story.id, {buildTarget: 'publish'}),
+				storyFileName(story)
+			);
 		} catch (error) {
 			setPublishError(error as Error);
 		}

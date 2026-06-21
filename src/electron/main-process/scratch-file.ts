@@ -1,8 +1,13 @@
 import {app, shell} from 'electron';
-import {mkdirp, readdir, remove, stat, writeFile} from 'fs-extra';
-import {join} from 'path';
+import {copy, mkdirp, readdir, remove, stat, writeFile} from 'fs-extra';
+import {dirname, join, resolve, sep} from 'path';
 import {i18n} from './locales';
 import {getAppPref} from './app-prefs';
+
+export interface ScratchFileAsset {
+	outputPath: string;
+	sourcePath: string | null;
+}
 
 /**
  * Returns the path to the scratch directory. This can be overridden by the app
@@ -17,7 +22,7 @@ export function scratchDirectoryPath() {
 				app.getPath('documents'),
 				i18n.t('common.appName'),
 				i18n.t('electron.scratchDirectoryName')
-		  );
+			);
 }
 
 /**
@@ -58,6 +63,45 @@ export async function openWithScratchFile(data: string, filename: string) {
 	const scratchPath = join(scratchDirectoryPath(), filename);
 
 	await mkdirp(scratchDirectoryPath());
+	await writeFile(scratchPath, data, 'utf8');
+	shell.openPath(scratchPath);
+}
+
+function safeScratchAssetPath(root: string, outputPath: string) {
+	const normalizedRoot = resolve(root);
+	const target = resolve(normalizedRoot, outputPath);
+	const rootWithSeparator = normalizedRoot.endsWith(sep)
+		? normalizedRoot
+		: `${normalizedRoot}${sep}`;
+
+	if (target !== normalizedRoot && target.startsWith(rootWithSeparator)) {
+		return target;
+	}
+
+	throw new Error(`Unsafe scratch asset path "${outputPath}".`);
+}
+
+export async function openWithScratchPackage(
+	data: string,
+	filename: string,
+	assets: ScratchFileAsset[] = []
+) {
+	const scratchRoot = scratchDirectoryPath();
+	const scratchPath = join(scratchRoot, filename);
+
+	await mkdirp(scratchRoot);
+
+	for (const asset of assets) {
+		if (!asset.sourcePath) {
+			continue;
+		}
+
+		const targetPath = safeScratchAssetPath(scratchRoot, asset.outputPath);
+
+		await mkdirp(dirname(targetPath));
+		await copy(asset.sourcePath, targetPath);
+	}
+
 	await writeFile(scratchPath, data, 'utf8');
 	shell.openPath(scratchPath);
 }

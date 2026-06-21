@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	openWithScratchFile(data: string, filename: string) {
 		ipcRenderer.send('open-with-scratch-file', data, filename);
 	},
+	openWithScratchPackage(data: string, filename: string, assets: unknown[]) {
+		ipcRenderer.send('open-with-scratch-package', data, filename, assets);
+	},
 	revealPath(path: string) {
 		ipcRenderer.send('reveal-path', path);
 	},

@@ -36,7 +36,7 @@ Demand clusters to design around:
 - File ownership and persistence: choose save locations, project folders, local-only clarity, backups, export/import fidelity, Twine 1/Twee/JSON paths, metadata preservation, and revision-control hooks.
 - Mode-native authoring: the app must be excellent as a text editor, excellent as a graph editor, and excellent when both are synchronized side by side.
 - Graph scale and map ergonomics: faster link rendering, clearer arrows, snap/align/layers/groups, double-click creation, drag-to-connect, copy/paste, right-click menus, annotations, and quick reveal.
-- Search, contents, and organization: a real Story Contents view, variable search, passage-title proof search, result lists, tag counts/colors/filtering, bulk tagging, and advanced connectivity diagnostics.
+- Search, contents, and organization: a real Story Contents view, scoped passage organization for folders/sections/chapters/books, variable search, passage-title proof search, result lists, tag counts/colors/filtering, bulk tagging, and advanced connectivity diagnostics.
 - Source editing as a first-class mode: CodeMirror 6, side-by-side passages, scripts/stylesheets as files, syntax highlighting, cursor memory, fold/wrap/spellcheck, and format-aware autocomplete.
 - Assets and media: import images, preview and insert references, keep media in files, detect usages, and package assets correctly.
 - Format/build/runtime extensibility: story-format docs, default/version management, preprocessing hooks, statistics hooks, runtime/debug affordances, excluded passages, localization, and publish targets.
@@ -52,7 +52,7 @@ Graph mode is optional but native. If the project has saved positions, graph mod
 
 Split mode is the showcase. It synchronizes source and graph without forcing either to be the truth. Selecting a passage in graph opens source; moving through source highlights graph nodes and edges; editing links updates the graph index; diagnostics and search reveal both projections when available.
 
-Project format implication: story content and graph layout must be separable. Textual story data is canonical. Graph layout, card size, groups, annotations, and workspace view state are optional metadata. This lets imported Twee, hand-edited source folders, and graph-authored stories all live in the same app without coercion.
+Project format implication: story content, author-defined passage hierarchy, and graph layout must be separable. Textual story data is canonical. Folders, sections, chapters, books, and other structural scopes organize passages and source files without changing link semantics. Graph layout, card size, visual groups, annotations, and workspace view state are optional metadata. This lets imported Twee, hand-edited source folders, scoped chapter work, and graph-authored stories all live in the same app without coercion.
 
 ## Current Twine UI: Screen-by-Screen Catalogue
 
@@ -274,10 +274,11 @@ Recorded enhancement requests: **26**. Priority mix: P2=5, P3=12, P4=8, unpriori
 
 Core deliverables:
 
-- A canonical multi-file project layout with `twine.toml`, `passages/`, `scripts/`, `styles/`, `assets/`, and generated indexes clearly separated.
+- A canonical multi-file project layout with `twine.toml`, nested `passages/` folders, `scripts/`, `styles/`, `assets/`, and generated indexes clearly separated.
+- First-class passage hierarchy metadata for folders/sections/chapters/books: stable scope IDs, display names, explicit ordering, membership, and round-trip-safe storage so authors do not need Tweego conventions just to keep large stories organized.
 - Optional graph layout metadata. Passage positions, card sizes, groups, and saved layouts are sidecar/project metadata, not required for a valid source project.
 - Importers for Twine HTML, Twee, JSON-style interchange, Twine 1.x where practical, and existing browser/localStorage stories.
-- Lossless preservation of IFID, story tags, passage tags, custom passage attributes, unknown metadata, sort order, color metadata, start passage, and story format selection.
+- Lossless preservation of IFID, story tags, passage tags, custom passage attributes, unknown metadata, sort order, folder/chapter/book membership, color metadata, start passage, and story format selection.
 - A transactional save model with undoable structural edits, dirty-state indicators, backup reminders, explicit local/cloud/storage messaging, and user-selected project locations.
 
 Highest-signal requests in this milestone:
@@ -329,6 +330,7 @@ Core deliverables:
 
 - Virtualized node rendering, canvas/WebGL link rendering, index-backed link layers, link visibility toggles, and selected-neighborhood focus.
 - Ephemeral auto-layout for projects with no saved positions, plus an explicit Save Layout action if the author wants to persist graph coordinates.
+- Scoped graph views for folders/sections/chapters/books, including breadcrumbs, scope pickers, collapse/expand, "show neighboring links" controls, and clear cross-scope edge indicators so a 10k-passage story can be edited one chapter at a time.
 - Map interactions authors expect: double-click create, right-click menus, connector-drag linking, snap/grid, align/distribute, copy/paste, layers/groups, annotations, and minimap reveal.
 - Graph-specific visual states for broken links, self links, start passage, empty tagged passages, tag indicators, search highlights, and duplicate/renamed passages.
 
@@ -371,7 +373,7 @@ Highest-signal requests in this milestone:
 
 ### M4: Project Intelligence, Search, Contents, and Diagnostics
 
-Build the Rust indexes that make enormous projects navigable from either mode: contents, tags, variables, backlinks, broken links, search results, proof output, and organization views.
+Build the Rust indexes that make enormous projects navigable from either mode: contents, folders/sections/chapters/books, tags, variables, backlinks, broken links, search results, proof output, and organization views.
 
 Primary screen: Contents / Search / Diagnostics.
 
@@ -379,9 +381,10 @@ Recorded enhancement requests: **23**. Priority mix: P2=3, P3=14, P4=5, unpriori
 
 Core deliverables:
 
-- A persistent Contents Navigator that lists metadata, passages, groups, tags, variables, assets, scripts, styles, diagnostics, entry points, orphans, and broken links.
+- A persistent Contents Navigator that lists metadata, folders, sections, chapters, books, passages, groups, tags, variables, assets, scripts, styles, diagnostics, entry points, orphans, and broken links.
 - Unified search and replace across passage text, titles, tags, variables, proof output, assets, files, commands, and settings, with reveal-in-source and optional reveal-in-graph actions.
-- Bulk tag workflows, tag counts/colors/filtering, advanced connectivity diagnostics, highlighted tag/query results, and durable organization constructs such as sections/chapters/groups.
+- Bulk tag workflows, drag/drop passage organization, tag counts/colors/filtering, advanced connectivity diagnostics, highlighted tag/query results, and durable organization constructs such as folders/sections/chapters/books/groups.
+- Scope-aware graph/search commands: show only a selected chapter/book/folder, optionally include incoming/outgoing cross-scope neighbors, bulk-move selected passages into a scope, and preserve a scoped graph's saved layout independently from the whole-story overview.
 
 M4 handoff notes from M1-M3 readiness:
 
@@ -450,7 +453,7 @@ Highest-signal requests in this milestone:
 
 ### M6: Story Formats, Build, Test, and Publishing
 
-Preserve Twine's format ecosystem while making format capabilities explicit, typed, testable, and fast.
+Preserve Twine's format ecosystem while making format capabilities explicit, typed, testable, fast, and cleanly separated between editor/dev tooling and publishable runtime output.
 
 Primary screen: Build / Formats / Test.
 
@@ -458,9 +461,12 @@ Recorded enhancement requests: **30**. Priority mix: P2=3, P3=16, P4=10, unprior
 
 Core deliverables:
 
-- A story-format capability manifest for parser, exporter, syntax, completions, diagnostics, docs, editor toolbar actions, menu items, preprocessing, statistics, and migration compatibility.
+- A story-format capability manifest for parser, exporter, syntax, completions, diagnostics, docs, editor toolbar actions, menu items, preprocessing, statistics, dev-only tools, lazy-loaded modules, bundle inclusion policy, and migration compatibility.
+- A format host API that lets custom formats add editor/workbench UI enhancements through declared app-owned extension points instead of injecting UI code into the final story runtime.
+- Local story-format development workflow: load a format from a folder, connect to a dev server, hot reload/HMR editor extensions and preview code, surface source maps/logs, and reload formats without restarting the app.
 - Build targets for Play, Test From Selection, Proof, Export HTML, Export Twee, Export JSON, Package, Publish, and source/HTML inspection with warnings before output.
-- Runtime/debug hooks for current passage, variable/state inspection, launched-from-editor detection, Open Graph metadata, localization, compression, excluded passages, and format-version rollback.
+- Runtime/debug hooks for current passage, variable/state inspection, launched-from-editor detection, format devtools panels, JSON/story-data injection inspection, Open Graph metadata, localization, compression, excluded passages, and format-version rollback.
+- Publish-safety checks that prove dev-only tooling, editor UI extensions, diagnostics helpers, HMR clients, and local dev-server glue are excluded from exported HTML/packages unless explicitly marked as runtime code.
 
 Preview/debug handoff from the M1-M5 path:
 

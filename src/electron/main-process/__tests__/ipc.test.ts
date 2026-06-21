@@ -2,7 +2,7 @@ import {app, clipboard, ipcMain, shell} from 'electron';
 import {initIpc} from '../ipc';
 import {loadPrefs} from '../prefs';
 import {saveJsonFile} from '../json-file';
-import {openWithScratchFile} from '../scratch-file';
+import {openWithScratchFile, openWithScratchPackage} from '../scratch-file';
 import {
 	deleteStory,
 	loadStories,
@@ -26,28 +26,30 @@ describe('initIpc()', () => {
 	const loadStoriesMock = loadStories as jest.Mock;
 	const loadStoryFormatsMock = loadStoryFormats as jest.Mock;
 	const onMock = ipcMain.on as jest.Mock;
-		const appOnMock = app.on as jest.Mock;
-		const clipboardWriteTextMock = clipboard.writeText as jest.Mock;
-		const openWithScratchFileMock = openWithScratchFile as jest.Mock;
-		const renameStoryMock = renameStory as jest.Mock;
-		const saveJsonFileMock = saveJsonFile as jest.Mock;
-		const saveStoryHtmlMock = saveStoryHtml as jest.Mock;
-		const showItemInFolderMock = shell.showItemInFolder as jest.Mock;
+	const appOnMock = app.on as jest.Mock;
+	const clipboardWriteTextMock = clipboard.writeText as jest.Mock;
+	const openWithScratchFileMock = openWithScratchFile as jest.Mock;
+	const openWithScratchPackageMock = openWithScratchPackage as jest.Mock;
+	const renameStoryMock = renameStory as jest.Mock;
+	const saveJsonFileMock = saveJsonFile as jest.Mock;
+	const saveStoryHtmlMock = saveStoryHtml as jest.Mock;
+	const showItemInFolderMock = shell.showItemInFolder as jest.Mock;
 
-		beforeEach(() => {
-			clipboardWriteTextMock.mockClear();
-			showItemInFolderMock.mockClear();
-			saveStoryHtmlMock.mockResolvedValue(undefined);
-			initIpc();
-		});
+	beforeEach(() => {
+		clipboardWriteTextMock.mockClear();
+		showItemInFolderMock.mockClear();
+		openWithScratchPackageMock.mockClear();
+		saveStoryHtmlMock.mockResolvedValue(undefined);
+		initIpc();
+	});
 
-		it('adds a listener for copy-text events that writes to the clipboard', () => {
-			const listener = onMock.mock.calls.find(call => call[0] === 'copy-text');
+	it('adds a listener for copy-text events that writes to the clipboard', () => {
+		const listener = onMock.mock.calls.find(call => call[0] === 'copy-text');
 
-			expect(listener).not.toBeUndefined();
-			listener[1]({}, 'test text');
-			expect(clipboardWriteTextMock).toHaveBeenCalledWith('test text');
-		});
+		expect(listener).not.toBeUndefined();
+		listener[1]({}, 'test text');
+		expect(clipboardWriteTextMock).toHaveBeenCalledWith('test text');
+	});
 
 	describe('the listener it adds for delete-story events', () => {
 		let listener: any[];
@@ -71,6 +73,23 @@ describe('initIpc()', () => {
 			await listener[1]({sender: {send}}, story, 'test-story-html');
 			expect(send.mock.calls).toEqual([['story-deleted', story]]);
 		});
+	});
+
+	it('adds a listener for open-with-scratch-package events that calls openWithScratchPackage()', async () => {
+		const listener = onMock.mock.calls.find(
+			call => call[0] === 'open-with-scratch-package'
+		);
+		const assets = [
+			{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}
+		];
+
+		expect(listener).not.toBeUndefined();
+		listener[1]({}, 'test-file-contents', 'test-filename', assets);
+		expect(openWithScratchPackageMock).toHaveBeenCalledWith(
+			'test-file-contents',
+			'test-filename',
+			assets
+		);
 	});
 
 	describe('the handler it adds for load-prefs events', () => {
@@ -145,7 +164,7 @@ describe('initIpc()', () => {
 		});
 	});
 
-		it('adds a listener for open-with-scratch-file events that calls openWithScratchFile()', async () => {
+	it('adds a listener for open-with-scratch-file events that calls openWithScratchFile()', async () => {
 		const listener = onMock.mock.calls.find(
 			call => call[0] === 'open-with-scratch-file'
 		);
@@ -170,7 +189,9 @@ describe('initIpc()', () => {
 		});
 
 		it('adds a listener for reveal-path events that reveals a file path', () => {
-			const listener = onMock.mock.calls.find(call => call[0] === 'reveal-path');
+			const listener = onMock.mock.calls.find(
+				call => call[0] === 'reveal-path'
+			);
 
 			expect(listener).not.toBeUndefined();
 			listener[1]({}, '/tmp/asset.png');

@@ -12,7 +12,23 @@ describe('useStoryLaunch', () => {
 	let openSpy: jest.SpyInstance;
 
 	beforeEach(() => {
+		const assets = [
+			{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}
+		];
+
 		usePublishingMock.mockReturnValue({
+			proofStoryPackage: (storyId: string) =>
+				Promise.resolve({
+					assets,
+					html: `mock-proofed-story-${storyId}`,
+					report: {}
+				}),
+			publishStoryPackage: (storyId: string, options: any) =>
+				Promise.resolve({
+					assets,
+					html: `mock-published-story-${storyId}-${JSON.stringify(options)}`,
+					report: {}
+				}),
 			proofStory: (storyId: string) =>
 				Promise.resolve(`mock-proofed-story-${storyId}`),
 			publishStory: (storyId: string, options: any) =>
@@ -61,23 +77,24 @@ describe('useStoryLaunch', () => {
 	});
 
 	describe('in an Electron context', () => {
-		let openWithScratchFile: jest.SpyInstance;
+		let openWithScratchPackage: jest.SpyInstance;
 
 		beforeEach(() => {
-			openWithScratchFile = jest.fn();
+			openWithScratchPackage = jest.fn();
 			isElectronRendererMock.mockReturnValue(true);
-			(window as any).twineElectron = {openWithScratchFile};
+			(window as any).twineElectron = {openWithScratchPackage};
 		});
 
-		it('calls openWithScratchFile() on the twineElectron global when playing a story', async () => {
+		it('calls openWithScratchPackage() on the twineElectron global when playing a story', async () => {
 			const {result} = renderHook(() => useStoryLaunch());
 
-			expect(openWithScratchFile).not.toBeCalled();
+			expect(openWithScratchPackage).not.toBeCalled();
 			await result.current.playStory('mock-story-id');
-			expect(openWithScratchFile.mock.calls).toEqual([
+			expect(openWithScratchPackage.mock.calls).toEqual([
 				[
-					'mock-published-story-mock-story-id-undefined',
-					'play-mock-story-id.html'
+					'mock-published-story-mock-story-id-{"buildTarget":"play"}',
+					'play-mock-story-id.html',
+					[{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}]
 				]
 			]);
 		});
@@ -90,13 +107,17 @@ describe('useStoryLaunch', () => {
 			expect(() => result.current.playStory('mock-story-id')).toThrow();
 		});
 
-		it('calls openWithScratchFile() on the twineElectron global when proofing a story', async () => {
+		it('calls openWithScratchPackage() on the twineElectron global when proofing a story', async () => {
 			const {result} = renderHook(() => useStoryLaunch());
 
-			expect(openWithScratchFile).not.toBeCalled();
+			expect(openWithScratchPackage).not.toBeCalled();
 			await result.current.proofStory('mock-story-id');
-			expect(openWithScratchFile.mock.calls).toEqual([
-				['mock-proofed-story-mock-story-id', 'proof-mock-story-id.html']
+			expect(openWithScratchPackage.mock.calls).toEqual([
+				[
+					'mock-proofed-story-mock-story-id',
+					'proof-mock-story-id.html',
+					[{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}]
+				]
 			]);
 		});
 
@@ -108,15 +129,16 @@ describe('useStoryLaunch', () => {
 			expect(() => result.current.proofStory('mock-story-id')).toThrow();
 		});
 
-		it('calls openWithScratchFile() on the twineElectron global when testing a story', async () => {
+		it('calls openWithScratchPackage() on the twineElectron global when testing a story', async () => {
 			const {result} = renderHook(() => useStoryLaunch());
 
-			expect(openWithScratchFile).not.toBeCalled();
+			expect(openWithScratchPackage).not.toBeCalled();
 			await result.current.testStory('mock-story-id');
-			expect(openWithScratchFile.mock.calls).toEqual([
+			expect(openWithScratchPackage.mock.calls).toEqual([
 				[
-					'mock-published-story-mock-story-id-{"formatOptions":"debug"}',
-					'test-mock-story-id.html'
+					'mock-published-story-mock-story-id-{"buildTarget":"test","formatOptions":"debug"}',
+					'test-mock-story-id.html',
+					[{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}]
 				]
 			]);
 		});

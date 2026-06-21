@@ -13,7 +13,7 @@ export interface UseStoryLaunchProps {
  * both web and Electron contexts.
  */
 export function useStoryLaunch(): UseStoryLaunchProps {
-	const {proofStory, publishStory} = usePublishing();
+	const {proofStoryPackage, publishStoryPackage} = usePublishing();
 
 	if (isElectronRenderer()) {
 		const {twineElectron} = window as TwineElectronWindow;
@@ -26,24 +26,36 @@ export function useStoryLaunch(): UseStoryLaunchProps {
 
 		return {
 			playStory: async storyId => {
-				twineElectron.openWithScratchFile(
-					await publishStory(storyId),
-					`play-${storyId}.html`
+				const build = await publishStoryPackage(storyId, {
+					buildTarget: 'play'
+				});
+
+				twineElectron.openWithScratchPackage(
+					build.html,
+					`play-${storyId}.html`,
+					build.assets
 				);
 			},
 			proofStory: async storyId => {
-				twineElectron.openWithScratchFile(
-					await proofStory(storyId),
-					`proof-${storyId}.html`
+				const build = await proofStoryPackage(storyId);
+
+				twineElectron.openWithScratchPackage(
+					build.html,
+					`proof-${storyId}.html`,
+					build.assets
 				);
 			},
 			testStory: async (storyId, startPassageId) => {
-				twineElectron.openWithScratchFile(
-					await publishStory(storyId, {
-						formatOptions: 'debug',
-						startId: startPassageId
-					}),
-					`test-${storyId}.html`
+				const build = await publishStoryPackage(storyId, {
+					buildTarget: 'test',
+					formatOptions: 'debug',
+					startId: startPassageId
+				});
+
+				twineElectron.openWithScratchPackage(
+					build.html,
+					`test-${storyId}.html`,
+					build.assets
 				);
 			}
 		};

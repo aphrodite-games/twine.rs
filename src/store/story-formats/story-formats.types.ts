@@ -57,6 +57,58 @@ export type StoryFormatToolbarFactory = (
 	environment: StoryFormatToolbarFactoryEnvironment
 ) => StoryFormatToolbarItem[];
 
+export type StoryFormatModuleSlot =
+	| 'runtime'
+	| 'preview'
+	| 'editor'
+	| 'diagnostics'
+	| 'devtools';
+
+export interface StoryFormatDeclaredModule {
+	id: string;
+	includeInPublish?: boolean;
+	lazy?: boolean;
+	slot: StoryFormatModuleSlot;
+	url?: string;
+}
+
+export interface StoryFormatCapabilityDeclarations {
+	autocomplete?: boolean;
+	devOnlyTools?: boolean;
+	devtoolsPanels?: boolean;
+	diagnostics?: boolean;
+	docs?: boolean;
+	editorToolbarActions?: boolean;
+	exporter?: boolean;
+	lazyLoadedModules?: boolean;
+	menuItems?: boolean;
+	migration?: boolean;
+	parser?: boolean;
+	preprocessing?: boolean;
+	statistics?: boolean;
+	syntax?: boolean;
+}
+
+export interface StoryFormatPublishPolicy {
+	allowDevMarkersInRuntime?: boolean;
+	excludeFromPublish?: string[];
+	includeInPublish?: string[];
+}
+
+export interface StoryFormatDevelopmentOptions {
+	devServerUrl?: string;
+	hmr?: boolean;
+	localFolderPath?: string;
+	sourceMapUrl?: string;
+}
+
+export interface TwineRsStoryFormatMetadata {
+	capabilities?: StoryFormatCapabilityDeclarations;
+	development?: StoryFormatDevelopmentOptions;
+	modules?: StoryFormatDeclaredModule[];
+	publish?: StoryFormatPublishPolicy;
+}
+
 /**
  * Properties available once a story format is loaded. Note that some there is
  * some overlap between this and StoryFormat--this is so that we know certain
@@ -87,6 +139,7 @@ export interface StoryFormatProperties {
 	name: string;
 	proofing?: boolean;
 	source: string;
+	twineRs?: TwineRsStoryFormatMetadata;
 	url?: string;
 	version: string;
 }

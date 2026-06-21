@@ -13,7 +13,7 @@ export const StoryPlayRoute: React.FC = () => {
 	React.useEffect(() => {
 		async function load() {
 			try {
-				replaceDom(await publishStory(storyId));
+				replaceDom(await publishStory(storyId, {buildTarget: 'play'}));
 			} catch (error) {
 				setPublishError(error as Error);
 			}

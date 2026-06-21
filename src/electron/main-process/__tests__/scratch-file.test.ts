@@ -1,7 +1,8 @@
-import {mkdirp, readdir, remove, stat, writeFile} from 'fs-extra';
+import {copy, mkdirp, readdir, remove, stat, writeFile} from 'fs-extra';
 import {
 	cleanScratchDirectory,
 	openWithScratchFile,
+	openWithScratchPackage,
 	scratchDirectoryPath
 } from '../scratch-file';
 import {shell} from 'electron';
@@ -331,5 +332,52 @@ describe('openWithScratchFile', () => {
 		await openWithScratchFile('mock-data', 'mock-filename');
 		expect(openMock).toBeCalledTimes(1);
 		expect(openMock.mock.calls[0]).toEqual([writeFileMock.mock.calls[0][0]]);
+	});
+});
+
+describe('openWithScratchPackage', () => {
+	const copyMock = copy as jest.Mock;
+	const mkdirpMock = mkdirp as jest.Mock;
+	const openMock = shell.openPath as jest.Mock;
+	const writeFileMock = writeFile as jest.Mock;
+
+	it('copies assets into the scratch directory before opening the HTML', async () => {
+		await openWithScratchPackage('mock-data', 'mock-filename.html', [
+			{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'},
+			{outputPath: 'assets/remote.png', sourcePath: null}
+		]);
+
+		expect(mkdirpMock.mock.calls).toContainEqual([
+			'mock-electron-app-path-documents/common.appName/electron.scratchDirectoryName'
+		]);
+		expect(
+			mkdirpMock.mock.calls.some(call =>
+				call[0].endsWith(
+					'mock-electron-app-path-documents/common.appName/electron.scratchDirectoryName/assets'
+				)
+			)
+		).toBe(true);
+		expect(copyMock.mock.calls).toEqual([
+			[
+				'/tmp/cover.png',
+				expect.stringMatching(
+					/mock-electron-app-path-documents\/common\.appName\/electron\.scratchDirectoryName\/assets\/cover\.png$/
+				)
+			]
+		]);
+		expect(writeFileMock).toHaveBeenCalledWith(
+			'mock-electron-app-path-documents/common.appName/electron.scratchDirectoryName/mock-filename.html',
+			'mock-data',
+			'utf8'
+		);
+		expect(openMock.mock.calls[0]).toEqual([writeFileMock.mock.calls[0][0]]);
+	});
+
+	it('rejects unsafe asset output paths', async () => {
+		await expect(() =>
+			openWithScratchPackage('mock-data', 'mock-filename.html', [
+				{outputPath: '../cover.png', sourcePath: '/tmp/cover.png'}
+			])
+		).rejects.toThrow('Unsafe scratch asset path');
 	});
 });

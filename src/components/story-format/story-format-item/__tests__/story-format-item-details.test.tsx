@@ -63,6 +63,11 @@ describe('<StoryFormatItemDetails>', () => {
 			expect(
 				screen.getByText('components.storyFormatItem.license')
 			).toBeInTheDocument());
+
+		it('displays M6 capability badges', () => {
+			expect(screen.getByText('Exporter')).toBeInTheDocument();
+			expect(screen.getByText('Publish safe')).toBeInTheDocument();
+		});
 	});
 
 	it('is accessible', async () => {

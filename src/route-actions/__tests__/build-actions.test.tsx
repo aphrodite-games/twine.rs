@@ -107,7 +107,9 @@ describe('<BuildActions>', () => {
 		it('displays a button to publish the story to a file', () => {
 			expect(publishStory).not.toHaveBeenCalled();
 			fireEvent.click(screen.getByText('routeActions.build.publishToFile'));
-			expect(publishStory.mock.calls).toEqual([[story.id]]);
+			expect(publishStory.mock.calls).toEqual([
+				[story.id, {buildTarget: 'publish'}]
+			]);
 		});
 
 		it('displays the error if publishing fails', async () => {

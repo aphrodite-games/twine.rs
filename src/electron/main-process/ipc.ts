@@ -11,7 +11,7 @@ import {
 } from './story-file';
 import {loadStoryFormats} from './story-formats';
 import {loadPrefs} from './prefs';
-import {openWithScratchFile} from './scratch-file';
+import {openWithScratchFile, openWithScratchPackage} from './scratch-file';
 import {Story} from '../../store/stories/stories.types';
 
 export function initIpc() {
@@ -23,20 +23,20 @@ export function initIpc() {
 	// These still take an argument because the individual invocations will see a
 	// different story object each time.
 
-		const storySavers: Record<
+	const storySavers: Record<
 		string,
 		DebouncedFunc<
 			(event: any, story: Story, storyHtml: string) => Promise<void>
 		>
-		> = {};
+	> = {};
 
-		ipcMain.on('copy-text', (_event, text: string) => {
-			if (typeof text === 'string') {
-				clipboard.writeText(text);
-			}
-		});
+	ipcMain.on('copy-text', (_event, text: string) => {
+		if (typeof text === 'string') {
+			clipboard.writeText(text);
+		}
+	});
 
-		ipcMain.on('delete-story', async (event, story) => {
+	ipcMain.on('delete-story', async (event, story) => {
 		try {
 			await deleteStory(story);
 			event.sender.send('story-deleted', story);
@@ -73,20 +73,27 @@ export function initIpc() {
 		}
 	});
 
-		ipcMain.on(
-			'open-with-scratch-file',
+	ipcMain.on(
+		'open-with-scratch-file',
 		(event, data: string, filename: string) => {
 			openWithScratchFile(data, filename);
 		}
-		);
+	);
 
-		ipcMain.on('reveal-path', (_event, path: string) => {
-			if (typeof path === 'string' && path.trim() !== '') {
-				shell.showItemInFolder(path);
-			}
-		});
+	ipcMain.on(
+		'open-with-scratch-package',
+		(event, data: string, filename: string, assets = []) => {
+			openWithScratchPackage(data, filename, assets);
+		}
+	);
 
-		// This doesn't use handle() because state reducers in the renderer process
+	ipcMain.on('reveal-path', (_event, path: string) => {
+		if (typeof path === 'string' && path.trim() !== '') {
+			shell.showItemInFolder(path);
+		}
+	});
+
+	// This doesn't use handle() because state reducers in the renderer process
 	// can't be be asynchronous--we have to send a signal back.
 
 	ipcMain.on('rename-story', async (event, oldStory, newStory) => {

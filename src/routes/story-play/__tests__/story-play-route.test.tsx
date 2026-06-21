@@ -33,7 +33,7 @@ describe('<StoryPlayRoute>', () => {
 		await waitFor(() =>
 			expect(document.body.textContent).toBe('mock-published-story')
 		);
-		expect(publishStory.mock.calls).toEqual([['123']]);
+		expect(publishStory.mock.calls).toEqual([['123', {buildTarget: 'play'}]]);
 	});
 
 	it('shows an error message if publishing fails', async () => {

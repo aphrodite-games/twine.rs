@@ -32,7 +32,7 @@ flowchart LR
 
 Text editing and graph editing should produce typed project patches. The Rust core validates and applies those patches, then publishes updated projections back to the UI.
 
-Story content and graph layout must be separable. A project can be source-only with no saved passage positions, graph-backed with rich layout metadata, or mixed. Textual story data is canonical. Graph positions, card sizes, groups, annotations, and view state are optional metadata that can be generated, edited, and persisted only when the author wants them.
+Story content, author-defined passage hierarchy, and graph layout must be separable. A project can be source-only with no saved passage positions, graph-backed with rich layout metadata, or mixed. Textual story data is canonical. Folders, sections, chapters, books, and other scopes organize passages and source files without changing link semantics. Graph positions, card sizes, visual groups, annotations, and view state are optional metadata that can be generated, edited, and persisted only when the author wants them.
 
 ## First Screen
 
@@ -92,6 +92,8 @@ Expected capabilities:
 - Select by click, shift-click, lasso, tag, query, or search result.
 - Toggle link overlays: normal links, broken links, references, backlinks, variables, diagnostics.
 - Collapse groups/folders/subgraphs.
+- Scope the graph to a folder, section, chapter, book, or saved organization view so authors can work on relevant passages without drawing the entire story at once.
+- Show cross-scope links as boundary edges, neighbor badges, or optional one-hop context instead of hiding structural problems.
 - Show minimap for large projects.
 - Generate a non-destructive layout for source-only projects.
 - Persist graph coordinates only after an explicit save/layout action.
@@ -124,6 +126,7 @@ A project-level index for big stories.
 
 Sections:
 
+- Folders / Chapters / Books
 - Passages
 - Tags
 - Variables
@@ -135,7 +138,7 @@ Sections:
 - Story metadata
 - Export/publish targets
 
-This view should be backed by Rust indexes, so it remains instant on huge projects.
+This view should be backed by Rust indexes, so it remains instant on huge projects. It should let authors create, rename, reorder, nest, and bulk-move passages between folders/chapters/books without relying on external Tweego project conventions.
 
 ### 5. Diagnostics View
 
@@ -358,6 +361,7 @@ User needs to be able to:
 - See the story structure.
 - Pan and zoom huge graphs smoothly.
 - Create, select, drag, resize, align, group, tag, delete, and link passages.
+- Focus the graph on one folder, chapter, book, or saved scope while preserving whole-story context.
 - Toggle link layers and diagnostics layers.
 - Work with saved layout metadata or generated layout.
 - Reveal graph selections in source.
@@ -365,9 +369,10 @@ User needs to be able to:
 Visible UI elements:
 
 - Full graph canvas with subtle grid.
+- Scope breadcrumb/menu: `All Passages`, book, chapter, folder, saved view.
 - Floating graph toolbar: `Select`, `Pan`, `New Passage`, `Connect`, `Group`, `Annotate`, `Align`, `Distribute`, `Snap`, `Layers`, `Layout`.
 - Zoom control: `Zoom Out`, zoom percentage, `Zoom In`, `Fit`, `Names Only`, `Names + Excerpts`, `Structure Only`.
-- Layer toggles: `Links`, `Broken Links`, `Backlinks`, `Variables`, `Diagnostics`, `Tags`, `Groups`, `Annotations`.
+- Layer toggles: `Links`, `Cross-Scope Links`, `Broken Links`, `Backlinks`, `Variables`, `Diagnostics`, `Tags`, `Groups`, `Annotations`.
 - Minimap with viewport rectangle.
 - Node cards: title, tags, excerpt, outgoing count, broken-link badge, asset badge, generated/saved layout status.
 - Selection HUD: selected count, bulk actions.
@@ -391,6 +396,9 @@ Primary labels/actions:
 - `Snap to Grid`
 - `Hide Links`
 - `Show Selected Neighborhood`
+- `Show Chapter`
+- `Show Book`
+- `Show One-Hop Neighbors`
 
 Core success condition: graph mode feels fast, direct, and optional; it never punishes projects that started as text.
 
@@ -435,15 +443,16 @@ Screen goal: give large projects a durable, indexed table of contents.
 User needs to be able to:
 
 - Browse every story element quickly.
-- Filter by type, tag, issue, folder, format role, and build status.
+- Filter by type, tag, issue, folder, chapter, book, format role, and build status.
 - See counts and health state.
 - Jump to source and graph.
 - Bulk-select and bulk-edit.
+- Create, rename, reorder, nest, and bulk-move passages across folders/chapters/books.
 
 Visible UI elements:
 
 - Search field: `Filter contents`.
-- Type tabs: `All`, `Passages`, `Tags`, `Variables`, `Assets`, `Scripts`, `Styles`, `Groups`, `Diagnostics`.
+- Type tabs: `All`, `Passages`, `Chapters`, `Books`, `Tags`, `Variables`, `Assets`, `Scripts`, `Styles`, `Groups`, `Diagnostics`.
 - Tree/list rows with icons, names, counts, badges, and actions.
 - Count badges: passage count, backlink count, outgoing link count, asset reference count.
 - Problem groups: `Broken Links`, `Orphans`, `Duplicate Names`, `Missing Assets`, `Unreachable`, `Excluded from Publish`.
@@ -453,6 +462,8 @@ Primary labels/actions:
 - `Reveal in Source`
 - `Reveal in Graph`
 - `Select in Graph`
+- `Show Scoped Graph`
+- `Move to Chapter`
 - `Bulk Tag`
 - `Export Selection`
 - `Mark as Start`
@@ -638,28 +649,36 @@ User needs to be able to:
 - Add, remove, update, and select story formats.
 - Understand whether a format supports syntax, autocomplete, diagnostics, build, proofing, and editor extensions.
 - Manage custom Harlowe forks.
+- Develop local custom formats without bundling devtools or editor UI helpers into the final story.
+- Connect local format folders/dev servers, lazy-load editor extensions, use HMR/live reload where available, and inspect what will be included in publish output.
 - Open docs and compatibility notes.
 
 Visible UI elements:
 
 - Format list with cards or table rows.
-- Filters: `All`, `Current`, `Built In`, `User Added`, `Needs Update`, `Failed`.
-- Format row badges: `Default`, `Proofing`, `Editor Extensions`, `Parser`, `Exporter`, `Diagnostics`, `Autocomplete`.
-- Detail panel: author, version, license, docs URL, capabilities, compatibility status.
+- Filters: `All`, `Current`, `Built In`, `User Added`, `Local Dev`, `Needs Update`, `Failed`.
+- Format row badges: `Default`, `Proofing`, `Editor Extensions`, `Dev Tools`, `Parser`, `Exporter`, `Diagnostics`, `Autocomplete`, `HMR`, `Lazy Loaded`, `Publish Safe`.
+- Detail panel: author, version, license, docs URL, capabilities, compatibility status, dev-server status, bundle inclusion policy, and editor/runtime module split.
 
 Primary labels/actions:
 
 - `Add Story Format`
+- `Open Format Folder`
+- `Connect Dev Server`
+- `Reload Format`
 - `Use as Default`
 - `Use for Proofing`
 - `Enable Editor Extensions`
 - `Disable Editor Extensions`
+- `Enable Dev Tools`
+- `Disable Dev Tools`
+- `Inspect Publish Bundle`
 - `Update Format`
 - `Remove`
 - `Open Documentation`
 - `Validate Format`
 
-Core success condition: story formats feel like typed plugins with declared abilities, not opaque blobs.
+Core success condition: story formats feel like typed plugins with declared abilities, not opaque blobs. Format authors can add rich editor/dev UI and debug tooling without fighting Twine or accidentally shipping that tooling inside the final playable story.
 
 ### Build, Export, and Publish
 
@@ -803,39 +822,39 @@ Core success condition: reliability and accessibility controls are not hidden; t
 
 This matrix is the spot-check promise: current Twine options should either survive directly, move to a better home, or become part of a richer workflow. The redesign should not accidentally drop old affordances just because the architecture changes.
 
-| Existing UI area | Current options and labels | New-world redesign |
-|---|---|---|
-| First-run welcome | `Hi!`, `Tell Me More`, `Go to the Story List`, `Your work is automatically saved`, `Your work is only saved in your browser`, `New here?` | Replace the passive welcome flow with a Project Launcher that still explains storage. Keep first-run education as a compact `Storage and Backups` card with actions: `Choose Project Folder`, `Import Existing Story`, `Try Sample Project`, `Open Docs`. |
-| Story library heading and empty state | `Stories`, `No Stories`, `No Tagged Stories`, `There are no stories saved... create a new story or import...` | Project dashboard with `Recent`, `Favorites`, `Examples`, `Templates`, `Archived`, plus clear project cards/table rows. Empty state becomes actionable: `New Project`, `Open Folder`, `Import Twine HTML/Twee`, `Try Sample Project`. |
-| Story cards | Story preview mini-map, story name, `Last edited on`, passage count, story tags, selectable/double-clickable card | Project card/table with more metadata: path, preferred mode, saved layout state, story format, passages, words, assets, broken links, Git state, backup state, last build. Mini-map appears only when saved/generated layout exists. |
-| Library storage warnings | `StorageQuota`, `% space available`, Safari warning, `Archive and use another browser`, `Add this site to your home screen` | Browser mode keeps storage health prominently. Desktop mode replaces quota anxiety with `Project Folder`, `Backup Status`, `Disk Location`, `Open Backups Folder`, `Clean Cache`. |
-| Story toolbar tab in library | `New`, `Edit`, `Tags`, `Rename`, `Duplicate`, `Delete` | Project/Story actions move to context menu, command palette, and top toolbar: `New Project`, `Open`, `Rename`, `Duplicate`, `Tag`, `Archive`, `Delete`. Story-specific actions remain available when a project contains multiple stories. |
-| New story prompt | `What should your story be named? You can change this later.`, `Untitled Story` | Full New Project/New Story screen with `Project Name`, `Story Name`, `Project Folder`, `Story Format`, `Source Layout`, `Initial Mode`, `Create Project`. |
-| Delete story prompt | Web: deleted forever. Desktop: moved to trash. | Keep platform-specific deletion language. Desktop uses OS trash where possible. Browser requires stronger confirmation and recommends export/archive first. Add `Archive Instead` when appropriate. |
-| Library tab | `Story Tags`, `Import`, `Archive` | `Story Tags` becomes part of Contents/Tags. `Import` becomes Import/Migration Review. `Archive` becomes `Export Archive` or `Backup Now`, depending on platform. |
-| Build tab | `Test`, `Play`, `Proof`, `Publish to File`, `Export As Twee` | Build workspace with targets: `Play`, `Test From Selection`, `Proof`, `Validate`, `Export HTML`, `Export Twee`, `Export JSON`, `Package Project`, `Publish`. Each target has warnings, output path, options, and logs. |
-| View tab | `Sort By`, `Last Updated`, `Name`, `Show Tags`, `Show All Stories` | Launcher keeps `Sort`, `Filter`, `Tags`, table/card view. Contents Navigator adds tag filtering and organization filters for large projects. |
-| App/Twine tab | `Preferences`, `Story Formats`, `About Twine`, `Report a Bug`, `Help` | Settings screen absorbs `Preferences`; Story Formats gets a full capability manager; About/Report Bug remain in `Help`/`About`; command palette can open all of them. |
-| Desktop menu bar | `Show Story Library`, `Set Story Library Folder...`, `Check for Updates...`, `Disable Hardware Acceleration`, `Show Debug Console`, `Twine Help` | Native desktop keeps proper OS menus. Add `Open Project Folder`, `Open Recent`, `Open Backups Folder`, `Reveal Current File`, `Check for Updates`, `Developer Tools`, `Reset GPU Settings`. |
-| Story map route | Graph-paper map, draggable passage cards, SVG links, marquee selection, fuzzy finder | Graph Mode becomes virtualized canvas/WebGL with saved/generated layout states, minimap, layer toggles, groups, annotations, drag-to-connect, large-project navigation, and source reveal. |
-| Passage toolbar tab | `New`, `Edit`, `Rename`, `Delete`, `Test From Here`, `Start Story Here`, `Go To`, `Select All`, `Deselect All` | These survive across Text/Graph/Split. Text mode places them in editor actions and command palette. Graph mode places them in graph toolbar/context menu. Split mode applies them to synchronized selection. |
-| Zoom controls | `Show Story Structure Only`, `Show Passage Names Only`, `Show Passage Names and Excerpts`, zoom buttons | Graph display density controls become `Structure`, `Names`, `Names + Excerpts`, `Diagnostics`, `Fit`, `Fit Selection`, `Zoom to 100%`, `Minimap`. |
-| Undo/redo | `Undo`, `Redo`, named undo/redo changes | Keep global undo/redo as typed project transactions: text edits, graph moves, tag changes, import decisions, rename, replace, layout save. Show transaction labels in status/tooltip. |
-| Story toolbar tab in editor | `Find and Replace`, `Rename`, `Details`, `Passage Tags`, `JavaScript`, `Stylesheet` | `Find and Replace` becomes Search Panel. `Details` becomes Story/Project Inspector and Contents metadata. `Passage Tags` becomes Contents/Tags and inspector. `JavaScript` and `Stylesheet` become real files under `scripts/` and `styles/`, with editor tabs. |
-| Passage editor dialog | Passage title, passage text area, tag button, `Size`, `Rename`, `Test From Here`, story-format toolbar, close/maximize/stack | Text Mode replaces dialog-first editing. Focus dialogs can remain, but normal editing happens in tabs/splits. `Size` becomes graph card size in Inspector, not a text-editor toolbar command. |
-| Passage text labels | `Passage Text`, placeholder explaining `[[like this]]` links | Keep friendly onboarding placeholder for beginners, but add format-aware snippets, autocomplete, inline link validation, backlinks, diagnostics, and docs links. |
-| Passage size menu | `Small`, `Large`, `Tall`, `Wide` | Move to Graph Mode/Inspector as `Card Size`: `Small`, `Medium`, `Large`, `Tall`, `Wide`, `Auto`. It writes optional layout metadata only. |
-| Story Details dialog | Story format select, `What's a story format?`, `Snap To Grid`, `Story Statistics`, `IFID`, last changed, passages, words, characters, links, broken links | Split into Project/Story Inspector plus Contents. `Snap To Grid` becomes Graph setting. Stats become indexed project stats and build dashboard summaries. |
-| Find and Replace dialog | `Find`, `Replace With`, `Include Passage Names`, `Match Case`, `Use Regular Expressions`, `Replace In All Passages`, match counts/errors | Search Panel with scopes, grouped results, snippets, preview replace, safe undo transaction, source reveal, graph reveal, result tagging, export results. |
-| Passage Tags dialog | List/rename passage tags, color editing, empty state | Contents/Tags panel with tag counts, colors, bulk edit, filter, rename, merge, delete, select matching passages, reveal in graph. |
-| Story Tags dialog | Library-level story tag list, color editing, empty state | Project Launcher tags plus project metadata. Story tags also appear in `twine.toml` and project details. |
-| Story JavaScript dialog | `Story JavaScript`, code area, explanation that JS runs when opened in browser | `scripts/` source files with tabs, linting, diagnostics, snippets, format capability hooks, and build inclusion rules. |
-| Story Stylesheet dialog | `Story Stylesheet`, code area, explanation that CSS overrides story appearance | `styles/` source files with CSS tooling, diagnostics, preview, and build inclusion rules. |
-| Story Formats dialog | `Story Formats`, `Add Story Format`, `All Story Formats`, `Current Story Formats`, `User-Added Story Formats`, `Use As Default`, `Use As Proofing`, `Use Editor Extensions`, delete | Story Format Manager with typed capability badges: parser, exporter, syntax, autocomplete, diagnostics, toolbar actions, preprocessing, stats, docs, compatibility, custom format health. |
-| Import dialog | `Import Stories`, file chooser, story chooser, `Import Selected Files`, `Import This Story`, replace warning, no stories message | Import/Migration Review with source file pane, detected stories/passages/assets/formats/metadata, conflict decisions, layout preservation/generation, and non-destructive preview. |
-| App preferences | `Language`, `Theme`, `Dialog Width`, `Show Passage Tags As`, `Blinking Cursor in Editors`, `Use Enhanced Editors`, editor fonts and sizes | Settings expands into `General`, `Workspace`, `Modes`, `Editor`, `Graph`, `Accessibility`, `Keyboard Shortcuts`, `Storage`, `Backups`, `Story Formats`, `Build`, `Integrations`, `Platform`, `About`. |
-| About/Donation/Bug | `About Twine`, license/code/localization, donation prompt, `Report a Bug` | Keep in `About` and `Help`. Add `Copy Diagnostics`, `Open Logs`, `Open Config Folder` in desktop mode. Browser gets `Export Diagnostics`. |
-| External-file changed dialog | `Save Changes in Twine`, `Use File and Relaunch` | Desktop file watcher becomes richer conflict UI: `Accept Disk Changes`, `Keep App Changes`, `Compare`, `Merge`, `Duplicate`, `Reload Project`. Browser only sees this for File System Access handles or imported local handles. |
+| Existing UI area                      | Current options and labels                                                                                                                                                          | New-world redesign                                                                                                                                                                                                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First-run welcome                     | `Hi!`, `Tell Me More`, `Go to the Story List`, `Your work is automatically saved`, `Your work is only saved in your browser`, `New here?`                                           | Replace the passive welcome flow with a Project Launcher that still explains storage. Keep first-run education as a compact `Storage and Backups` card with actions: `Choose Project Folder`, `Import Existing Story`, `Try Sample Project`, `Open Docs`.       |
+| Story library heading and empty state | `Stories`, `No Stories`, `No Tagged Stories`, `There are no stories saved... create a new story or import...`                                                                       | Project dashboard with `Recent`, `Favorites`, `Examples`, `Templates`, `Archived`, plus clear project cards/table rows. Empty state becomes actionable: `New Project`, `Open Folder`, `Import Twine HTML/Twee`, `Try Sample Project`.                           |
+| Story cards                           | Story preview mini-map, story name, `Last edited on`, passage count, story tags, selectable/double-clickable card                                                                   | Project card/table with more metadata: path, preferred mode, saved layout state, story format, passages, words, assets, broken links, Git state, backup state, last build. Mini-map appears only when saved/generated layout exists.                            |
+| Library storage warnings              | `StorageQuota`, `% space available`, Safari warning, `Archive and use another browser`, `Add this site to your home screen`                                                         | Browser mode keeps storage health prominently. Desktop mode replaces quota anxiety with `Project Folder`, `Backup Status`, `Disk Location`, `Open Backups Folder`, `Clean Cache`.                                                                               |
+| Story toolbar tab in library          | `New`, `Edit`, `Tags`, `Rename`, `Duplicate`, `Delete`                                                                                                                              | Project/Story actions move to context menu, command palette, and top toolbar: `New Project`, `Open`, `Rename`, `Duplicate`, `Tag`, `Archive`, `Delete`. Story-specific actions remain available when a project contains multiple stories.                       |
+| New story prompt                      | `What should your story be named? You can change this later.`, `Untitled Story`                                                                                                     | Full New Project/New Story screen with `Project Name`, `Story Name`, `Project Folder`, `Story Format`, `Source Layout`, `Initial Mode`, `Create Project`.                                                                                                       |
+| Delete story prompt                   | Web: deleted forever. Desktop: moved to trash.                                                                                                                                      | Keep platform-specific deletion language. Desktop uses OS trash where possible. Browser requires stronger confirmation and recommends export/archive first. Add `Archive Instead` when appropriate.                                                             |
+| Library tab                           | `Story Tags`, `Import`, `Archive`                                                                                                                                                   | `Story Tags` becomes part of Contents/Tags. `Import` becomes Import/Migration Review. `Archive` becomes `Export Archive` or `Backup Now`, depending on platform.                                                                                                |
+| Build tab                             | `Test`, `Play`, `Proof`, `Publish to File`, `Export As Twee`                                                                                                                        | Build workspace with targets: `Play`, `Test From Selection`, `Proof`, `Validate`, `Export HTML`, `Export Twee`, `Export JSON`, `Package Project`, `Publish`. Each target has warnings, output path, options, and logs.                                          |
+| View tab                              | `Sort By`, `Last Updated`, `Name`, `Show Tags`, `Show All Stories`                                                                                                                  | Launcher keeps `Sort`, `Filter`, `Tags`, table/card view. Contents Navigator adds tag filtering and organization filters for large projects.                                                                                                                    |
+| App/Twine tab                         | `Preferences`, `Story Formats`, `About Twine`, `Report a Bug`, `Help`                                                                                                               | Settings screen absorbs `Preferences`; Story Formats gets a full capability manager; About/Report Bug remain in `Help`/`About`; command palette can open all of them.                                                                                           |
+| Desktop menu bar                      | `Show Story Library`, `Set Story Library Folder...`, `Check for Updates...`, `Disable Hardware Acceleration`, `Show Debug Console`, `Twine Help`                                    | Native desktop keeps proper OS menus. Add `Open Project Folder`, `Open Recent`, `Open Backups Folder`, `Reveal Current File`, `Check for Updates`, `Developer Tools`, `Reset GPU Settings`.                                                                     |
+| Story map route                       | Graph-paper map, draggable passage cards, SVG links, marquee selection, fuzzy finder                                                                                                | Graph Mode becomes virtualized canvas/WebGL with saved/generated layout states, minimap, layer toggles, groups, annotations, drag-to-connect, large-project navigation, and source reveal.                                                                      |
+| Passage toolbar tab                   | `New`, `Edit`, `Rename`, `Delete`, `Test From Here`, `Start Story Here`, `Go To`, `Select All`, `Deselect All`                                                                      | These survive across Text/Graph/Split. Text mode places them in editor actions and command palette. Graph mode places them in graph toolbar/context menu. Split mode applies them to synchronized selection.                                                    |
+| Zoom controls                         | `Show Story Structure Only`, `Show Passage Names Only`, `Show Passage Names and Excerpts`, zoom buttons                                                                             | Graph display density controls become `Structure`, `Names`, `Names + Excerpts`, `Diagnostics`, `Fit`, `Fit Selection`, `Zoom to 100%`, `Minimap`.                                                                                                               |
+| Undo/redo                             | `Undo`, `Redo`, named undo/redo changes                                                                                                                                             | Keep global undo/redo as typed project transactions: text edits, graph moves, tag changes, import decisions, rename, replace, layout save. Show transaction labels in status/tooltip.                                                                           |
+| Story toolbar tab in editor           | `Find and Replace`, `Rename`, `Details`, `Passage Tags`, `JavaScript`, `Stylesheet`                                                                                                 | `Find and Replace` becomes Search Panel. `Details` becomes Story/Project Inspector and Contents metadata. `Passage Tags` becomes Contents/Tags and inspector. `JavaScript` and `Stylesheet` become real files under `scripts/` and `styles/`, with editor tabs. |
+| Passage editor dialog                 | Passage title, passage text area, tag button, `Size`, `Rename`, `Test From Here`, story-format toolbar, close/maximize/stack                                                        | Text Mode replaces dialog-first editing. Focus dialogs can remain, but normal editing happens in tabs/splits. `Size` becomes graph card size in Inspector, not a text-editor toolbar command.                                                                   |
+| Passage text labels                   | `Passage Text`, placeholder explaining `[[like this]]` links                                                                                                                        | Keep friendly onboarding placeholder for beginners, but add format-aware snippets, autocomplete, inline link validation, backlinks, diagnostics, and docs links.                                                                                                |
+| Passage size menu                     | `Small`, `Large`, `Tall`, `Wide`                                                                                                                                                    | Move to Graph Mode/Inspector as `Card Size`: `Small`, `Medium`, `Large`, `Tall`, `Wide`, `Auto`. It writes optional layout metadata only.                                                                                                                       |
+| Story Details dialog                  | Story format select, `What's a story format?`, `Snap To Grid`, `Story Statistics`, `IFID`, last changed, passages, words, characters, links, broken links                           | Split into Project/Story Inspector plus Contents. `Snap To Grid` becomes Graph setting. Stats become indexed project stats and build dashboard summaries.                                                                                                       |
+| Find and Replace dialog               | `Find`, `Replace With`, `Include Passage Names`, `Match Case`, `Use Regular Expressions`, `Replace In All Passages`, match counts/errors                                            | Search Panel with scopes, grouped results, snippets, preview replace, safe undo transaction, source reveal, graph reveal, result tagging, export results.                                                                                                       |
+| Passage Tags dialog                   | List/rename passage tags, color editing, empty state                                                                                                                                | Contents/Tags panel with tag counts, colors, bulk edit, filter, rename, merge, delete, select matching passages, reveal in graph.                                                                                                                               |
+| Story Tags dialog                     | Library-level story tag list, color editing, empty state                                                                                                                            | Project Launcher tags plus project metadata. Story tags also appear in `twine.toml` and project details.                                                                                                                                                        |
+| Story JavaScript dialog               | `Story JavaScript`, code area, explanation that JS runs when opened in browser                                                                                                      | `scripts/` source files with tabs, linting, diagnostics, snippets, format capability hooks, and build inclusion rules.                                                                                                                                          |
+| Story Stylesheet dialog               | `Story Stylesheet`, code area, explanation that CSS overrides story appearance                                                                                                      | `styles/` source files with CSS tooling, diagnostics, preview, and build inclusion rules.                                                                                                                                                                       |
+| Story Formats dialog                  | `Story Formats`, `Add Story Format`, `All Story Formats`, `Current Story Formats`, `User-Added Story Formats`, `Use As Default`, `Use As Proofing`, `Use Editor Extensions`, delete | Story Format Manager with typed capability badges: parser, exporter, syntax, autocomplete, diagnostics, toolbar actions, preprocessing, stats, docs, compatibility, custom format health.                                                                       |
+| Import dialog                         | `Import Stories`, file chooser, story chooser, `Import Selected Files`, `Import This Story`, replace warning, no stories message                                                    | Import/Migration Review with source file pane, detected stories/passages/assets/formats/metadata, conflict decisions, layout preservation/generation, and non-destructive preview.                                                                              |
+| App preferences                       | `Language`, `Theme`, `Dialog Width`, `Show Passage Tags As`, `Blinking Cursor in Editors`, `Use Enhanced Editors`, editor fonts and sizes                                           | Settings expands into `General`, `Workspace`, `Modes`, `Editor`, `Graph`, `Accessibility`, `Keyboard Shortcuts`, `Storage`, `Backups`, `Story Formats`, `Build`, `Integrations`, `Platform`, `About`.                                                           |
+| About/Donation/Bug                    | `About Twine`, license/code/localization, donation prompt, `Report a Bug`                                                                                                           | Keep in `About` and `Help`. Add `Copy Diagnostics`, `Open Logs`, `Open Config Folder` in desktop mode. Browser gets `Export Diagnostics`.                                                                                                                       |
+| External-file changed dialog          | `Save Changes in Twine`, `Use File and Relaunch`                                                                                                                                    | Desktop file watcher becomes richer conflict UI: `Accept Disk Changes`, `Keep App Changes`, `Compare`, `Merge`, `Duplicate`, `Reload Project`. Browser only sees this for File System Access handles or imported local handles.                                 |
 
 ## Desktop vs Browser Capability Matrix
 
@@ -851,25 +870,25 @@ Reference docs:
 - MDN `showOpenFilePicker()`: https://developer.mozilla.org/en-US/docs/Web/API/Window/showOpenFilePicker
 - MDN Origin Private File System: https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system
 
-| Capability | Pure desktop mode | Browser mode |
-|---|---|---|
-| Project folders | Full native folder projects. User can `Open Folder`, `New Project in Folder`, `Reveal in Finder`, and point the app at any directory the OS permits. | Limited. Can use upload/import everywhere. Modern Chromium-like browsers may support File System Access API with permission prompts; otherwise use IndexedDB/OPFS plus download/export. |
-| Save model | Write changed files directly to disk. Save `twine.toml`, passage files, assets, scripts, styles, and optional `.twine/graph.json`. | Autosave to browser storage. Exports are downloads unless directory access permission exists. Must show storage quota and backup/export reminders. |
-| Directory watching | Rust/Tauri can watch files and folders, detect external edits, update indexes incrementally, and show merge UI. | Usually unavailable. With File System Access handles, can poll or re-read on focus, but not reliable background watching. |
-| External editor workflow | Strong. `Open in External Editor`, detect changes, merge or reload, preserve cursor/source spans. | Weak. Browser can copy text or download files. Direct external editor integration is not reliable. |
-| Git/version control | Strong. Detect Git repo, branch, dirty files, diffs, commits, ignores, external changes. | Usually unavailable unless integrated with a remote service or user imports/exports project archives. |
-| Asset folders | Strong. Assets live in `assets/`; app can import, rename, preview, detect missing/unused assets, and package output. | Possible inside browser storage, but real file paths are constrained. Asset import/export needs explicit user actions or File System Access permission. |
-| Backups | Strong. Scheduled local backups, backup folder, retention policy, restore UI, archive/export. | Manual or browser-storage backups. Can prompt `Download Backup` or sync through a web account if a backend exists. |
-| Build output | Strong. Write HTML/Twee/JSON/package outputs to chosen directory, reveal output, run local preview server if needed. | Generate downloads or in-browser previews. Persistent output folders only with permission-capable browsers. |
-| Play/test runtime | Strong. Embedded preview, local files, local server, runtime logs, open source at current passage. | In-browser preview works well. Some file/asset loading may need blob URLs, service worker, or packaged paths. |
-| Story format installation | Strong. Store formats in app/project directories, validate, cache, inspect source, support local development formats. | Store in IndexedDB/browser storage, import by URL/file, subject to CORS/network constraints. |
-| Command-line open | Strong. `twine-rs /path/to/project`, `--help`, open file/project from shell, file associations. | Not applicable. Browser URLs can deep-link only to web app routes or cloud/shared projects. |
-| Native menus and shortcuts | Strong. OS menu bar, global-ish app shortcuts, platform conventions. | Browser shortcuts compete with browser defaults. Some shortcuts cannot be captured reliably. |
-| Accessibility/system integration | Strong. Respect OS high contrast, reduced motion, file dialogs, native notifications, update channels. | Good for web accessibility, but less native integration. Must respect CSS media queries and browser accessibility APIs. |
-| Updates | Native updater, app store/Flatpak/Homebrew style channels, release notes. | Web deployment updates automatically, but browser storage migrations must be careful. |
-| Crash/log diagnostics | Local logs, crash reports if opted in, `Open Logs Folder`, copy diagnostics bundle. | Browser console/exported diagnostics. No arbitrary log folder. |
-| Cloud/share | Optional integration on top of local-first model. Shareable links require explicit publish/sync. | Easier to offer web sharing if a backend exists. Without backend, share means exported file/archive/download. |
-| Privacy model | Local-first by default. Project contents stay in chosen folders unless user publishes/syncs. | Local browser storage by default if no backend, but must warn about browser data clearing and profile sharing. |
+| Capability                       | Pure desktop mode                                                                                                                                    | Browser mode                                                                                                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project folders                  | Full native folder projects. User can `Open Folder`, `New Project in Folder`, `Reveal in Finder`, and point the app at any directory the OS permits. | Limited. Can use upload/import everywhere. Modern Chromium-like browsers may support File System Access API with permission prompts; otherwise use IndexedDB/OPFS plus download/export. |
+| Save model                       | Write changed files directly to disk. Save `twine.toml`, passage files, assets, scripts, styles, and optional `.twine/graph.json`.                   | Autosave to browser storage. Exports are downloads unless directory access permission exists. Must show storage quota and backup/export reminders.                                      |
+| Directory watching               | Rust/Tauri can watch files and folders, detect external edits, update indexes incrementally, and show merge UI.                                      | Usually unavailable. With File System Access handles, can poll or re-read on focus, but not reliable background watching.                                                               |
+| External editor workflow         | Strong. `Open in External Editor`, detect changes, merge or reload, preserve cursor/source spans.                                                    | Weak. Browser can copy text or download files. Direct external editor integration is not reliable.                                                                                      |
+| Git/version control              | Strong. Detect Git repo, branch, dirty files, diffs, commits, ignores, external changes.                                                             | Usually unavailable unless integrated with a remote service or user imports/exports project archives.                                                                                   |
+| Asset folders                    | Strong. Assets live in `assets/`; app can import, rename, preview, detect missing/unused assets, and package output.                                 | Possible inside browser storage, but real file paths are constrained. Asset import/export needs explicit user actions or File System Access permission.                                 |
+| Backups                          | Strong. Scheduled local backups, backup folder, retention policy, restore UI, archive/export.                                                        | Manual or browser-storage backups. Can prompt `Download Backup` or sync through a web account if a backend exists.                                                                      |
+| Build output                     | Strong. Write HTML/Twee/JSON/package outputs to chosen directory, reveal output, run local preview server if needed.                                 | Generate downloads or in-browser previews. Persistent output folders only with permission-capable browsers.                                                                             |
+| Play/test runtime                | Strong. Embedded preview, local files, local server, runtime logs, open source at current passage.                                                   | In-browser preview works well. Some file/asset loading may need blob URLs, service worker, or packaged paths.                                                                           |
+| Story format installation        | Strong. Store formats in app/project directories, validate, cache, inspect source, support local development formats.                                | Store in IndexedDB/browser storage, import by URL/file, subject to CORS/network constraints.                                                                                            |
+| Command-line open                | Strong. `twine-rs /path/to/project`, `--help`, open file/project from shell, file associations.                                                      | Not applicable. Browser URLs can deep-link only to web app routes or cloud/shared projects.                                                                                             |
+| Native menus and shortcuts       | Strong. OS menu bar, global-ish app shortcuts, platform conventions.                                                                                 | Browser shortcuts compete with browser defaults. Some shortcuts cannot be captured reliably.                                                                                            |
+| Accessibility/system integration | Strong. Respect OS high contrast, reduced motion, file dialogs, native notifications, update channels.                                               | Good for web accessibility, but less native integration. Must respect CSS media queries and browser accessibility APIs.                                                                 |
+| Updates                          | Native updater, app store/Flatpak/Homebrew style channels, release notes.                                                                            | Web deployment updates automatically, but browser storage migrations must be careful.                                                                                                   |
+| Crash/log diagnostics            | Local logs, crash reports if opted in, `Open Logs Folder`, copy diagnostics bundle.                                                                  | Browser console/exported diagnostics. No arbitrary log folder.                                                                                                                          |
+| Cloud/share                      | Optional integration on top of local-first model. Shareable links require explicit publish/sync.                                                     | Easier to offer web sharing if a backend exists. Without backend, share means exported file/archive/download.                                                                           |
+| Privacy model                    | Local-first by default. Project contents stay in chosen folders unless user publishes/syncs.                                                         | Local browser storage by default if no backend, but must warn about browser data clearing and profile sharing.                                                                          |
 
 Desktop-only or desktop-best labels/actions:
 
@@ -931,9 +950,10 @@ my-story.twine/
   story.twee
   passages/
     start.twee
-    forest/
-      entrance.twee
-      clearing.twee
+    book-01/
+      chapter-01/
+        entrance.twee
+        clearing.twee
   scripts/
     story.js
   styles/
@@ -955,6 +975,7 @@ my-story.twine/
 - Start passage
 - Export targets
 - Source layout settings
+- Passage hierarchy, ordering, and scope labels for folders/sections/chapters/books
 
 `passages/` stores author-editable passage files when using multi-file mode.
 

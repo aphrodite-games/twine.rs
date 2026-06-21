@@ -5,9 +5,10 @@
 	display: grid;
 	flex-grow: 1;
 	gap: var(--control-inner-padding);
-	grid-template: "name image"
-		"description image"
-		"actions image" / 1fr 100px;
+	grid-template:
+		'name image'
+		'description image'
+		'actions image' / 1fr 100px;
 	padding: var(--grid-size) var(--grid-size) 0 var(--grid-size);
 }
 
@@ -37,6 +38,19 @@
 	grid-area: description;
 }
 
+.story-format-item .story-format-capabilities {
+	display: flex;
+	flex-wrap: wrap;
+	gap: calc(var(--grid-size) / 2);
+	margin: 0.75em 0;
+}
+
+.story-format-item .story-format-safety {
+	color: var(--dark-red);
+	margin: 0.75em 0;
+	padding-left: calc(2 * var(--grid-size));
+}
+
 .story-format-item .story-format-details :first-child {
 	/* Cheat first line of details upward. */
 	margin-top: 0.5em;
@@ -48,5 +62,5 @@
 
 .story-format-item .actions {
 	grid-area: actions;
-	margin-left: calc(-1 * var(--grid-size))
+	margin-left: calc(-1 * var(--grid-size));
 }
