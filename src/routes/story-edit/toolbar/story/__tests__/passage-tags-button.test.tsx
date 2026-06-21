@@ -25,7 +25,7 @@ describe('<PassageTagsButton>', () => {
 
 	it('opens the passage tags dialog when clicked', () => {
 		renderComponent();
-		fireEvent.click(screen.getByText('routes.storyEdit.toolbar.passageTags'));
+		fireEvent.click(screen.getByRole('button', {name: 'routes.storyEdit.toolbar.passageTags'}));
 		expect(screen.getByText('dialogs.passageTags.title')).toBeInTheDocument();
 	});
 

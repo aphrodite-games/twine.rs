@@ -41,7 +41,7 @@ describe('<EditPassagesButton>', () => {
 
 	it('is disabled if the passages prop is empty', () => {
 		renderComponent({passages: []});
-		expect(screen.getByText('common.edit')).toBeDisabled();
+		expect(screen.getByRole('button', {name: 'common.edit'})).toBeDisabled();
 	});
 
 	it('opens a passage dialog for every passage when clicked', async () => {
@@ -54,7 +54,7 @@ describe('<EditPassagesButton>', () => {
 			{story, passages: [story.passages[0], story.passages[1]]},
 			{stories: [story], storyFormats: [format]}
 		);
-		fireEvent.click(screen.getByText('common.editCount'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.editCount'}));
 		await act(() => Promise.resolve());
 		expect(screen.getByText(story.passages[0].name)).toBeInTheDocument();
 	});

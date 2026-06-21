@@ -1036,6 +1036,24 @@ button.story-edit-link-chip:focus-visible {
 	color: var(--sem-error);
 }
 
+.story-edit-toolbar-fallback {
+	background: var(--ink-2);
+	border-bottom: 1px solid var(--line-1);
+	display: flex;
+	flex-direction: column;
+	flex: none;
+	gap: 8px;
+	padding: 8px;
+}
+
+.story-edit-toolbar-fallback__top,
+.story-edit-toolbar-fallback__body {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
 @media (max-width: 800px) {
 	.story-edit-workspace {
 		--story-edit-dock-width: 220px;

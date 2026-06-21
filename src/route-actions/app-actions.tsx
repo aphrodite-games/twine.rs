@@ -1,9 +1,7 @@
-import {IconAward, IconBug, IconFileCode, IconSettings} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {useHistory} from 'react-router-dom';
-import {ButtonBar} from '../components/container/button-bar';
-import {IconButton} from '../components/control/icon-button';
+import {IconButton} from '../components/design-system';
 import {AboutTwineDialog, AppPrefsDialog, useDialogsContext} from '../dialogs';
 import {StoryFormatsDialog} from '../dialogs/story-formats/story-formats';
 
@@ -13,32 +11,32 @@ export const AppActions: React.FC = () => {
 	const {t} = useTranslation();
 
 	return (
-		<ButtonBar>
+		<div className="route-action-group">
 			<IconButton
-				icon={<IconSettings />}
+				icon="settings"
 				label={t('routeActions.app.preferences')}
 				onClick={() => dispatch({type: 'addDialog', component: AppPrefsDialog})}
 			/>
 			<IconButton
 				disabled={history.location.pathname === '/story-formats'}
-				icon={<IconFileCode />}
+				icon="file-code"
 				label={t('routeActions.app.storyFormats')}
 				onClick={() =>
 					dispatch({type: 'addDialog', component: StoryFormatsDialog})
 				}
 			/>
 			<IconButton
-				icon={<IconAward />}
+				icon="award"
 				label={t('routeActions.app.aboutApp')}
 				onClick={() =>
 					dispatch({type: 'addDialog', component: AboutTwineDialog})
 				}
 			/>
 			<IconButton
-				icon={<IconBug />}
+				icon="bug"
 				label={t('routeActions.app.reportBug')}
 				onClick={() => window.open('https://twinery.org/2bugs', '_blank')}
 			/>
-		</ButtonBar>
+		</div>
 	);
 };

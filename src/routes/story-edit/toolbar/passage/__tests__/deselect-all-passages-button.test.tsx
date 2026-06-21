@@ -42,7 +42,7 @@ describe('<DeselectAllPassagesButton>', () => {
 
 	it('is disabled if the selectedPassages prop is empty', () => {
 		renderComponent({selectedPassages: []});
-		expect(screen.getByText('common.deselectAll')).toBeDisabled();
+		expect(screen.getByRole('button', {name: 'common.deselectAll'})).toBeDisabled();
 	});
 
 	it('deselects all passages in the story when clicked', () => {
@@ -52,7 +52,7 @@ describe('<DeselectAllPassagesButton>', () => {
 		story.passages[1].selected = true;
 		story.passages[2].selected = true;
 		renderComponent({story}, {stories: [story]});
-		fireEvent.click(screen.getByText('common.deselectAll'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.deselectAll'}));
 
 		const passages = within(
 			screen.getByTestId('story-inspector-default')

@@ -16,34 +16,34 @@ describe('<StoryActions>', () => {
 
 	it('displays a button to create stories', () => {
 		renderComponent();
-		expect(screen.getByText('common.new')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.new'})).toBeInTheDocument();
 	});
 
 	it('displays a button to edit stories', () => {
 		renderComponent();
-		expect(screen.getByText('common.edit')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.edit'})).toBeInTheDocument();
 	});
 
 	it('displays a button to rename stories', () => {
 		renderComponent();
-		expect(screen.getByText('common.rename')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.rename'})).toBeInTheDocument();
 	});
 
 	it.todo('renames a story when the rename story button is used');
 
 	it('displays a button to tag stories', () => {
 		renderComponent();
-		expect(screen.getByText('common.tags')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.tags'})).toBeInTheDocument();
 	});
 
 	it('displays a button to duplicate stories', () => {
 		renderComponent();
-		expect(screen.getByText('common.duplicate')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.duplicate'})).toBeInTheDocument();
 	});
 
 	it('displays a button to delete stories', () => {
 		renderComponent();
-		expect(screen.getByText('common.delete')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.delete'})).toBeInTheDocument();
 	});
 
 	it('is accessible', async () => {

@@ -25,7 +25,7 @@ describe('<StylesheetButton>', () => {
 
 	it('opens the stylesheet dialog when clicked', () => {
 		renderComponent();
-		fireEvent.click(screen.getByText('routes.storyEdit.toolbar.stylesheet'));
+		fireEvent.click(screen.getByRole('button', {name: 'routes.storyEdit.toolbar.stylesheet'}));
 		expect(
 			screen.getByText('dialogs.storyStylesheet.title')
 		).toBeInTheDocument();

@@ -1,7 +1,6 @@
-import {IconRocket} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {
 	Passage,
 	Story,
@@ -30,7 +29,7 @@ export const StartAtPassageButton: React.FC<StartAtPassageButtonProps> = props =
 	return (
 		<IconButton
 			disabled={!passage || passage.id === story.startPassage}
-			icon={<IconRocket />}
+			icon="rocket"
 			label={t('routes.storyEdit.toolbar.startStoryHere')}
 			onClick={handleClick}
 		/>

@@ -130,7 +130,8 @@
 	flex: 0 0 auto;
 }
 
-.app-shell__actions .button-bar {
+.app-shell__actions .button-bar,
+.app-shell__actions .route-action-group {
 	align-items: center;
 	display: flex;
 	gap: var(--sp-1);

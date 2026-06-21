@@ -25,7 +25,7 @@ describe('<JavaScriptButton>', () => {
 
 	it('opens the JavaScript dialog when clicked', () => {
 		renderComponent();
-		fireEvent.click(screen.getByText('routes.storyEdit.toolbar.javaScript'));
+		fireEvent.click(screen.getByRole('button', {name: 'routes.storyEdit.toolbar.javaScript'}));
 		expect(
 			screen.getByText('dialogs.storyJavaScript.title')
 		).toBeInTheDocument();

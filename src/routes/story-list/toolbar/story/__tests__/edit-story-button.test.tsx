@@ -20,7 +20,7 @@ describe('<EditStoryButton>', () => {
 
 	it('is disabled if no story is provided', () => {
 		renderComponent({story: undefined});
-		expect(screen.getByText('common.edit')).toBeDisabled();
+		expect(screen.getByRole('button', {name: 'common.edit'})).toBeDisabled();
 	});
 
 	it('edits the story set as prop when clicked', () => {
@@ -28,7 +28,7 @@ describe('<EditStoryButton>', () => {
 		const story = fakeStory();
 
 		renderComponent({story}, history);
-		fireEvent.click(screen.getByText('common.edit'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.edit'}));
 		expect(history.location.pathname).toBe(`/stories/${story.id}`);
 	});
 

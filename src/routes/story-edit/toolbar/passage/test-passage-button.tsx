@@ -1,7 +1,6 @@
-import {IconTool} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {Passage, Story} from '../../../../store/stories';
 import {useStoryLaunch} from '../../../../store/use-story-launch';
 
@@ -18,7 +17,7 @@ export const TestPassageButton: React.FC<TestPassageButtonProps> = props => {
 	return (
 		<IconButton
 			disabled={!passage}
-			icon={<IconTool />}
+			icon="tool"
 			label={t('routes.storyEdit.toolbar.testFromHere')}
 			onClick={() => testStory(story.id, passage?.id)}
 		/>

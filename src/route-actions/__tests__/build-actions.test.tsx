@@ -18,6 +18,7 @@ describe('<BuildActions>', () => {
 	const saveTweeMock = saveTwee as jest.Mock;
 	const usePublishingMock = usePublishing as jest.Mock;
 	const useStoryLaunchMock = useStoryLaunch as jest.Mock;
+	const button = (name: string) => screen.getByRole('button', {name});
 
 	function renderComponent(props?: Partial<BuildActionsProps>) {
 		return render(<BuildActions story={fakeStory()} {...props} />);
@@ -31,23 +32,19 @@ describe('<BuildActions>', () => {
 		});
 
 		it('disables the test button', () =>
-			expect(screen.getByText('routeActions.build.test')).toBeDisabled());
+			expect(button('routeActions.build.test')).toBeDisabled());
 
 		it('disables the play button', () =>
-			expect(screen.getByText('routeActions.build.play')).toBeDisabled());
+			expect(button('routeActions.build.play')).toBeDisabled());
 
 		it('disables the proof button', () =>
-			expect(screen.getByText('routeActions.build.proof')).toBeDisabled());
+			expect(button('routeActions.build.proof')).toBeDisabled());
 
 		it('disables the publish to story button', () =>
-			expect(
-				screen.getByText('routeActions.build.publishToFile')
-			).toBeDisabled());
+			expect(button('routeActions.build.publishToFile')).toBeDisabled());
 
 		it('disables the export to Twee button', () =>
-			expect(
-				screen.getByText('routeActions.build.exportAsTwee')
-			).toBeDisabled());
+			expect(button('routeActions.build.exportAsTwee')).toBeDisabled());
 	});
 
 	describe('when given a story prop', () => {
@@ -70,43 +67,43 @@ describe('<BuildActions>', () => {
 
 		it('displays a button to test the story', () => {
 			expect(testStory).not.toHaveBeenCalled();
-			fireEvent.click(screen.getByText('routeActions.build.test'));
+			fireEvent.click(button('routeActions.build.test'));
 			expect(testStory.mock.calls).toEqual([[story.id]]);
 		});
 
 		it('displays the error if testing fails', async () => {
 			testStory.mockRejectedValue(new Error('mock-test-error'));
-			fireEvent.click(screen.getByText('routeActions.build.test'));
+			fireEvent.click(button('routeActions.build.test'));
 			expect(await screen.findByText('mock-test-error')).toBeInTheDocument();
 		});
 
 		it('displays a button to play the story', () => {
 			expect(playStory).not.toHaveBeenCalled();
-			fireEvent.click(screen.getByText('routeActions.build.play'));
+			fireEvent.click(button('routeActions.build.play'));
 			expect(playStory.mock.calls).toEqual([[story.id]]);
 		});
 
 		it('displays the error if playing fails', async () => {
 			playStory.mockRejectedValue(new Error('mock-play-error'));
-			fireEvent.click(screen.getByText('routeActions.build.play'));
+			fireEvent.click(button('routeActions.build.play'));
 			expect(await screen.findByText('mock-play-error')).toBeInTheDocument();
 		});
 
 		it('displays a button to proof the story', () => {
 			expect(proofStory).not.toHaveBeenCalled();
-			fireEvent.click(screen.getByText('routeActions.build.proof'));
+			fireEvent.click(button('routeActions.build.proof'));
 			expect(proofStory.mock.calls).toEqual([[story.id]]);
 		});
 
 		it('displays the error if proofing fails', async () => {
 			proofStory.mockRejectedValue(new Error('mock-proof-error'));
-			fireEvent.click(screen.getByText('routeActions.build.proof'));
+			fireEvent.click(button('routeActions.build.proof'));
 			expect(await screen.findByText('mock-proof-error')).toBeInTheDocument();
 		});
 
 		it('displays a button to publish the story to a file', () => {
 			expect(publishStory).not.toHaveBeenCalled();
-			fireEvent.click(screen.getByText('routeActions.build.publishToFile'));
+			fireEvent.click(button('routeActions.build.publishToFile'));
 			expect(publishStory.mock.calls).toEqual([
 				[story.id, {buildTarget: 'publish'}]
 			]);
@@ -114,13 +111,13 @@ describe('<BuildActions>', () => {
 
 		it('displays the error if publishing fails', async () => {
 			publishStory.mockRejectedValue(new Error('mock-publish-error'));
-			fireEvent.click(screen.getByText('routeActions.build.publishToFile'));
+			fireEvent.click(button('routeActions.build.publishToFile'));
 			expect(await screen.findByText('mock-publish-error')).toBeInTheDocument();
 		});
 
 		it('displays a button to export the story as Twee', () => {
 			expect(saveTweeMock).not.toHaveBeenCalled();
-			fireEvent.click(screen.getByText('routeActions.build.exportAsTwee'));
+			fireEvent.click(button('routeActions.build.exportAsTwee'));
 			expect(saveTweeMock.mock.calls).toEqual([
 				[storyToTwee(story), storyFileName(story, '.twee')]
 			]);

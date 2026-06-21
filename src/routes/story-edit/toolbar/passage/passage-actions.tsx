@@ -1,5 +1,4 @@
 import * as React from 'react';
-import {ButtonBar} from '../../../../components/container/button-bar';
 import {RenamePassageButton} from '../../../../components/passage/rename-passage-button';
 import {
 	Passage,
@@ -49,7 +48,7 @@ export const PassageActions: React.FC<PassageActionsProps> = props => {
 	}
 
 	return (
-		<ButtonBar>
+		<div className="route-action-group">
 			<CreatePassageButton getCenter={getCenter} story={story} />
 			<EditPassagesButton passages={selectedPassages} story={story} />
 			<RenamePassageButton
@@ -66,6 +65,6 @@ export const PassageActions: React.FC<PassageActionsProps> = props => {
 				story={story}
 				selectedPassages={selectedPassages}
 			/>
-		</ButtonBar>
+		</div>
 	);
 };

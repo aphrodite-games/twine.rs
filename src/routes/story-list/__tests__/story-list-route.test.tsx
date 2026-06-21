@@ -1,6 +1,8 @@
-import {render, screen} from '@testing-library/react';
+import {fireEvent, render, screen} from '@testing-library/react';
+import {createMemoryHistory} from 'history';
 import {axe} from 'jest-axe';
 import * as React from 'react';
+import {Router} from 'react-router-dom';
 import {useDonationCheck} from '../../../store/prefs/use-donation-check';
 import {
 	FakeStateProvider,
@@ -9,8 +11,6 @@ import {
 } from '../../../test-util';
 import {InnerStoryListRoute} from '../story-list-route';
 
-jest.mock('../toolbar/story-list-toolbar');
-jest.mock('../story-cards');
 jest.mock('../../../store/prefs/use-donation-check');
 jest.mock('../../../components/error/safari-warning-card');
 
@@ -24,18 +24,32 @@ describe('<StoryListRoute>', () => {
 	});
 
 	function renderComponent(contexts?: FakeStateProviderProps) {
-		// Using the inner component so we can mock contexts around it.
-
-		return render(
-			<FakeStateProvider {...contexts}>
-				<InnerStoryListRoute />
-			</FakeStateProvider>
+		const history = createMemoryHistory();
+		const result = render(
+			<Router history={history}>
+				<FakeStateProvider {...contexts}>
+					<InnerStoryListRoute />
+				</FakeStateProvider>
+			</Router>
 		);
+
+		return {...result, history};
 	}
 
-	it('displays the toolbar', () => {
+	it('displays launcher actions', () => {
 		renderComponent();
-		expect(screen.getByTestId('mock-story-list-toolbar')).toBeInTheDocument();
+
+		expect(
+			screen.getByRole('button', {name: /new project/i})
+		).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: /import/i})).toBeInTheDocument();
+	});
+
+	it('navigates to the new project route', () => {
+		const {history} = renderComponent();
+
+		fireEvent.click(screen.getByRole('button', {name: /new project/i}));
+		expect(history.location.pathname).toBe('/new-project');
 	});
 
 	it('displays a warning for Safari users', () => {
@@ -43,15 +57,15 @@ describe('<StoryListRoute>', () => {
 		expect(screen.getByTestId('mock-safari-warning-card')).toBeInTheDocument();
 	});
 
-	it('displays story cards if there are stories in state', () => {
+	it('displays story rows if there are stories in state', () => {
 		renderComponent({stories: [fakeStory()]});
-		expect(screen.getByTestId('mock-story-cards')).toBeInTheDocument();
+		expect(screen.getByTestId('story-list-row')).toBeInTheDocument();
 	});
 
-	it('displays a message if there are no stories in state', () => {
+	it('displays an empty launcher state if there are no stories in state', () => {
 		renderComponent({stories: []});
-		expect(screen.queryByTestId('mock-story-cards')).not.toBeInTheDocument();
-		expect(screen.getByText('routes.storyList.noStories')).toBeInTheDocument();
+		expect(screen.queryByTestId('story-list-row')).not.toBeInTheDocument();
+		expect(screen.getByText('No projects yet')).toBeInTheDocument();
 	});
 
 	it('sorts stories by name if the user pref is set to that', () => {
@@ -67,11 +81,11 @@ describe('<StoryListRoute>', () => {
 			stories: [story2, story1]
 		});
 
-		const storyCards = screen.getAllByTestId('mock-story-card');
+		const rows = screen.getAllByTestId('story-list-row');
 
-		expect(storyCards.length).toBe(2);
-		expect(storyCards[0].dataset.id).toBe(story1.id);
-		expect(storyCards[1].dataset.id).toBe(story2.id);
+		expect(rows.length).toBe(2);
+		expect(rows[0].dataset.id).toBe(story1.id);
+		expect(rows[1].dataset.id).toBe(story2.id);
 	});
 
 	it('sorts stories by reverse chronological edit order if the user pref is set to that', () => {
@@ -87,11 +101,11 @@ describe('<StoryListRoute>', () => {
 			stories: [story2, story1]
 		});
 
-		const storyCards = screen.getAllByTestId('mock-story-card');
+		const rows = screen.getAllByTestId('story-list-row');
 
-		expect(storyCards.length).toBe(2);
-		expect(storyCards[0].dataset.id).toBe(story1.id);
-		expect(storyCards[1].dataset.id).toBe(story2.id);
+		expect(rows.length).toBe(2);
+		expect(rows[0].dataset.id).toBe(story1.id);
+		expect(rows[1].dataset.id).toBe(story2.id);
 	});
 
 	it('displays a donation prompt if useDonationCheck() says it should be shown', () => {

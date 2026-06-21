@@ -1,7 +1,6 @@
-import {IconMarqueeOff} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {
 	deselectAllPassages,
 	Passage,
@@ -24,7 +23,7 @@ export const DeselectAllPassagesButton: React.FC<
 	return (
 		<IconButton
 			disabled={!selectedPassages.length}
-			icon={<IconMarqueeOff />}
+			icon="marquee-off"
 			label={t('common.deselectAll')}
 			onClick={() => dispatch(deselectAllPassages(story))}
 		/>

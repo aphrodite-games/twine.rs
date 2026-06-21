@@ -9,9 +9,9 @@ import {StoriesAction, StoriesState, Story} from '../stories.types';
 export function createStory(
 	stories: Story[],
 	prefs: PrefsState,
-	props: Partial<Omit<Story, 'id'>> & Pick<Story, 'name'>
+	props: Partial<Story> & Pick<Story, 'name'>
 ): Thunk<StoriesState, StoriesAction> {
-	const id = uuid();
+	const id = props.id ?? uuid();
 
 	if (props.name.trim() === '') {
 		throw new Error('Story name cannot be empty');

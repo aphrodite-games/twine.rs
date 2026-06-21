@@ -33,6 +33,8 @@ import {
 	DecorationSet,
 	drawSelection,
 	EditorView,
+	gutter,
+	GutterMarker,
 	highlightActiveLine,
 	highlightActiveLineGutter,
 	highlightSpecialChars,
@@ -76,8 +78,19 @@ interface SourceEditorMemory {
 const languageCompartment = new Compartment();
 const readOnlyCompartment = new Compartment();
 const autocompleteCompartment = new Compartment();
-const linkDecorationCompartment = new Compartment();
+const twineDecorationCompartment = new Compartment();
 const wrappingCompartment = new Compartment();
+const diagnosticMarker = new (class extends GutterMarker {
+	toDOM() {
+		const marker = document.createElement('span');
+
+		marker.className = 'cm-twine-diagnostic-marker';
+		marker.textContent = '!';
+		marker.title = 'Broken link';
+
+		return marker;
+	}
+})();
 
 function languageExtension(language: SourceEditorLanguage): Extension {
 	switch (language) {
@@ -158,14 +171,36 @@ function targetFromLinkContent(content: string) {
 	return editable.trim();
 }
 
-function twineLinkDecorations(
+interface DecorationEntry {
+	from: number;
+	to: number;
+	decoration: Decoration;
+	line?: boolean;
+}
+
+interface LinkRange {
+	from: number;
+	to: number;
+}
+
+function rangeOverlaps(ranges: LinkRange[], from: number, to: number) {
+	return ranges.some(range => from < range.to && to > range.from);
+}
+
+function twineTokenDecorations(
+	language: SourceEditorLanguage,
 	brokenLinkNames: string[] = [],
 	selfLinkName?: string
 ) {
+	if (language !== 'twine') {
+		return [];
+	}
+
 	const broken = new Set(brokenLinkNames);
 
-	return ViewPlugin.fromClass(
-		class {
+	return [
+		ViewPlugin.fromClass(
+			class {
 			decorations: DecorationSet;
 
 			constructor(view: EditorView) {
@@ -179,7 +214,10 @@ function twineLinkDecorations(
 			}
 
 			build(view: EditorView) {
+				const entries: DecorationEntry[] = [];
 				const builder = new RangeSetBuilder<Decoration>();
+				const linkRanges: LinkRange[] = [];
+				const diagnosticLines = new Set<number>();
 
 				for (const {from, to} of view.visibleRanges) {
 					const text = view.state.doc.sliceString(from, to);
@@ -188,28 +226,135 @@ function twineLinkDecorations(
 
 					while ((match = linkPattern.exec(text))) {
 						const target = targetFromLinkContent(match[1]);
+						const absoluteFrom = from + match.index;
+						const absoluteTo = absoluteFrom + match[0].length;
+						const line = view.state.doc.lineAt(absoluteFrom);
+						const brokenLink = broken.has(target);
 						const className =
 							target === selfLinkName
 								? 'cm-twine-link-self'
-								: broken.has(target)
+								: brokenLink
 									? 'cm-twine-link-broken'
 									: 'cm-twine-link';
 
-						builder.add(
-							from + match.index,
-							from + match.index + match[0].length,
-							Decoration.mark({class: className})
-						);
+						linkRanges.push({
+							from: absoluteFrom,
+							to: absoluteTo
+						});
+						entries.push({
+							decoration: Decoration.mark({class: className}),
+							from: absoluteFrom,
+							to: absoluteTo
+						});
+
+						if (brokenLink && !diagnosticLines.has(line.from)) {
+							diagnosticLines.add(line.from);
+							entries.push({
+								decoration: Decoration.line({
+									class: 'cm-twine-diagnostic-line'
+								}),
+								from: line.from,
+								line: true,
+								to: line.from
+							});
+						}
+					}
+
+					const tokenPatterns: Array<{
+						className: string;
+						regexp: RegExp;
+						tokenGroup?: number;
+					}> = [
+						{
+							className: 'cm-twine-macro',
+							regexp: /(?:\(|<<)\s*[A-Za-z][\w-]*/g
+						},
+						{
+							className: 'cm-twine-variable',
+							regexp:
+								/(^|[^A-Za-z0-9_])(\$[A-Za-z_]\w*|_[A-Za-z_]\w*|\?[A-Za-z_]\w*|\|[A-Za-z_]\w*>)/g,
+							tokenGroup: 2
+						},
+						{
+							className: 'cm-twine-tag',
+							regexp: /(^|[\s([,{])#[-A-Za-z0-9_]+/g
+						}
+					];
+
+					for (const {className, regexp, tokenGroup} of tokenPatterns) {
+						while ((match = regexp.exec(text))) {
+							const token = tokenGroup ? match[tokenGroup] : match[0];
+							const matchOffset = tokenGroup
+								? match.index + match[0].lastIndexOf(token)
+								: match.index + match[0].search(/\S/);
+							const absoluteFrom = from + matchOffset;
+							const absoluteTo = absoluteFrom + token.trimStart().length;
+
+							if (
+								absoluteFrom < absoluteTo &&
+								!rangeOverlaps(linkRanges, absoluteFrom, absoluteTo)
+							) {
+								entries.push({
+									decoration: Decoration.mark({class: className}),
+									from: absoluteFrom,
+									to: absoluteTo
+								});
+							}
+						}
 					}
 				}
 
+				entries
+					.sort(
+						(left, right) =>
+							left.from - right.from ||
+							(left.line === right.line ? 0 : left.line ? -1 : 1) ||
+							left.to - right.to
+					)
+					.forEach(entry =>
+						builder.add(entry.from, entry.to, entry.decoration)
+					);
+
 				return builder.finish();
 			}
-		},
-		{
-			decorations: value => value.decorations
-		}
-	);
+			},
+			{
+				decorations: value => value.decorations
+			}
+		),
+		gutter({
+			class: 'cm-twine-diagnostic-gutter',
+			initialSpacer: () => diagnosticMarker,
+			markers: view => {
+				const builder = new RangeSetBuilder<GutterMarker>();
+				const lineStarts = new Set<number>();
+
+				for (const {from, to} of view.visibleRanges) {
+					const text = view.state.doc.sliceString(from, to);
+					const linkPattern = /\[\[(.*?)\]\]/g;
+					let match: RegExpExecArray | null;
+
+					while ((match = linkPattern.exec(text))) {
+						const target = targetFromLinkContent(match[1]);
+
+						if (broken.has(target)) {
+							const line = view.state.doc.lineAt(from + match.index);
+
+							lineStarts.add(line.from);
+						}
+					}
+				}
+
+				Array.from(lineStarts)
+					.sort((left, right) => left - right)
+					.forEach(lineFrom => {
+						builder.add(lineFrom, lineFrom, diagnosticMarker);
+					});
+
+				return builder.finish();
+			}
+		})
+	];
 }
 
 function baseExtensions(props: SourceEditorProps): Extension[] {
@@ -232,8 +377,12 @@ function baseExtensions(props: SourceEditorProps): Extension[] {
 				override: [completionSource(props.autocompletePassageNames)]
 			})
 		),
-		linkDecorationCompartment.of(
-			twineLinkDecorations(props.brokenLinkNames, props.selfLinkName)
+		twineDecorationCompartment.of(
+			twineTokenDecorations(
+				props.language ?? 'twine',
+				props.brokenLinkNames,
+				props.selfLinkName
+			)
 		),
 		keymap.of([
 			indentWithTab,
@@ -367,11 +516,15 @@ export const SourceEditor: React.FC<SourceEditorProps> = props => {
 		const view = viewRef.current;
 
 		view?.dispatch({
-			effects: linkDecorationCompartment.reconfigure(
-				twineLinkDecorations(props.brokenLinkNames, props.selfLinkName)
+			effects: twineDecorationCompartment.reconfigure(
+				twineTokenDecorations(
+					props.language ?? 'twine',
+					props.brokenLinkNames,
+					props.selfLinkName
+				)
 			)
 		});
-	}, [props.brokenLinkNames, props.selfLinkName]);
+	}, [props.brokenLinkNames, props.language, props.selfLinkName]);
 
 	return (
 		<div className="source-editor">

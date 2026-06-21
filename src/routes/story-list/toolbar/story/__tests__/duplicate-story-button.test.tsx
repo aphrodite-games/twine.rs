@@ -41,13 +41,13 @@ describe('<DuplicateStoryButton>', () => {
 
 	it('is disabled if no story is set', () => {
 		renderComponent({story: undefined});
-		expect(screen.getByText('common.duplicate')).toBeDisabled();
+		expect(screen.getByRole('button', {name: 'common.duplicate'})).toBeDisabled();
 	});
 
 	it('duplicates the story when clicked', () => {
 		renderComponent();
 		expect(getStoryInspectors().length).toBe(1);
-		fireEvent.click(screen.getByText('common.duplicate'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.duplicate'}));
 		expect(getStoryInspectors().length).toBe(2);
 	});
 

@@ -1,7 +1,6 @@
-import {IconMarquee} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {
 	selectAllPassages,
 	Story,
@@ -19,7 +18,7 @@ export const SelectAllPassagesButton: React.FC<SelectAllPassagesButtonProps> = p
 
 	return (
 		<IconButton
-			icon={<IconMarquee />}
+			icon="marquee"
 			label={t('common.selectAll')}
 			onClick={() => dispatch(selectAllPassages(story))}
 		/>

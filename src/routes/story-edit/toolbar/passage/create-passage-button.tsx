@@ -1,7 +1,6 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconPlus} from '@tabler/icons';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {createUntitledPassage, Story} from '../../../../store/stories';
 import {useUndoableStoriesContext} from '../../../../store/undoable-stories';
 import {Point} from '../../../../util/geometry';
@@ -23,7 +22,7 @@ export const CreatePassageButton: React.FC<CreatePassageButtonProps> = props => 
 
 	return (
 		<IconButton
-			icon={<IconPlus />}
+			icon="plus"
 			label={t('common.new')}
 			onClick={handleClick}
 		/>

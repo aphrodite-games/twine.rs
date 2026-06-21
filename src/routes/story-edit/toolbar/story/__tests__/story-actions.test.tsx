@@ -34,7 +34,7 @@ describe('<StoryActions>', () => {
 	it('displays a find/replace button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.findAndReplace')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.findAndReplace'})
 		).toBeInTheDocument();
 	});
 
@@ -50,27 +50,27 @@ describe('<StoryActions>', () => {
 
 	it('displays a story details button', async () => {
 		await renderComponent();
-		expect(screen.getByText('common.details')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.details'})).toBeInTheDocument();
 	});
 
 	it('displays a passage tags button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.passageTags')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.passageTags'})
 		).toBeInTheDocument();
 	});
 
 	it('displays a story JavaScript button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.javaScript')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.javaScript'})
 		).toBeInTheDocument();
 	});
 
 	it('displays a story stylesheet button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.stylesheet')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.stylesheet'})
 		).toBeInTheDocument();
 	});
 

@@ -1,10 +1,10 @@
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import * as React from 'react';
 import {MemoryRouter} from 'react-router-dom';
-import {RouteToolbar} from '../../route-toolbar';
 import {StoriesContext, Story} from '../../../store/stories';
 import {fakeStory} from '../../../test-util/fakes';
 import {AppShell} from '../app-shell';
+import {useAppShellContext} from '../app-shell-context';
 
 const mockPlayStory = jest.fn();
 const mockProofStory = jest.fn();
@@ -24,18 +24,30 @@ jest.mock('../../../store/use-story-launch', () => ({
 	})
 }));
 
+const MockRouteActions: React.FC = () => {
+	const appShell = useAppShellContext();
+
+	React.useEffect(() => {
+		appShell.setToolbar({
+			pinnedControls: <span>Pin Control</span>,
+			tabs: {
+				Build: <button type="button">Build Action</button>,
+				Story: <button type="button">Story Action</button>
+			}
+		});
+
+		return () => appShell.setToolbar(undefined);
+	}, [appShell]);
+
+	return null;
+};
+
 function renderShell(story: Story, route = `/stories/${story.id}`) {
 	return render(
 		<StoriesContext.Provider value={{dispatch: jest.fn(), stories: [story]}}>
 			<MemoryRouter initialEntries={[route]}>
 				<AppShell>
-					<RouteToolbar
-						pinnedControls={<span>Pin Control</span>}
-						tabs={{
-							Build: <button type="button">Build Action</button>,
-							Story: <button type="button">Story Action</button>
-						}}
-					/>
+					<MockRouteActions />
 				</AppShell>
 			</MemoryRouter>
 		</StoriesContext.Provider>
@@ -60,7 +72,7 @@ describe('AppShell', () => {
 		};
 	});
 
-	it('wraps route content with shell anatomy and route toolbar slots', async () => {
+	it('wraps route content with shell anatomy and command-bar slots', async () => {
 		const {container} = renderShell(story);
 
 		expect(screen.getByTestId('app-shell')).toBeInTheDocument();

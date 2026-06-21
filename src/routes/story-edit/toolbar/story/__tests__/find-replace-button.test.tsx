@@ -26,7 +26,7 @@ describe('<FindReplaceButton>', () => {
 	it('opens the find/replace dialog when clicked', () => {
 		renderComponent();
 		fireEvent.click(
-			screen.getByText('routes.storyEdit.toolbar.findAndReplace')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.findAndReplace'})
 		);
 		expect(screen.getByText('dialogs.storySearch.title')).toBeInTheDocument();
 	});

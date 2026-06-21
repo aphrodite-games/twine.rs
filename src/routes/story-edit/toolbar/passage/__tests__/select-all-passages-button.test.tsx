@@ -41,7 +41,7 @@ describe('<SelectAllPassagesButton>', () => {
 		story.passages[1].selected = false;
 		story.passages[2].selected = false;
 		renderComponent({story}, {stories: [story]});
-		fireEvent.click(screen.getByText('common.selectAll'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.selectAll'}));
 
 		const passages = within(
 			screen.getByTestId('story-inspector-default')

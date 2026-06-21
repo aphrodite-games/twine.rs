@@ -1,8 +1,7 @@
-import {IconTrash} from '@tabler/icons';
 import * as React from 'react';
 import {useHotkeys} from 'react-hotkeys-hook';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {deletePassages, Passage, Story} from '../../../../store/stories';
 import {useUndoableStoriesContext} from '../../../../store/undoable-stories';
 
@@ -42,7 +41,7 @@ export const DeletePassagesButton: React.FC<
 	return (
 		<IconButton
 			disabled={disabled}
-			icon={<IconTrash />}
+			icon="trash"
 			label={
 				!disabled && passages.length > 1
 					? t('common.deleteCount', {count: passages.length})

@@ -17,6 +17,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 	(
 		{
 			active = false,
+			'aria-pressed': ariaPressed,
 			className,
 			disabled = false,
 			icon,
@@ -30,7 +31,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 	) => (
 		<button
 			aria-label={label}
-			aria-pressed={active || undefined}
+			aria-pressed={ariaPressed ?? (active || undefined)}
 			className={classNames(
 				'tw-iconbtn',
 				active && 'tw-iconbtn--active',

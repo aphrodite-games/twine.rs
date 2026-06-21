@@ -1,10 +1,8 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconWriting} from '@tabler/icons';
-import {PromptButton} from '../control/prompt-button';
+import {IconButton, PromptIconButton} from '../design-system';
 import {storyFileName} from '../../electron/shared';
 import {Story} from '../../store/stories';
-import {IconButton} from '../control/icon-button';
 
 // This is here because it's used in two places--the story list and the story
 // info dialog.
@@ -13,7 +11,7 @@ const DisabledRenameStoryButton: React.FC = () => {
 	const {t} = useTranslation();
 
 	return (
-		<IconButton disabled icon={<IconWriting />} label={t('common.rename')} />
+		<IconButton disabled icon="writing" label={t('common.rename')} />
 	);
 };
 
@@ -55,10 +53,12 @@ const EnabledRenameStoryButton: React.FC<EnabledRenameStoryButtonProps> = props 
 	}
 
 	return (
-		<PromptButton
-			icon={<IconWriting />}
+		<PromptIconButton
+			cancelLabel={t('common.cancel')}
+			confirmLabel={t('common.ok')}
+			icon="writing"
 			label={t('common.rename')}
-			onChange={event => setNewName(event.target.value)}
+			onChange={setNewName}
 			onSubmit={onRename}
 			prompt={t('common.renamePrompt', {name: story.name})}
 			validate={validate}

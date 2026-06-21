@@ -1,7 +1,6 @@
-import {IconBraces} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {StoryJavaScriptDialog, useDialogsContext} from '../../../../dialogs';
 import {Story} from '../../../../store/stories';
 
@@ -16,7 +15,7 @@ export const JavaScriptButton: React.FC<JavaScriptButtonProps> = props => {
 
 	return (
 		<IconButton
-			icon={<IconBraces />}
+			icon="braces"
 			label={t('routes.storyEdit.toolbar.javaScript')}
 			onClick={() =>
 				dispatch({

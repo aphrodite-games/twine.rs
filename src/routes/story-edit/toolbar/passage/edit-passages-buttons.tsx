@@ -1,7 +1,6 @@
-import {IconEdit} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {addPassageEditors, useDialogsContext} from '../../../../dialogs';
 import {Passage, Story} from '../../../../store/stories';
 
@@ -27,7 +26,7 @@ export const EditPassagesButton: React.FC<EditPassagesButtonProps> = props => {
 	return (
 		<IconButton
 			disabled={passages.length === 0}
-			icon={<IconEdit />}
+			icon="edit"
 			label={
 				passages.length > 1
 					? t('common.editCount', {count: passages.length})

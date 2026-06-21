@@ -25,7 +25,9 @@ describe('<AppActions>', () => {
 		expect(
 			screen.queryByText('dialogs.appPrefs.title')
 		).not.toBeInTheDocument();
-		fireEvent.click(screen.getByText('routeActions.app.preferences'));
+		fireEvent.click(
+			screen.getByRole('button', {name: 'routeActions.app.preferences'})
+		);
 		expect(screen.getByText('dialogs.appPrefs.title')).toBeInTheDocument();
 	});
 
@@ -34,7 +36,9 @@ describe('<AppActions>', () => {
 		expect(
 			screen.queryByText('dialogs.aboutTwine.title')
 		).not.toBeInTheDocument();
-		fireEvent.click(screen.getByText('routeActions.app.aboutApp'));
+		fireEvent.click(
+			screen.getByRole('button', {name: 'routeActions.app.aboutApp'})
+		);
 		expect(screen.getByText('dialogs.aboutTwine.title')).toBeInTheDocument();
 	});
 
@@ -43,7 +47,9 @@ describe('<AppActions>', () => {
 		expect(
 			screen.queryByText('dialogs.storyFormats.title')
 		).not.toBeInTheDocument();
-		fireEvent.click(screen.getByText('routeActions.app.storyFormats'));
+		fireEvent.click(
+			screen.getByRole('button', {name: 'routeActions.app.storyFormats'})
+		);
 		expect(screen.getByText('dialogs.storyFormats.title')).toBeInTheDocument();
 	});
 
@@ -54,7 +60,9 @@ describe('<AppActions>', () => {
 
 		renderComponent();
 		expect(openSpy).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByText('routeActions.app.reportBug'));
+		fireEvent.click(
+			screen.getByRole('button', {name: 'routeActions.app.reportBug'})
+		);
 		expect(openSpy.mock.calls).toEqual([
 			['https://twinery.org/2bugs', '_blank']
 		]);

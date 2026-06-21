@@ -11,15 +11,11 @@
 	margin-right: var(--control-inner-padding);
 }
 
-.zoom-buttons .icon-button {
+.zoom-buttons .tw-iconbtn {
 	height: 34px;
 	width: 34px;
-	padding: 5px;
 }
 
-.zoom-buttons .icon-button .icon {
-	height: 24px;
-	width: 24px;
-	position: relative;
-	top: 0;
+.zoom-buttons .tw-iconbtn .tw-ds-icon {
+	font-size: 21px;
 }

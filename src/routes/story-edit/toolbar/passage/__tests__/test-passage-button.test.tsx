@@ -35,7 +35,7 @@ describe('<TestPassageButton>', () => {
 	it('is disabled when the passage prop is undefined', () => {
 		renderComponent({passage: undefined});
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.testFromHere')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.testFromHere'})
 		).toBeDisabled();
 	});
 
@@ -47,7 +47,7 @@ describe('<TestPassageButton>', () => {
 
 		renderComponent({passage: story.passages[0]}, {stories: [story]});
 		expect(openSpy).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByText('routes.storyEdit.toolbar.testFromHere'));
+		fireEvent.click(screen.getByRole('button', {name: 'routes.storyEdit.toolbar.testFromHere'}));
 		expect(openSpy.mock.calls).toEqual([
 			[`#/stories/${story.id}/test/${story.passages[0].id}`, '_blank']
 		]);

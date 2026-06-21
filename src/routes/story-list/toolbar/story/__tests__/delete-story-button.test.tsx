@@ -36,7 +36,7 @@ describe('<DeleteStoryButton>', () => {
 	it('shows an Electron-specific prompt when the delete button is clicked in an Electorn context', async () => {
 		isElectronRendererMock.mockReturnValue(true);
 		await renderComponent();
-		fireEvent.click(screen.getByText('common.delete'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.delete'}));
 		expect(
 			await screen.findByText(
 				'routes.storyList.toolbar.deleteStoryButton.warning.electron'
@@ -52,7 +52,7 @@ describe('<DeleteStoryButton>', () => {
 	it('shows a web-specific prompt when the delete button is clicked in a web context', async () => {
 		isElectronRendererMock.mockReturnValue(false);
 		await renderComponent();
-		fireEvent.click(screen.getByText('common.delete'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.delete'}));
 		expect(
 			await screen.findByText(
 				'routes.storyList.toolbar.deleteStoryButton.warning.web'
@@ -68,7 +68,7 @@ describe('<DeleteStoryButton>', () => {
 	it('deletes the story when the delete confirmation button is clicked', async () => {
 		await renderComponent();
 		expect(screen.getByTestId('story-inspector-default')).toBeInTheDocument();
-		fireEvent.click(screen.getByText('common.delete'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.delete'}));
 		fireEvent.click(
 			await screen.findByText('common.delete', {
 				selector: '.card-button-card button'

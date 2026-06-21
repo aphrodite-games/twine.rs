@@ -12,6 +12,7 @@ export interface SelectProps {
 	options: Array<string | SelectOption>;
 	value: string;
 	onChange?: (value: string) => void;
+	ariaLabel?: string;
 	size?: 'sm' | 'md';
 	block?: boolean;
 	disabled?: boolean;
@@ -19,6 +20,7 @@ export interface SelectProps {
 }
 
 export const Select: React.FC<SelectProps> = ({
+	ariaLabel,
 	block = false,
 	className,
 	disabled = false,
@@ -36,6 +38,7 @@ export const Select: React.FC<SelectProps> = ({
 		)}
 	>
 		<select
+			aria-label={ariaLabel}
 			disabled={disabled}
 			onChange={event => onChange?.(event.target.value)}
 			value={value}
@@ -56,4 +59,3 @@ export const Select: React.FC<SelectProps> = ({
 		</span>
 	</div>
 );
-

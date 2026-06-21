@@ -1,7 +1,6 @@
-import {IconSearch} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {StorySearchDialog, useDialogsContext} from '../../../../dialogs';
 import {Story} from '../../../../store/stories';
 
@@ -16,7 +15,7 @@ export const FindReplaceButton: React.FC<FindReplaceButtonProps> = props => {
 
 	return (
 		<IconButton
-			icon={<IconSearch />}
+			icon="search"
 			label={t('routes.storyEdit.toolbar.findAndReplace')}
 			onClick={() =>
 				dispatch({

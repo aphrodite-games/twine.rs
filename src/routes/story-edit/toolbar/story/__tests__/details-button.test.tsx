@@ -32,7 +32,7 @@ describe('<DetailsButton>', () => {
 		story.storyFormat = format.name;
 		story.storyFormatVersion = format.version;
 		renderComponent({stories: [story], storyFormats: [format]});
-		fireEvent.click(screen.getByText('common.details'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.details'}));
 		expect(screen.getByText(story.name)).toBeInTheDocument();
 	});
 

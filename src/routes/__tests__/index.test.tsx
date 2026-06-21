@@ -7,10 +7,10 @@ import {fakePrefs} from '../../test-util';
 
 jest.mock('../story-edit/story-edit-route');
 jest.mock('../story-list/story-list-route');
+jest.mock('../new-project/new-project-route');
 jest.mock('../story-play/story-play-route');
 jest.mock('../story-proof/story-proof-route');
 jest.mock('../story-test/story-test-route');
-jest.mock('../welcome/welcome-route');
 
 describe('<Routes>', () => {
 	function renderAtRoute(route: string, context?: Partial<PrefsContextProps>) {
@@ -31,12 +31,12 @@ describe('<Routes>', () => {
 	}
 
 	describe("when the user doesn't have a welcomeSeen pref", () => {
-		it('shows the welcome route no matter the route', () => {
+		it('renders the requested app route', () => {
 			renderAtRoute('/stories/123', {
 				dispatch: jest.fn(),
 				prefs: fakePrefs({welcomeSeen: false})
 			});
-			expect(screen.getByTestId('mock-welcome-route')).toBeInTheDocument();
+			expect(screen.getByTestId('mock-story-edit-route')).toBeInTheDocument();
 		});
 	});
 
@@ -71,9 +71,19 @@ describe('<Routes>', () => {
 			expect(screen.getByTestId('mock-story-test-route')).toBeInTheDocument();
 		});
 
-		it('renders the welcome route at /welcome', () => {
+		it('renders the story list route at /welcome', () => {
 			renderAtRoute('/welcome');
-			expect(screen.getByTestId('mock-welcome-route')).toBeInTheDocument();
+			expect(screen.getByTestId('mock-story-list-route')).toBeInTheDocument();
+		});
+
+		it('renders the new project route at /new-project', () => {
+			renderAtRoute('/new-project');
+			expect(screen.getByTestId('mock-new-project-route')).toBeInTheDocument();
+		});
+
+		it('renders the new project route at /new-project/import', () => {
+			renderAtRoute('/new-project/import');
+			expect(screen.getByTestId('mock-new-project-route')).toBeInTheDocument();
 		});
 
 		it('renders the story list route for unknown routes', () => {

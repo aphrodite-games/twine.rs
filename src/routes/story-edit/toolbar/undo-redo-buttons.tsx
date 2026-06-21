@@ -1,8 +1,7 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconArrowBack, IconArrowForward} from '@tabler/icons';
 import {useUndoableStoriesContext} from '../../../store/undoable-stories';
-import {IconButton} from '../../../components/control/icon-button';
+import {IconButton} from '../../../components/design-system';
 
 export const UndoRedoButtons: React.FC = () => {
 	const {redo, redoLabel, undo, undoLabel} = useUndoableStoriesContext();
@@ -12,13 +11,13 @@ export const UndoRedoButtons: React.FC = () => {
 		<>
 			<IconButton
 				disabled={!undo}
-				icon={<IconArrowBack />}
+				icon="arrow-back"
 				label={undoLabel ?? t('common.undo')}
 				onClick={undo}
 			/>
 			<IconButton
 				disabled={!redo}
-				icon={<IconArrowForward />}
+				icon="arrow-forward"
 				label={redoLabel ?? t('common.redo')}
 				onClick={redo}
 			/>

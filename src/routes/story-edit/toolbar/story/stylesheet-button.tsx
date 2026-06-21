@@ -1,7 +1,6 @@
-import {IconHash} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconButton} from '../../../../components/control/icon-button';
+import {IconButton} from '../../../../components/design-system';
 import {StoryStylesheetDialog, useDialogsContext} from '../../../../dialogs';
 import {Story} from '../../../../store/stories';
 
@@ -16,7 +15,7 @@ export const StylesheetButton: React.FC<StylesheetButtonProps> = props => {
 
 	return (
 		<IconButton
-			icon={<IconHash />}
+			icon="hash"
 			label={t('routes.storyEdit.toolbar.stylesheet')}
 			onClick={() =>
 				dispatch({

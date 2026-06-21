@@ -1,19 +1,19 @@
 import * as React from 'react';
 
-export interface RouteToolbarRegistration {
-	helpUrl: string;
+export interface ShellToolbarRegistration {
+	helpUrl?: string;
 	pinnedControls?: React.ReactNode;
 	tabs: Record<string, React.ReactNode>;
 }
 
 export interface AppShellContextValue {
 	inShell: boolean;
-	setRouteToolbar: (registration: RouteToolbarRegistration | undefined) => void;
+	setToolbar: (registration: ShellToolbarRegistration | undefined) => void;
 }
 
 const defaultContext: AppShellContextValue = {
 	inShell: false,
-	setRouteToolbar: () => undefined
+	setToolbar: () => undefined
 };
 
 export const AppShellContext =

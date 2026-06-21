@@ -37,7 +37,7 @@ describe('<StartAtPassageButton>', () => {
 	it('is disabled if the passage prop is undefined', () => {
 		renderComponent({passage: undefined});
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.startStoryHere')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.startStoryHere'})
 		).toBeDisabled();
 	});
 
@@ -48,7 +48,7 @@ describe('<StartAtPassageButton>', () => {
 
 		renderComponent({story, passage: story.passages[0]}, {stories: [story]});
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.startStoryHere')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.startStoryHere'})
 		).toBeDisabled();
 	});
 
@@ -62,7 +62,7 @@ describe('<StartAtPassageButton>', () => {
 			screen.getByTestId('story-inspector-default').dataset.startPassage
 		).toBe(story.passages[1].id);
 		fireEvent.click(
-			screen.getByText('routes.storyEdit.toolbar.startStoryHere')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.startStoryHere'})
 		);
 		expect(
 			screen.getByTestId('story-inspector-default').dataset.startPassage

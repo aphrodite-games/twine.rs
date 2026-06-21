@@ -29,7 +29,7 @@ describe('<CreateStoryButton>', () => {
 
 		// Need this because of <PromptButton>
 		await act(async () => Promise.resolve());
-		fireEvent.click(screen.getByText('common.new'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.new'}));
 		await act(async () => Promise.resolve());
 		return result;
 	}

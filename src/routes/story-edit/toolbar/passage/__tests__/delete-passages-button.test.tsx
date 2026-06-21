@@ -46,7 +46,7 @@ describe('<DeletePassagesButton>', () => {
 
 	it('is disabled if the passages prop is empty', () => {
 		renderComponent({passages: []});
-		expect(screen.getByText('common.delete')).toBeDisabled();
+		expect(screen.getByRole('button', {name: 'common.delete'})).toBeDisabled();
 	});
 
 	it('is disabled if any of the passages are the start passage', () => {
@@ -54,7 +54,7 @@ describe('<DeletePassagesButton>', () => {
 
 		story.startPassage = story.passages[1].id;
 		renderComponent({story, passages: story.passages});
-		expect(screen.getByText('common.delete')).toBeDisabled();
+		expect(screen.getByRole('button', {name: 'common.delete'})).toBeDisabled();
 	});
 
 	it('deletes passages when clicked', () => {
@@ -65,7 +65,7 @@ describe('<DeletePassagesButton>', () => {
 			{story, passages: [story.passages[0], story.passages[1]]},
 			{stories: [story]}
 		);
-		fireEvent.click(screen.getByText('common.deleteCount'));
+		fireEvent.click(screen.getByRole('button', {name: 'common.deleteCount'}));
 
 		const passages = within(
 			screen.getByTestId('story-inspector-default')

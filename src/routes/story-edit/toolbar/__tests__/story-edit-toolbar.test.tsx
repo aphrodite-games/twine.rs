@@ -63,7 +63,9 @@ describe('<StoryEditToolbar>', () => {
 
 	it('displays undo/redo buttons', async () => {
 		await renderComponent();
-		expect(screen.getByText('common.undo')).toBeInTheDocument();
+		expect(
+			screen.getByRole('button', {name: 'common.undo'})
+		).toBeInTheDocument();
 	});
 
 	it('displays zoom buttons', async () => {

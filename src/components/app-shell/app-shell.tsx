@@ -18,7 +18,7 @@ import {
 import {AppCommand} from './command-registry';
 import {
 	AppShellContext,
-	RouteToolbarRegistration
+	ShellToolbarRegistration
 } from './app-shell-context';
 import {CommandPalette} from './command-palette';
 import './app-shell.css';
@@ -41,8 +41,8 @@ function currentStoryId(pathname: string) {
 }
 
 function routeMode(pathname: string): RouteMode {
-	if (pathname === '/welcome') {
-		return {icon: 'book', label: 'Welcome'};
+	if (pathname.startsWith('/new-project')) {
+		return {icon: 'folder-plus', label: 'New Project'};
 	}
 
 	if (pathname.includes('/play')) {
@@ -103,8 +103,8 @@ function breadcrumbs(
 		return ['Stories'];
 	}
 
-	if (pathname === '/welcome') {
-		return ['Welcome'];
+	if (pathname.startsWith('/new-project')) {
+		return ['Stories', mode.label];
 	}
 
 	if (story) {
@@ -122,9 +122,10 @@ export const AppShell: React.FC = ({children}) => {
 	const {playStory, proofStory, testStory} = useStoryLaunch();
 	const [paletteOpen, setPaletteOpen] = React.useState(false);
 	const [drawerOpen, setDrawerOpen] = React.useState(false);
-	const [routeToolbar, setRouteToolbar] =
-		React.useState<RouteToolbarRegistration>();
-	const [activeRouteTab, setActiveRouteTab] = React.useState('');
+	const [toolbar, setToolbar] = React.useState<ShellToolbarRegistration>();
+	const [activeToolbarTab, setActiveToolbarTab] = React.useState('');
+	const [saveState, setSaveState] = React.useState<'saved' | 'saving'>('saved');
+	const hasSeenStoryState = React.useRef(false);
 	const [buildState, setBuildState] = React.useState<BuildState>({
 		kind: 'idle',
 		label: 'Ready'
@@ -135,8 +136,8 @@ export const AppShell: React.FC = ({children}) => {
 		stories.find(story => story.id === storyId) ?? selectedStory;
 	const mode = routeMode(location.pathname);
 	const routeTabs = React.useMemo(
-		() => Object.keys(routeToolbar?.tabs ?? {}),
-		[routeToolbar]
+		() => Object.keys(toolbar?.tabs ?? {}),
+		[toolbar]
 	);
 	const storyIndex = React.useMemo(
 		() => (currentStory ? storyToCoreIndex(currentStory) : undefined),
@@ -148,14 +149,24 @@ export const AppShell: React.FC = ({children}) => {
 
 	React.useEffect(() => {
 		if (routeTabs.length === 0) {
-			setActiveRouteTab('');
+			setActiveToolbarTab('');
 			return;
 		}
 
-		setActiveRouteTab(tab =>
-			routeTabs.includes(tab) ? tab : routeTabs[0]
-		);
+		setActiveToolbarTab(tab => (routeTabs.includes(tab) ? tab : routeTabs[0]));
 	}, [routeTabs]);
+
+	React.useEffect(() => {
+		if (!hasSeenStoryState.current) {
+			hasSeenStoryState.current = true;
+			return;
+		}
+
+		setSaveState('saving');
+		const id = window.setTimeout(() => setSaveState('saved'), 450);
+
+		return () => window.clearTimeout(id);
+	}, [stories]);
 
 	React.useEffect(() => {
 		function handleKeyDown(event: KeyboardEvent) {
@@ -173,7 +184,7 @@ export const AppShell: React.FC = ({children}) => {
 	const shellContext = React.useMemo(
 		() => ({
 			inShell: true,
-			setRouteToolbar
+			setToolbar
 		}),
 		[]
 	);
@@ -246,10 +257,10 @@ export const AppShell: React.FC = ({children}) => {
 			},
 			{
 				group: 'Navigation',
-				icon: 'book',
-				id: 'nav.welcome',
-				label: 'Welcome',
-				run: () => history.push('/welcome')
+				icon: 'folder-plus',
+				id: 'nav.new-project',
+				label: 'New Project',
+				run: () => history.push('/new-project')
 			},
 			{
 				disabled: !currentStory,
@@ -299,13 +310,13 @@ export const AppShell: React.FC = ({children}) => {
 				label: 'Export Twee',
 				run: runExportTwee
 			},
-			...routeTabs.map(tab => ({
-				group: 'Toolbar' as const,
-				icon: tab === activeRouteTab ? 'circle-check' : 'circle-dashed',
-				id: `toolbar.${tab}`,
-				label: `${tab} Actions`,
-				run: () => setActiveRouteTab(tab)
-			})),
+				...routeTabs.map(tab => ({
+					group: 'Toolbar' as const,
+					icon: tab === activeToolbarTab ? 'circle-check' : 'circle-dashed',
+					id: `toolbar.${tab}`,
+					label: `${tab} Actions`,
+					run: () => setActiveToolbarTab(tab)
+				})),
 			...stories.map(story => ({
 				group: 'Story' as const,
 				icon: story.id === currentStory?.id ? 'circle-check' : 'file-text',
@@ -318,7 +329,7 @@ export const AppShell: React.FC = ({children}) => {
 
 		return allCommands;
 	}, [
-		activeRouteTab,
+		activeToolbarTab,
 		currentStory,
 		history,
 		routeTabs,
@@ -365,20 +376,20 @@ export const AppShell: React.FC = ({children}) => {
 						<div className="app-shell__route-tabs">
 							{routeTabs.length > 0 && (
 								<SegmentedControl
-									onChange={setActiveRouteTab}
+									onChange={setActiveToolbarTab}
 									options={routeTabs}
 									size="sm"
-									value={activeRouteTab}
+									value={activeToolbarTab}
 								/>
 							)}
 						</div>
 						<div className="app-shell__bar-actions">
-							{routeToolbar?.pinnedControls}
-							{routeToolbar?.helpUrl && (
+							{toolbar?.pinnedControls}
+							{toolbar?.helpUrl && (
 								<IconButton
 									icon="info-circle"
 									label="Help"
-									onClick={() => window.open(routeToolbar.helpUrl, '_blank')}
+									onClick={() => window.open(toolbar.helpUrl, '_blank')}
 									size="sm"
 								/>
 							)}
@@ -392,10 +403,10 @@ export const AppShell: React.FC = ({children}) => {
 							</Button>
 						</div>
 					</header>
-					{routeToolbar && activeRouteTab && (
+					{toolbar && activeToolbarTab && (
 						<div className="app-shell__actions">
 							<div className="app-shell__actions-scroll">
-								{routeToolbar.tabs[activeRouteTab]}
+								{toolbar.tabs[activeToolbarTab]}
 							</div>
 						</div>
 					)}
@@ -447,14 +458,14 @@ export const AppShell: React.FC = ({children}) => {
 					</button>
 					<button
 						aria-current={
-							location.pathname === '/welcome' ? 'page' : undefined
+							location.pathname.startsWith('/new-project') ? 'page' : undefined
 						}
 						className="app-shell__rail-button"
-						onClick={() => history.push('/welcome')}
-						title="Welcome"
+						onClick={() => history.push('/new-project')}
+						title="New Project"
 						type="button"
 					>
-						<TablerIcon icon="book" />
+						<TablerIcon icon="folder-plus" />
 					</button>
 				</nav>
 				<main className="app-shell__center">
@@ -518,7 +529,7 @@ export const AppShell: React.FC = ({children}) => {
 					</span>
 					<span className="app-shell__status-item">
 						<TablerIcon icon="database" />
-						Auto-save
+						{saveState === 'saving' ? 'Saving' : 'Saved'}
 					</span>
 					<button
 						className="app-shell__status-item app-shell__status-button"

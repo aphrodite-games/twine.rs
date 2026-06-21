@@ -43,12 +43,12 @@ describe('<PassageActions>', () => {
 
 	it('displays a create passage button', async () => {
 		await renderComponent();
-		expect(screen.getByText('common.new')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.new'})).toBeInTheDocument();
 	});
 
 	it('displays a passage edit button', async () => {
 		await renderComponent();
-		expect(screen.getByText('common.edit')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.edit'})).toBeInTheDocument();
 	});
 
 	it('displays a passage rename button that renames a passage', async () => {
@@ -66,33 +66,33 @@ describe('<PassageActions>', () => {
 
 	it('displays a passage delete button', async () => {
 		await renderComponent();
-		expect(screen.getByText('common.delete')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.delete'})).toBeInTheDocument();
 	});
 
 	it('displays a test passage button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.testFromHere')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.testFromHere'})
 		).toBeInTheDocument();
 	});
 
 	it('displays a start at passage button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.startStoryHere')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.startStoryHere'})
 		).toBeInTheDocument();
 	});
 
 	it('displays a go to passage button', async () => {
 		await renderComponent();
 		expect(
-			screen.getByText('routes.storyEdit.toolbar.goTo')
+			screen.getByRole('button', {name: 'routes.storyEdit.toolbar.goTo'})
 		).toBeInTheDocument();
 	});
 
 	it('displays a select all passages button', async () => {
 		await renderComponent();
-		expect(screen.getByText('common.selectAll')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'common.selectAll'})).toBeInTheDocument();
 	});
 
 	it('is accessible', async () => {

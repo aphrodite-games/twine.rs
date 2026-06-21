@@ -1,17 +1,6 @@
-import {
-	IconEyeglass,
-	IconFileText,
-	IconPlayerPlay,
-	IconTool,
-	IconX
-} from '@tabler/icons';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next/';
-import {ButtonBar} from '../components/container/button-bar';
-import {CardContent} from '../components/container/card';
-import {CardButton} from '../components/control/card-button';
-import {IconButton} from '../components/control/icon-button';
-import {IconFileTwee} from '../components/image/icon';
+import {Badge, Button} from '../components/design-system';
 import {storyFileName} from '../electron/shared';
 import {Story} from '../store/stories';
 import {usePublishing} from '../store/use-publishing';
@@ -23,173 +12,104 @@ export interface BuildActionsProps {
 	story?: Story;
 }
 
+type BusyAction = 'test' | 'play' | 'proof' | 'publish' | 'twee';
+
 export const BuildActions: React.FC<BuildActionsProps> = ({story}) => {
 	const {publishStory} = usePublishing();
-	const [playError, setPlayError] = React.useState<Error>();
-	const [proofError, setProofError] = React.useState<Error>();
-	const [publishError, setPublishError] = React.useState<Error>();
-	const [testError, setTestError] = React.useState<Error>();
 	const {playStory, proofStory, testStory} = useStoryLaunch();
 	const {t} = useTranslation();
+	const [busyAction, setBusyAction] = React.useState<BusyAction>();
+	const [error, setError] = React.useState<string>();
 
-	function resetErrors() {
-		setPlayError(undefined);
-		setProofError(undefined);
-		setPublishError(undefined);
-		setTestError(undefined);
-	}
+	const run = React.useCallback(
+		async (actionName: BusyAction, action: () => Promise<void> | void) => {
+			if (!story) {
+				return;
+			}
 
-	async function handlePlay() {
-		if (!story) {
-			throw new Error('No story provided to publish');
-		}
+			setBusyAction(actionName);
+			setError(undefined);
 
-		resetErrors();
-
-		try {
-			await playStory(story.id);
-		} catch (error) {
-			setPlayError(error as Error);
-		}
-	}
-
-	async function handleProof() {
-		if (!story) {
-			throw new Error('No story provided to publish');
-		}
-
-		resetErrors();
-
-		try {
-			await proofStory(story.id);
-		} catch (error) {
-			setProofError(error as Error);
-		}
-	}
-
-	async function handlePublishFile() {
-		if (!story) {
-			throw new Error('No story provided to publish');
-		}
-
-		resetErrors();
-
-		try {
-			saveHtml(
-				await publishStory(story.id, {buildTarget: 'publish'}),
-				storyFileName(story)
-			);
-		} catch (error) {
-			setPublishError(error as Error);
-		}
-	}
-
-	async function handleTest() {
-		if (!story) {
-			throw new Error('No story provided to publish');
-		}
-
-		resetErrors();
-
-		try {
-			await testStory(story.id);
-		} catch (error) {
-			setTestError(error as Error);
-		}
-	}
-
-	function handleExportAsTwee() {
-		if (!story) {
-			throw new Error('No story provided to export');
-		}
-
-		saveTwee(storyToTwee(story), storyFileName(story, '.twee'));
-	}
+			try {
+				await action();
+			} catch (error) {
+				setError((error as Error).message);
+			} finally {
+				setBusyAction(undefined);
+			}
+		},
+		[story]
+	);
 
 	return (
-		<ButtonBar>
-			<CardButton
-				ariaLabel={testError?.message ?? ''}
+		<div className="route-action-group">
+			<Button
 				disabled={!story}
-				icon={<IconTool />}
-				label={t('routeActions.build.test')}
-				onChangeOpen={() => setTestError(undefined)}
-				onClick={handleTest}
-				open={!!testError}
+				icon="tool"
+				loading={busyAction === 'test'}
+				onClick={() => run('test', () => story && testStory(story.id))}
+				size="sm"
 			>
-				<CardContent>
-					<p>{testError?.message}</p>
-					<IconButton
-						icon={<IconX />}
-						label={t('common.close')}
-						onClick={() => setTestError(undefined)}
-						variant="primary"
-					/>
-				</CardContent>
-			</CardButton>
-			<CardButton
-				ariaLabel={playError?.message ?? ''}
+				{t('routeActions.build.test')}
+			</Button>
+			<Button
 				disabled={!story}
-				icon={<IconPlayerPlay />}
-				label={t('routeActions.build.play')}
-				onChangeOpen={() => setPlayError(undefined)}
-				onClick={handlePlay}
-				open={!!playError}
+				icon="player-play"
+				loading={busyAction === 'play'}
+				onClick={() => run('play', () => story && playStory(story.id))}
+				size="sm"
 			>
-				<CardContent>
-					<p>{playError?.message}</p>
-					<IconButton
-						icon={<IconX />}
-						label={t('common.close')}
-						onClick={() => setPlayError(undefined)}
-						variant="primary"
-					/>
-				</CardContent>
-			</CardButton>
-			<CardButton
-				ariaLabel={proofError?.message ?? ''}
+				{t('routeActions.build.play')}
+			</Button>
+			<Button
 				disabled={!story}
-				icon={<IconEyeglass />}
-				label={t('routeActions.build.proof')}
-				onChangeOpen={() => setProofError(undefined)}
-				onClick={handleProof}
-				open={!!proofError}
+				icon="eyeglass"
+				loading={busyAction === 'proof'}
+				onClick={() => run('proof', () => story && proofStory(story.id))}
+				size="sm"
 			>
-				<CardContent>
-					<p>{proofError?.message}</p>
-					<IconButton
-						icon={<IconX />}
-						label={t('common.close')}
-						onClick={() => setProofError(undefined)}
-						variant="primary"
-					/>
-				</CardContent>
-			</CardButton>
-			<CardButton
-				ariaLabel={publishError?.message ?? ''}
+				{t('routeActions.build.proof')}
+			</Button>
+			<Button
 				disabled={!story}
-				icon={<IconFileText />}
-				label={t('routeActions.build.publishToFile')}
-				onChangeOpen={() => setPublishError(undefined)}
-				onClick={handlePublishFile}
-				open={!!publishError}
+				icon="file-text"
+				loading={busyAction === 'publish'}
+				onClick={() =>
+					run('publish', async () => {
+						if (!story) {
+							return;
+						}
+
+						saveHtml(
+							await publishStory(story.id, {buildTarget: 'publish'}),
+							storyFileName(story)
+						);
+					})
+				}
+				size="sm"
 			>
-				<CardContent>
-					<p>{publishError?.message}</p>
-					<IconButton
-						icon={<IconX />}
-						label={t('common.close')}
-						onClick={() => setPublishError(undefined)}
-						variant="primary"
-					/>
-				</CardContent>
-			</CardButton>
-			<IconButton
+				{t('routeActions.build.publishToFile')}
+			</Button>
+			<Button
 				disabled={!story}
-				icon={<IconFileTwee />}
-				label={t('routeActions.build.exportAsTwee')}
-				onClick={handleExportAsTwee}
-			/>
-		</ButtonBar>
+				icon="file-code"
+				loading={busyAction === 'twee'}
+				onClick={() =>
+					run('twee', () => {
+						if (story) {
+							saveTwee(storyToTwee(story), storyFileName(story, '.twee'));
+						}
+					})
+				}
+				size="sm"
+			>
+				{t('routeActions.build.exportAsTwee')}
+			</Button>
+			{error && (
+				<Badge icon="alert-octagon" tone="error" title={error}>
+					{error}
+				</Badge>
+			)}
+		</div>
 	);
 };

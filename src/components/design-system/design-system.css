@@ -758,6 +758,33 @@
 	font-size: 10px;
 }
 
+.tw-prompt-icon {
+	display: inline-flex;
+	position: relative;
+}
+
+.tw-prompt-icon__pop {
+	background: var(--bg-pop);
+	border: 1px solid var(--line-2);
+	border-radius: var(--r-sm);
+	box-shadow: var(--shadow-pop);
+	display: grid;
+	gap: 8px;
+	left: 0;
+	min-width: min(320px, calc(100vw - 32px));
+	padding: 10px;
+	position: absolute;
+	top: calc(100% + 6px);
+	z-index: 80;
+}
+
+.tw-prompt-icon__actions {
+	align-items: center;
+	display: flex;
+	gap: 6px;
+	justify-content: flex-end;
+}
+
 .tw-panel__actions {
 	align-items: center;
 	display: flex;

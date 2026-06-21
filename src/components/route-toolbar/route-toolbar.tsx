@@ -23,9 +23,9 @@ export const RouteToolbar: React.FC<RouteToolbarProps> = props => {
 			return;
 		}
 
-		appShell.setRouteToolbar({helpUrl, pinnedControls, tabs});
+		appShell.setToolbar({helpUrl, pinnedControls, tabs});
 
-		return () => appShell.setRouteToolbar(undefined);
+		return () => appShell.setToolbar(undefined);
 	}, [appShell, helpUrl, pinnedControls, tabs]);
 
 	if (appShell.inShell) {

@@ -1,7 +1,6 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
-import {IconGridDots, IconLayoutGrid, IconSquare} from '@tabler/icons';
-import {IconButton} from '../../../components/control/icon-button';
+import {IconButton} from '../../../components/design-system';
 import {updateStory, useStoriesContext, Story} from '../../../store/stories';
 import './zoom-buttons.css';
 
@@ -24,28 +23,25 @@ export const ZoomButtons: React.FC<ZoomButtonsProps> = React.memo(({story}) => {
 		<div className="zoom-buttons">
 			<span className="legend">{t('routes.storyEdit.zoomButtons.legend')}</span>
 			<IconButton
-				icon={<IconSquare />}
-				iconOnly
+				active={story.zoom === 1}
+				aria-pressed={story.zoom === 1}
+				icon="square"
 				label={t('routes.storyEdit.zoomButtons.passageNamesAndExcerpts')}
 				onClick={() => handleZoomChange(1)}
-				selectable
-				selected={story.zoom === 1}
 			/>
 			<IconButton
-				icon={<IconLayoutGrid />}
-				iconOnly
+				active={story.zoom === 0.6}
+				aria-pressed={story.zoom === 0.6}
+				icon="layout-grid"
 				label={t('routes.storyEdit.zoomButtons.passageNames')}
 				onClick={() => handleZoomChange(0.6)}
-				selectable
-				selected={story.zoom === 0.6}
 			/>
 			<IconButton
-				icon={<IconGridDots />}
-				iconOnly
+				active={story.zoom === 0.3}
+				aria-pressed={story.zoom === 0.3}
+				icon="grid-dots"
 				label={t('routes.storyEdit.zoomButtons.storyStructure')}
 				onClick={() => handleZoomChange(0.3)}
-				selectable
-				selected={story.zoom === 0.3}
 			/>
 		</div>
 	);
