@@ -1,5 +1,42 @@
+import type {CoreAssetInventoryEntry} from '../bindings/CoreAssetInventoryEntry';
 import {storyToCoreIndex} from '../story-index';
 import {fakePassage, fakeStory} from '../../test-util';
+
+function knownAsset(
+	path: string,
+	options: Partial<CoreAssetInventoryEntry> = {}
+): CoreAssetInventoryEntry {
+	const kind = options.kind ?? 'image';
+
+	return {
+		durationMs: null,
+		exists: null,
+		height: null,
+		kind,
+		missing: false,
+		modifiedAt: null,
+		normalizedPath: path,
+		path,
+		previewUrl: null,
+		publish: {
+			copy: true,
+			outputPath: path,
+			reason: 'Copy asset into published output'
+		},
+		referenceCount: 0,
+		references: [],
+		sizeBytes: null,
+		snippet: {
+			label: 'Insert asset reference',
+			mediaType: kind,
+			text: `<img src="${path}" alt="">`
+		},
+		thumbnailUrl: null,
+		unused: false,
+		width: null,
+		...options
+	};
+}
 
 describe('storyToCoreIndex', () => {
 	it('indexes source files, tags, graph stats, and diagnostics', () => {
@@ -80,10 +117,27 @@ describe('storyToCoreIndex', () => {
 		expect(index.symbols.map(symbol => symbol.name)).toEqual(
 			expect.arrayContaining(['$score', '_turn'])
 		);
-		expect(index.assets).toEqual([
-			expect.objectContaining({kind: 'image', path: 'assets/cover.png'})
-		]);
-		expect(index.tagEntries).toEqual([
+			expect(index.assets).toEqual([
+				expect.objectContaining({kind: 'image', path: 'assets/cover.png'})
+			]);
+			expect(index.assetInventory).toEqual([
+				expect.objectContaining({
+					exists: null,
+					kind: 'image',
+					missing: false,
+					path: 'assets/cover.png',
+					publish: expect.objectContaining({
+						copy: true,
+						outputPath: 'assets/cover.png'
+					}),
+					referenceCount: 1,
+					snippet: expect.objectContaining({
+						text: '<img src="assets/cover.png" alt="">'
+					}),
+					unused: false
+				})
+			]);
+			expect(index.tagEntries).toEqual([
 			expect.objectContaining({count: 1, name: 'chapter-one'}),
 			expect.objectContaining({color: 'red', count: 2, name: 'scene'})
 		]);
@@ -107,8 +161,90 @@ describe('storyToCoreIndex', () => {
 		expect(storyToCoreIndex(story, '$score').searchHits).toEqual(
 			expect.arrayContaining([expect.objectContaining({scope: 'variable'})])
 		);
-		expect(storyToCoreIndex(story, 'cover.png').searchHits).toEqual(
-			expect.arrayContaining([expect.objectContaining({scope: 'asset'})])
+			expect(storyToCoreIndex(story, 'cover.png').searchHits).toEqual(
+				expect.arrayContaining([expect.objectContaining({scope: 'asset'})])
+			);
+		});
+
+	it('merges known file assets and reports missing and unused asset diagnostics', () => {
+		const story = fakeStory(0);
+		const start = fakePassage({
+			id: 'start',
+			name: 'Start',
+			story: story.id,
+			text: '<img src="assets/missing.png">'
+		});
+
+		story.passages = [start];
+		story.startPassage = start.id;
+
+		const index = storyToCoreIndex(story, {
+			knownAssets: [
+				knownAsset('assets/missing.png', {exists: false}),
+				knownAsset('assets/unused.png', {
+					exists: true,
+					sizeBytes: 1024
+				})
+			]
+		});
+
+		expect(index.assetInventory).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					exists: false,
+					missing: true,
+					path: 'assets/missing.png',
+					publish: expect.objectContaining({copy: false}),
+					referenceCount: 1,
+					unused: false
+				}),
+				expect.objectContaining({
+					exists: true,
+					missing: false,
+					path: 'assets/unused.png',
+					referenceCount: 0,
+					sizeBytes: 1024,
+					unused: true
+				})
+			])
+		);
+		expect(index.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: 'missing-asset',
+					passageId: start.id,
+					severity: 'error'
+				}),
+				expect.objectContaining({
+					code: 'unused-asset',
+					sourceId: `${story.id}:assets`,
+					severity: 'info'
+				})
+			])
+		);
+		expect(index.contents).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					detail: 'missing',
+					kind: 'asset',
+					label: 'assets/missing.png',
+					severity: 'error'
+				}),
+				expect.objectContaining({
+					detail: 'unused',
+					kind: 'asset',
+					label: 'assets/unused.png',
+					severity: 'info'
+				})
+			])
+		);
+		expect(storyToCoreIndex(story, {
+			knownAssets: [knownAsset('assets/unused.png', {exists: true})],
+			query: 'unused.png'
+		}).searchHits).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({scope: 'asset', sourceName: 'Assets'})
+			])
 		);
 	});
 

@@ -415,6 +415,8 @@ Completed foundation:
 Remaining intentional shims before/inside M5:
 
 - `CoreProjectHost.subscribeToPatches()` currently synthesizes `storyIndexUpdated` patches from store changes. Replace this with live Rust `ProjectSession` patch batches once Rust owns project mutation.
+- `StoreCoreProjectHost` intentionally leaves several generated commands as no-ops while the legacy store backs the app, including graph projection/save-layout query paths. Do not add new legacy-only M5 flows where a host command can express the operation.
+- Several screens still mutate legacy state directly. Close those gaps opportunistically during M5 by moving asset, editor, search/replace, tag, graph-layout, and quick-fix actions through `CoreProjectHost.applyStoryCommand()` or new generated commands.
 - `AssetManagerViewModel` is currently reference-backed, using indexed asset references in passages/script/style. M5 must replace this with a file-backed asset inventory from the real project folder: actual files in `assets/`, missing references, unused files, kind, size, dimensions/duration, modified time, snippet suggestions, and publish-copy status.
 - The copied workbench CSS is now app-owned and wired to live Contents/Diagnostics fragments. M5 should continue porting prototype JSX screen-by-screen, not paste standalone HTML/Babel prototypes into `src/`.
 
@@ -431,6 +433,14 @@ Core deliverables:
 - An `assets/` folder with image/media import, preview thumbnails, file metadata, find usages, unused-file detection, snippet insertion, and publish-copy rules.
 - Editor-side image handling that lets authors insert, preview, rename, and validate references without manually juggling base64 or fragile relative paths.
 - Integration with Contents, diagnostics, import review, export packaging, and custom format rules.
+
+M5 implementation checklist from the M1-M4 audit:
+
+- Add a file-backed asset inventory DTO that combines real files with indexed references: path, normalized URL/reference forms, kind, exists/missing, used/unused, size, dimensions/duration where available, modified time, references, thumbnail/preview state, snippet metadata, and publish-copy status.
+- Add host commands for asset import, rename, delete, replace, reveal in folder, copy snippet, insert snippet, and reference update/validation. UI surfaces should call the host even when the store-backed implementation has a temporary compatibility branch.
+- Keep the current reference-backed Asset Manager as a fallback only. The real M5 Asset Manager UI should consume file inventory plus references, not the reference-only grouping.
+- Add missing-asset and unused-asset diagnostics, find-usage results, and publish-copy rules. Asset references must be first-class in Contents, Search, Diagnostics, Import Review, and Export/Package.
+- Keep asset previews functional in Text, Graph, and Split modes: thumbnails, inline editor previews, inspector previews, and graph-card/media previews must all resolve through the same inventory rather than ad hoc path parsing.
 
 Highest-signal requests in this milestone:
 
@@ -451,6 +461,12 @@ Core deliverables:
 - A story-format capability manifest for parser, exporter, syntax, completions, diagnostics, docs, editor toolbar actions, menu items, preprocessing, statistics, and migration compatibility.
 - Build targets for Play, Test From Selection, Proof, Export HTML, Export Twee, Export JSON, Package, Publish, and source/HTML inspection with warnings before output.
 - Runtime/debug hooks for current passage, variable/state inspection, launched-from-editor detection, Open Graph metadata, localization, compression, excluded passages, and format-version rollback.
+
+Preview/debug handoff from the M1-M5 path:
+
+- Fully functional GUI previews depend on the M3 source editor, M4 story index, M5 asset inventory, and M2 graph projection all reporting through host/query contracts. M6 should wire Play/Test/Proof previews to those contracts instead of launching isolated preview code that cannot reveal source, reveal graph, inspect assets, or report diagnostics.
+- The graph panel migration to `QueryGraphProjection` can be postponed until after the M5 asset work, but it must be queued before claiming fully functional GUI previews. The legacy passage map should be replaced or wrapped so preview/reveal flows use Rust-backed visible nodes, edges, generated layout state, selection focus, and save-layout behavior.
+- Runtime previews should support "run from here" from Text, Graph, Split, search results, diagnostics, and asset references, with source/graph reveal kept optional when graph metadata is absent.
 
 Highest-signal requests in this milestone:
 

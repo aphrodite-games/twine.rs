@@ -1,4 +1,7 @@
 import type {CoreAssetReference} from './bindings/CoreAssetReference';
+import type {CoreAssetInventoryEntry} from './bindings/CoreAssetInventoryEntry';
+import type {CoreAssetPublishRule} from './bindings/CoreAssetPublishRule';
+import type {CoreAssetSnippet} from './bindings/CoreAssetSnippet';
 import type {CoreContentsEntry} from './bindings/CoreContentsEntry';
 import type {CoreDiagnostic} from './bindings/CoreDiagnostic';
 import type {CoreDiagnosticSeverity} from './bindings/CoreDiagnosticSeverity';
@@ -26,6 +29,7 @@ const defaultOptions: CoreStoryIndexOptions = {
 	includeStylesheet: true,
 	includeTags: true,
 	includeVariables: true,
+	knownAssets: [],
 	matchCase: false,
 	query: null,
 	replacement: null,
@@ -533,6 +537,151 @@ function assetKind(extension: string) {
 	return 'file';
 }
 
+function assetKindForPath(path: string) {
+	const extension = path.split('.').pop();
+
+	return extension ? assetKind(extension) : 'file';
+}
+
+function normalizedAssetPath(path: string) {
+	return path.replace(/\\/g, '/').replace(/^\.\//, '').toLocaleLowerCase();
+}
+
+function assetSnippet(path: string, kind: string): CoreAssetSnippet {
+	const text =
+		kind === 'image'
+			? `<img src="${path}" alt="">`
+			: kind === 'audio'
+				? `<audio src="${path}" controls></audio>`
+				: kind === 'video'
+					? `<video src="${path}" controls></video>`
+					: kind === 'stylesheet'
+						? `<link rel="stylesheet" href="${path}">`
+						: kind === 'script'
+							? `<script src="${path}"></script>`
+							: path;
+
+	return {
+		label: 'Insert asset reference',
+		mediaType: kind,
+		text
+	};
+}
+
+function assetPublishRule(path: string, missing: boolean): CoreAssetPublishRule {
+	return {
+		copy: !missing,
+		outputPath: path,
+		reason: missing
+			? 'Referenced file is missing'
+			: 'Copy asset into published output'
+	};
+}
+
+function assetInventoryEntry(
+	path: string,
+	kind: string,
+	exists: boolean | null,
+	references: CoreAssetReference[]
+): CoreAssetInventoryEntry {
+	const missing = exists === false && references.length > 0;
+	const unused = exists === true && references.length === 0;
+
+	return {
+		durationMs: null,
+		exists,
+		height: null,
+		kind,
+		missing,
+		modifiedAt: null,
+		normalizedPath: normalizedAssetPath(path),
+		path,
+		previewUrl: null,
+		publish: assetPublishRule(path, missing),
+		referenceCount: references.length,
+		references,
+		sizeBytes: null,
+		snippet: assetSnippet(path, kind),
+		thumbnailUrl: null,
+		unused,
+		width: null
+	};
+}
+
+function assetInventoryFromReferences(
+	references: CoreAssetReference[],
+	knownAssets: CoreAssetInventoryEntry[]
+) {
+	const referencesByPath = new Map<string, CoreAssetReference[]>();
+
+	for (const reference of references) {
+		const normalized = normalizedAssetPath(reference.path);
+
+		referencesByPath.set(normalized, [
+			...(referencesByPath.get(normalized) ?? []),
+			reference
+		]);
+	}
+
+	const inventory = new Map<string, CoreAssetInventoryEntry>();
+
+	for (const knownAsset of knownAssets) {
+		const normalized = normalizedAssetPath(
+			knownAsset.normalizedPath || knownAsset.path
+		);
+		const assetReferences = referencesByPath.get(normalized);
+		const references =
+			assetReferences && assetReferences.length > 0
+				? assetReferences
+				: knownAsset.references;
+		const kind = knownAsset.kind || assetKindForPath(knownAsset.path);
+		const missing = knownAsset.exists === false && references.length > 0;
+		const unused = knownAsset.exists === true && references.length === 0;
+		const publish = knownAsset.publish.outputPath
+			? knownAsset.publish
+			: assetPublishRule(knownAsset.path, missing);
+
+		referencesByPath.delete(normalized);
+		inventory.set(normalized, {
+			...knownAsset,
+			kind,
+			missing,
+			normalizedPath: normalized,
+			publish: missing
+				? {
+						...publish,
+						copy: false,
+						reason: 'Referenced file is missing'
+					}
+				: publish,
+			referenceCount: references.length,
+			references,
+			snippet: knownAsset.snippet.text
+				? knownAsset.snippet
+				: assetSnippet(knownAsset.path, kind),
+			unused
+		});
+	}
+
+	for (const references of referencesByPath.values()) {
+		const firstReference = references[0];
+
+		inventory.set(
+			normalizedAssetPath(firstReference.path),
+			assetInventoryEntry(
+				firstReference.path,
+				firstReference.kind,
+				null,
+				references
+			)
+		);
+	}
+
+	return Array.from(inventory.values()).sort((left, right) =>
+		left.path.localeCompare(right.path)
+	);
+}
+
 function assetReferencesInSource(
 	sourceId: string,
 	sourceName: string,
@@ -616,29 +765,91 @@ function countedSymbolEntries(symbols: CoreSymbol[]) {
 	);
 }
 
-function countedAssetEntries(assets: CoreAssetReference[]) {
-	const result = new Map<
-		string,
-		{count: number; passageId: string | null; sourceId: string}
-	>();
+function assetStatusSeverity(asset: CoreAssetInventoryEntry) {
+	if (asset.missing) {
+		return 'error' as CoreDiagnosticSeverity;
+	}
 
-	for (const asset of assets) {
-		const existing = result.get(asset.path);
+	if (asset.unused) {
+		return 'info' as CoreDiagnosticSeverity;
+	}
 
-		if (existing) {
-			existing.count++;
-		} else {
-			result.set(asset.path, {
-				count: 1,
-				passageId: asset.passageId,
-				sourceId: asset.sourceId
+	return null;
+}
+
+function assetLocation(story: Story, asset: CoreAssetInventoryEntry) {
+	const reference = asset.references[0];
+
+	if (reference) {
+		return {
+			line: reference.line,
+			passageId: reference.passageId,
+			sourceId: reference.sourceId,
+			sourceName: reference.sourceName,
+			start: reference.start,
+			end: reference.end
+		};
+	}
+
+	return {
+		line: 1,
+		passageId: null,
+		sourceId: `${story.id}:assets`,
+		sourceName: 'Assets',
+		start: 0,
+		end: asset.path.length
+	};
+}
+
+function assetDiagnostics(
+	story: Story,
+	assetInventory: CoreAssetInventoryEntry[]
+): CoreDiagnostic[] {
+	const diagnostics: CoreDiagnostic[] = [];
+
+	for (const asset of assetInventory) {
+		const location = assetLocation(story, asset);
+
+		if (asset.missing) {
+			diagnostics.push({
+				code: 'missing-asset',
+				end: location.end,
+				line: location.line,
+				message: `Referenced asset "${asset.path}" is missing`,
+				passageId: location.passageId,
+				quickFixes: [
+					{
+						command: `import-asset:${asset.path}`,
+						title: 'Import or relink asset'
+					}
+				],
+				severity: 'error',
+				sourceId: location.sourceId,
+				start: location.start
+			});
+		}
+
+		if (asset.unused) {
+			diagnostics.push({
+				code: 'unused-asset',
+				end: asset.path.length,
+				line: 1,
+				message: `Asset "${asset.path}" is not referenced`,
+				passageId: null,
+				quickFixes: [
+					{
+						command: `delete-asset:${asset.path}`,
+						title: 'Delete unused asset'
+					}
+				],
+				severity: 'info',
+				sourceId: `${story.id}:assets`,
+				start: 0
 			});
 		}
 	}
 
-	return Array.from(result).sort(([left], [right]) =>
-		left.localeCompare(right)
-	);
+	return diagnostics;
 }
 
 function contentsEntries(
@@ -646,7 +857,7 @@ function contentsEntries(
 	files: CoreSourceFile[],
 	tags: CoreTagEntry[],
 	symbols: CoreSymbol[],
-	assets: CoreAssetReference[],
+	assetInventory: CoreAssetInventoryEntry[],
 	diagnostics: CoreDiagnostic[]
 ): CoreContentsEntry[] {
 	const entries: CoreContentsEntry[] = [
@@ -732,16 +943,18 @@ function contentsEntries(
 		});
 	}
 
-	for (const [path, entry] of countedAssetEntries(assets)) {
+	for (const asset of assetInventory) {
+		const location = assetLocation(story, asset);
+
 		entries.push({
-			count: entry.count,
-			detail: null,
-			id: `asset:${path}`,
+			count: asset.referenceCount,
+			detail: asset.missing ? 'missing' : asset.unused ? 'unused' : asset.kind,
+			id: `asset:${asset.path}`,
 			kind: 'asset',
-			label: path,
-			passageId: entry.passageId,
-			severity: null,
-			sourceId: entry.sourceId
+			label: asset.path,
+			passageId: location.passageId,
+			severity: assetStatusSeverity(asset),
+			sourceId: location.sourceId
 		});
 	}
 
@@ -1003,6 +1216,10 @@ export function storyToCoreIndex(
 		);
 	}
 
+	const assetInventory = options.includeAssets
+		? assetInventoryFromReferences(assets, options.knownAssets)
+		: [];
+
 	if (options.includeVariables) {
 		for (const symbol of symbols) {
 			searchHits.push(
@@ -1020,16 +1237,18 @@ export function storyToCoreIndex(
 	}
 
 	if (options.includeAssets) {
-		for (const asset of assets) {
+		for (const asset of assetInventory) {
+			const location = assetLocation(story, asset);
+
 			searchHits.push(
 				...searchHitsInSource(
 					options,
 					matcher,
-					asset.sourceId,
-					asset.sourceName,
+					location.sourceId,
+					location.sourceName,
 					asset.path,
 					'asset',
-					asset.passageId
+					location.passageId
 				)
 			);
 		}
@@ -1071,11 +1290,21 @@ export function storyToCoreIndex(
 			sourceId: hit.sourceId,
 			sourceName: hit.sourceName,
 			start: hit.start
-		}));
+			}));
+
+	diagnostics.push(...assetDiagnostics(story, assetInventory));
 
 	return {
+		assetInventory,
 		assets,
-		contents: contentsEntries(story, files, tags, symbols, assets, diagnostics),
+		contents: contentsEntries(
+			story,
+			files,
+			tags,
+			symbols,
+			assetInventory,
+			diagnostics
+		),
 		diagnostics,
 		files,
 		graph: graphStats(story),

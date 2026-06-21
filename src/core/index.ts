@@ -1,4 +1,5 @@
 import type {CoreGraphProjectionOptions} from './bindings/CoreGraphProjectionOptions';
+import type {CoreAssetInventoryEntry} from './bindings/CoreAssetInventoryEntry';
 import type {CoreRect} from './bindings/CoreRect';
 import type {CoreStoryIndex} from './bindings/CoreStoryIndex';
 import type {CoreStoryIndexOptions} from './bindings/CoreStoryIndexOptions';
@@ -14,6 +15,7 @@ export * from './view-models';
 
 export type {
 	CoreGraphProjectionOptions,
+	CoreAssetInventoryEntry,
 	CoreRect,
 	CoreStoryIndex,
 	CoreStoryIndexOptions,
@@ -152,6 +154,7 @@ export function queryStoryIndexCommand(
 		includeStylesheet: true,
 		includeTags: true,
 		includeVariables: true,
+		knownAssets: [],
 		matchCase: false,
 		query: null,
 		replacement: null,
@@ -179,6 +182,107 @@ export function movePassagesCommand(
 export function saveGeneratedLayoutCommand(storyId: string): StoryCommand {
 	return {
 		type: 'saveGeneratedLayout',
+		story_id: storyId
+	};
+}
+
+export function importAssetCommand(
+	storyId: string,
+	sourcePath: string,
+	options: {overwrite?: boolean; targetPath?: string} = {}
+): StoryCommand {
+	return {
+		type: 'importAsset',
+		overwrite: options.overwrite ?? false,
+		source_path: sourcePath,
+		story_id: storyId,
+		target_path: options.targetPath ?? null
+	};
+}
+
+export function renameAssetCommand(
+	storyId: string,
+	path: string,
+	newPath: string,
+	updateReferences = true
+): StoryCommand {
+	return {
+		type: 'renameAsset',
+		new_path: newPath,
+		path,
+		story_id: storyId,
+		update_references: updateReferences
+	};
+}
+
+export function deleteAssetCommand(
+	storyId: string,
+	path: string,
+	removeReferences = false
+): StoryCommand {
+	return {
+		type: 'deleteAsset',
+		path,
+		remove_references: removeReferences,
+		story_id: storyId
+	};
+}
+
+export function replaceAssetCommand(
+	storyId: string,
+	path: string,
+	sourcePath: string
+): StoryCommand {
+	return {
+		type: 'replaceAsset',
+		path,
+		source_path: sourcePath,
+		story_id: storyId
+	};
+}
+
+export function revealAssetCommand(storyId: string, path: string): StoryCommand {
+	return {
+		type: 'revealAsset',
+		path,
+		story_id: storyId
+	};
+}
+
+export function copyAssetSnippetCommand(
+	storyId: string,
+	path: string,
+	snippet?: string
+): StoryCommand {
+	return {
+		type: 'copyAssetSnippet',
+		path,
+		snippet: snippet ?? null,
+		story_id: storyId
+	};
+}
+
+export function insertAssetSnippetCommand(
+	storyId: string,
+	path: string,
+	sourceId: string,
+	position: number,
+	options: {passageId?: string; snippet?: string} = {}
+): StoryCommand {
+	return {
+		type: 'insertAssetSnippet',
+		passage_id: options.passageId ?? null,
+		path,
+		position,
+		snippet: options.snippet ?? null,
+		source_id: sourceId,
+		story_id: storyId
+	};
+}
+
+export function validateAssetReferencesCommand(storyId: string): StoryCommand {
+	return {
+		type: 'validateAssetReferences',
 		story_id: storyId
 	};
 }

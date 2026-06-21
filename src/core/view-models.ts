@@ -1,4 +1,7 @@
 import type {CoreAssetReference} from './bindings/CoreAssetReference';
+import type {CoreAssetInventoryEntry} from './bindings/CoreAssetInventoryEntry';
+import type {CoreAssetPublishRule} from './bindings/CoreAssetPublishRule';
+import type {CoreAssetSnippet} from './bindings/CoreAssetSnippet';
 import type {CoreContentsEntry} from './bindings/CoreContentsEntry';
 import type {CoreContentsEntryKind} from './bindings/CoreContentsEntryKind';
 import type {CoreDiagnostic} from './bindings/CoreDiagnostic';
@@ -49,12 +52,21 @@ export interface DiagnosticsViewModel {
 }
 
 export interface AssetManagerViewModelEntry {
-	firstReference: CoreAssetReference;
+	exists: boolean | null;
+	firstReference: CoreAssetReference | null;
 	id: string;
+	inventory: CoreAssetInventoryEntry;
 	kind: string;
+	missing: boolean;
 	path: string;
+	publish: CoreAssetPublishRule;
 	referenceCount: number;
+	references: CoreAssetReference[];
+	sizeBytes: number | null;
+	snippet: CoreAssetSnippet;
 	sourceNames: string[];
+	thumbnailUrl: string | null;
+	unused: boolean;
 }
 
 export interface AssetManagerViewModel {
@@ -154,6 +166,9 @@ function diagnosticGroup(diagnostic: CoreDiagnostic) {
 			return 'Broken Links';
 		case 'duplicate-passage-name':
 			return 'Duplicate Names';
+		case 'missing-asset':
+		case 'unused-asset':
+			return 'Assets';
 		case 'missing-start-passage':
 			return 'Project Metadata';
 		case 'unreachable-passage':
@@ -161,6 +176,75 @@ function diagnosticGroup(diagnostic: CoreDiagnostic) {
 		default:
 			return 'Format Errors';
 	}
+}
+
+function normalizedAssetPath(path: string) {
+	return path.replace(/\\/g, '/').replace(/^\.\//, '').toLocaleLowerCase();
+}
+
+function assetSnippet(path: string, kind: string): CoreAssetSnippet {
+	const text =
+		kind === 'image'
+			? `<img src="${path}" alt="">`
+			: kind === 'audio'
+				? `<audio src="${path}" controls></audio>`
+				: kind === 'video'
+					? `<video src="${path}" controls></video>`
+					: kind === 'stylesheet'
+						? `<link rel="stylesheet" href="${path}">`
+						: kind === 'script'
+							? `<script src="${path}"></script>`
+							: path;
+
+	return {
+		label: 'Insert asset reference',
+		mediaType: kind,
+		text
+	};
+}
+
+function assetPublishRule(path: string): CoreAssetPublishRule {
+	return {
+		copy: true,
+		outputPath: path,
+		reason: 'Copy asset into published output'
+	};
+}
+
+function fallbackAssetInventory(
+	references: CoreAssetReference[]
+): CoreAssetInventoryEntry[] {
+	const byPath = new Map<string, CoreAssetReference[]>();
+
+	for (const reference of references) {
+		byPath.set(reference.path, [...(byPath.get(reference.path) ?? []), reference]);
+	}
+
+	return Array.from(byPath.entries())
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([path, references]) => {
+			const kind = references[0]?.kind ?? 'file';
+
+			return {
+				durationMs: null,
+				exists: null,
+				height: null,
+				kind,
+				missing: false,
+				modifiedAt: null,
+				normalizedPath: normalizedAssetPath(path),
+				path,
+				previewUrl: null,
+				publish: assetPublishRule(path),
+				referenceCount: references.length,
+				references,
+				sizeBytes: null,
+				snippet: assetSnippet(path, kind),
+				thumbnailUrl: null,
+				unused: false,
+				width: null
+			};
+		});
 }
 
 export function contentsViewModel(index: CoreStoryIndex): ContentsViewModel {
@@ -225,26 +309,38 @@ export function diagnosticsViewModel(
 export function assetManagerViewModel(
 	index: CoreStoryIndex
 ): AssetManagerViewModel {
-	const byPath = new Map<string, CoreAssetReference[]>();
-
-	for (const asset of index.assets) {
-		byPath.set(asset.path, [...(byPath.get(asset.path) ?? []), asset]);
-	}
+	const indexedInventory = index.assetInventory ?? [];
+	const inventory =
+		indexedInventory.length > 0
+			? [...indexedInventory].sort((left, right) =>
+					left.path.localeCompare(right.path)
+				)
+			: fallbackAssetInventory(index.assets);
 
 	return {
-		entries: Array.from(byPath.entries())
-			.sort(([left], [right]) => left.localeCompare(right))
-			.map(([path, references]) => ({
-				firstReference: references[0],
-				id: path,
-				kind: references[0].kind,
-				path,
-				referenceCount: references.length,
-				sourceNames: Array.from(
-					new Set(references.map(reference => reference.sourceName))
-				)
-			})),
-		referenceCount: index.assets.length
+		entries: inventory.map(asset => ({
+			exists: asset.exists,
+			firstReference: asset.references[0] ?? null,
+			id: asset.path,
+			inventory: asset,
+			kind: asset.kind,
+			missing: asset.missing,
+			path: asset.path,
+			publish: asset.publish,
+			referenceCount: asset.referenceCount,
+			references: asset.references,
+			sizeBytes: asset.sizeBytes,
+			snippet: asset.snippet,
+			sourceNames: Array.from(
+				new Set(asset.references.map(reference => reference.sourceName))
+			),
+			thumbnailUrl: asset.thumbnailUrl,
+			unused: asset.unused
+		})),
+		referenceCount: inventory.reduce(
+			(total, asset) => total + asset.referenceCount,
+			0
+		)
 	};
 }
 

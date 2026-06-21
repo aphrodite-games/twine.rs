@@ -211,6 +211,58 @@ pub struct CoreAssetReference {
     pub start: usize,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/core/bindings/")]
+pub struct CoreAssetSnippet {
+    pub label: String,
+    pub media_type: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/core/bindings/")]
+pub struct CoreAssetPublishRule {
+    pub copy: bool,
+    pub output_path: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/core/bindings/")]
+pub struct CoreAssetInventoryEntry {
+    #[serde(default)]
+    pub duration_ms: Option<usize>,
+    #[serde(default)]
+    pub exists: Option<bool>,
+    #[serde(default)]
+    pub height: Option<usize>,
+    pub kind: String,
+    pub missing: bool,
+    #[serde(default)]
+    pub modified_at: Option<String>,
+    pub normalized_path: String,
+    pub path: String,
+    #[serde(default)]
+    pub preview_url: Option<String>,
+    #[serde(default)]
+    pub publish: CoreAssetPublishRule,
+    pub reference_count: usize,
+    #[serde(default)]
+    pub references: Vec<CoreAssetReference>,
+    #[serde(default)]
+    pub size_bytes: Option<usize>,
+    #[serde(default)]
+    pub snippet: CoreAssetSnippet,
+    #[serde(default)]
+    pub thumbnail_url: Option<String>,
+    pub unused: bool,
+    #[serde(default)]
+    pub width: Option<usize>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/core/bindings/")]
@@ -356,6 +408,8 @@ pub struct CoreStoryIndexOptions {
     pub replacement: Option<String>,
     #[serde(default)]
     pub use_regexes: bool,
+    #[serde(default)]
+    pub known_assets: Vec<CoreAssetInventoryEntry>,
 }
 
 impl Default for CoreStoryIndexOptions {
@@ -373,6 +427,7 @@ impl Default for CoreStoryIndexOptions {
             query: None,
             replacement: None,
             use_regexes: false,
+            known_assets: Vec::new(),
         }
     }
 }
@@ -381,6 +436,8 @@ impl Default for CoreStoryIndexOptions {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/core/bindings/")]
 pub struct CoreStoryIndex {
+    #[serde(default)]
+    pub asset_inventory: Vec<CoreAssetInventoryEntry>,
     #[serde(default)]
     pub assets: Vec<CoreAssetReference>,
     #[serde(default)]
@@ -725,6 +782,12 @@ pub enum StoryCommand {
     Batch {
         commands: Vec<StoryCommand>,
     },
+    CopyAssetSnippet {
+        path: String,
+        #[serde(default)]
+        snippet: Option<String>,
+        story_id: String,
+    },
     CreatePassage {
         #[serde(default)]
         id: Option<String>,
@@ -740,6 +803,29 @@ pub enum StoryCommand {
     },
     DeletePassages {
         passage_ids: Vec<String>,
+        story_id: String,
+    },
+    DeleteAsset {
+        path: String,
+        #[serde(default)]
+        remove_references: bool,
+        story_id: String,
+    },
+    ImportAsset {
+        #[serde(default)]
+        overwrite: bool,
+        source_path: String,
+        story_id: String,
+        #[serde(default)]
+        target_path: Option<String>,
+    },
+    InsertAssetSnippet {
+        passage_id: Option<String>,
+        path: String,
+        position: usize,
+        #[serde(default)]
+        snippet: Option<String>,
+        source_id: String,
         story_id: String,
     },
     MarkSaved,
@@ -761,6 +847,22 @@ pub enum StoryCommand {
         story_id: String,
         #[serde(default = "default_true")]
         update_references: bool,
+    },
+    RenameAsset {
+        new_path: String,
+        path: String,
+        story_id: String,
+        #[serde(default = "default_true")]
+        update_references: bool,
+    },
+    ReplaceAsset {
+        path: String,
+        source_path: String,
+        story_id: String,
+    },
+    RevealAsset {
+        path: String,
+        story_id: String,
     },
     RestorePassages {
         passages: Vec<PassageSnapshot>,
@@ -791,33 +893,48 @@ pub enum StoryCommand {
         story_id: String,
         stylesheet: String,
     },
+    ValidateAssetReferences {
+        story_id: String,
+    },
 }
 
 impl StoryCommand {
     fn label(&self) -> &'static str {
         match self {
             Self::Batch { .. } => "Batch",
+            Self::CopyAssetSnippet { .. } => "Copy Asset Snippet",
             Self::CreatePassage { .. } => "New Passage",
+            Self::DeleteAsset { .. } => "Delete Asset",
             Self::DeletePassages { .. } => "Delete Passages",
+            Self::ImportAsset { .. } => "Import Asset",
+            Self::InsertAssetSnippet { .. } => "Insert Asset Snippet",
             Self::MarkSaved => "Mark Saved",
             Self::MovePassages { .. } => "Move Passages",
             Self::QueryGraphProjection { .. } => "Query Graph",
             Self::QueryStoryIndex { .. } => "Query Story Index",
+            Self::RenameAsset { .. } => "Rename Asset",
             Self::RenamePassage { .. } => "Rename Passage",
+            Self::ReplaceAsset { .. } => "Replace Asset",
             Self::RestorePassages { .. } => "Restore Passages",
+            Self::RevealAsset { .. } => "Reveal Asset",
             Self::SaveGeneratedLayout { .. } => "Save Layout",
             Self::SetPassageTags { .. } => "Set Passage Tags",
             Self::SetStartPassage { .. } => "Set Start Passage",
             Self::UpdatePassageText { .. } => "Update Passage Text",
             Self::UpdateStoryScript { .. } => "Update Story JavaScript",
             Self::UpdateStoryStylesheet { .. } => "Update Story Stylesheet",
+            Self::ValidateAssetReferences { .. } => "Validate Asset References",
         }
     }
 
     fn mutates_project(&self) -> bool {
         !matches!(
             self,
-            Self::QueryGraphProjection { .. } | Self::QueryStoryIndex { .. }
+            Self::CopyAssetSnippet { .. }
+                | Self::QueryGraphProjection { .. }
+                | Self::QueryStoryIndex { .. }
+                | Self::RevealAsset { .. }
+                | Self::ValidateAssetReferences { .. }
         )
     }
 }
@@ -890,6 +1007,9 @@ pub enum CoreError {
 
     #[error("story not found: {0}")]
     StoryNotFound(String),
+
+    #[error("unsupported command: {0}")]
+    UnsupportedCommand(String),
 }
 
 #[derive(Clone, Debug)]
@@ -1024,6 +1144,7 @@ impl ProjectSession {
 
                 Ok(patches)
             }
+            StoryCommand::CopyAssetSnippet { .. } => unsupported_asset_command("copyAssetSnippet"),
             StoryCommand::CreatePassage {
                 id,
                 layout,
@@ -1036,6 +1157,11 @@ impl ProjectSession {
                 story_id,
                 passage_ids,
             } => self.delete_passages(&story_id, &passage_ids),
+            StoryCommand::DeleteAsset { .. } => unsupported_asset_command("deleteAsset"),
+            StoryCommand::ImportAsset { .. } => unsupported_asset_command("importAsset"),
+            StoryCommand::InsertAssetSnippet { .. } => {
+                unsupported_asset_command("insertAssetSnippet")
+            }
             StoryCommand::MarkSaved => {
                 self.dirty = false;
                 Ok(Vec::new())
@@ -1060,6 +1186,9 @@ impl ProjectSession {
                 story_id,
                 update_references,
             } => self.rename_passage(&story_id, &passage_id, name, update_references),
+            StoryCommand::RenameAsset { .. } => unsupported_asset_command("renameAsset"),
+            StoryCommand::ReplaceAsset { .. } => unsupported_asset_command("replaceAsset"),
+            StoryCommand::RevealAsset { .. } => unsupported_asset_command("revealAsset"),
             StoryCommand::RestorePassages { story_id, passages } => {
                 self.restore_passages(&story_id, passages)
             }
@@ -1085,6 +1214,9 @@ impl ProjectSession {
                 story_id,
                 stylesheet,
             } => self.update_story_stylesheet(&story_id, stylesheet),
+            StoryCommand::ValidateAssetReferences { .. } => {
+                unsupported_asset_command("validateAssetReferences")
+            }
         }
     }
 
@@ -1596,6 +1728,12 @@ impl ProjectSession {
             ));
         }
 
+        let mut asset_inventory = if options.include_assets {
+            asset_inventory_from_references(&assets, options.known_assets.clone())
+        } else {
+            Vec::new()
+        };
+
         if options.include_variables {
             for symbol in &symbols {
                 search_hits.extend(search_hits_in_source(
@@ -1611,15 +1749,17 @@ impl ProjectSession {
         }
 
         if options.include_assets {
-            for asset in &assets {
+            for asset in &asset_inventory {
+                let location = asset_search_location(story, asset);
+
                 search_hits.extend(search_hits_in_source(
                     &options,
                     search_pattern.as_ref(),
-                    &asset.source_id,
-                    &asset.source_name,
+                    &location.source_id,
+                    &location.source_name,
                     &asset.path,
                     CoreSearchScope::Asset,
-                    asset.passage_id.as_deref(),
+                    location.passage_id.as_deref(),
                 ));
             }
         }
@@ -1705,6 +1845,14 @@ impl ProjectSession {
             });
         }
 
+        diagnostics.extend(asset_diagnostics(
+            story,
+            &metadata_source_id,
+            &asset_inventory,
+        ));
+
+        asset_inventory.sort_by(|left, right| left.path.cmp(&right.path));
+
         search_hits.sort_by(|left, right| {
             right
                 .rank
@@ -1729,13 +1877,14 @@ impl ProjectSession {
             &files,
             &tag_entries,
             &symbols,
-            &assets,
+            &asset_inventory,
             &diagnostics,
             &graph,
             &metadata_source_id,
         );
 
         Ok(CoreStoryIndex {
+            asset_inventory,
             assets,
             contents,
             diagnostics,
@@ -1856,6 +2005,12 @@ fn push_dirty_patch(patches: &mut Vec<Patch>, before: bool, after: bool) {
     if before != after {
         patches.push(Patch::DirtyStateChanged { dirty: after });
     }
+}
+
+fn unsupported_asset_command(command: &str) -> Result<Vec<Patch>, CoreError> {
+    Err(CoreError::UnsupportedCommand(format!(
+        "{command} requires the M5 file-backed asset host"
+    )))
 }
 
 fn line_count(text: &str) -> usize {
@@ -2264,6 +2419,217 @@ fn asset_kind(extension: &str) -> &'static str {
     }
 }
 
+fn asset_kind_for_path(path: &str) -> String {
+    path.rsplit_once('.')
+        .map(|(_, extension)| asset_kind(extension).into())
+        .unwrap_or_else(|| "file".into())
+}
+
+fn normalized_asset_path(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_start_matches("./")
+        .to_ascii_lowercase()
+}
+
+fn asset_snippet(path: &str, kind: &str) -> CoreAssetSnippet {
+    let text = match kind {
+        "image" => format!(r#"<img src="{path}" alt="">"#),
+        "audio" => format!(r#"<audio src="{path}" controls></audio>"#),
+        "video" => format!(r#"<video src="{path}" controls></video>"#),
+        "stylesheet" => format!(r#"<link rel="stylesheet" href="{path}">"#),
+        "script" => format!(r#"<script src="{path}"></script>"#),
+        _ => path.to_owned(),
+    };
+
+    CoreAssetSnippet {
+        label: "Insert asset reference".into(),
+        media_type: kind.into(),
+        text,
+    }
+}
+
+fn asset_publish_rule(path: &str, missing: bool) -> CoreAssetPublishRule {
+    CoreAssetPublishRule {
+        copy: !missing,
+        output_path: path.into(),
+        reason: if missing {
+            "Referenced file is missing".into()
+        } else {
+            "Copy asset into published output".into()
+        },
+    }
+}
+
+fn asset_inventory_entry(
+    path: String,
+    kind: String,
+    exists: Option<bool>,
+    references: Vec<CoreAssetReference>,
+) -> CoreAssetInventoryEntry {
+    let missing = exists == Some(false) && !references.is_empty();
+    let unused = exists == Some(true) && references.is_empty();
+
+    CoreAssetInventoryEntry {
+        duration_ms: None,
+        exists,
+        height: None,
+        kind: kind.clone(),
+        missing,
+        modified_at: None,
+        normalized_path: normalized_asset_path(&path),
+        path: path.clone(),
+        preview_url: None,
+        publish: asset_publish_rule(&path, missing),
+        reference_count: references.len(),
+        references,
+        size_bytes: None,
+        snippet: asset_snippet(&path, &kind),
+        thumbnail_url: None,
+        unused,
+        width: None,
+    }
+}
+
+fn asset_inventory_from_references(
+    references: &[CoreAssetReference],
+    known_assets: Vec<CoreAssetInventoryEntry>,
+) -> Vec<CoreAssetInventoryEntry> {
+    let mut references_by_path = BTreeMap::<String, Vec<CoreAssetReference>>::new();
+
+    for reference in references {
+        references_by_path
+            .entry(normalized_asset_path(&reference.path))
+            .or_default()
+            .push(reference.clone());
+    }
+
+    let mut inventory = BTreeMap::<String, CoreAssetInventoryEntry>::new();
+
+    for mut asset in known_assets {
+        let normalized = if asset.normalized_path.is_empty() {
+            normalized_asset_path(&asset.path)
+        } else {
+            normalized_asset_path(&asset.normalized_path)
+        };
+        let asset_references = references_by_path.remove(&normalized).unwrap_or_default();
+        let references = if asset_references.is_empty() {
+            asset.references.clone()
+        } else {
+            asset_references
+        };
+
+        if asset.kind.is_empty() {
+            asset.kind = asset_kind_for_path(&asset.path);
+        }
+
+        asset.normalized_path = normalized.clone();
+        asset.reference_count = references.len();
+        asset.references = references;
+        asset.missing = asset.exists == Some(false) && asset.reference_count > 0;
+        asset.unused = asset.exists == Some(true) && asset.reference_count == 0;
+
+        if asset.snippet.text.is_empty() {
+            asset.snippet = asset_snippet(&asset.path, &asset.kind);
+        }
+
+        if asset.missing {
+            asset.publish.copy = false;
+            asset.publish.reason = "Referenced file is missing".into();
+        }
+
+        if asset.publish.output_path.is_empty() {
+            asset.publish = asset_publish_rule(&asset.path, asset.missing);
+        }
+
+        inventory.insert(normalized, asset);
+    }
+
+    for (_, references) in references_by_path {
+        let Some(first) = references.first() else {
+            continue;
+        };
+
+        inventory.insert(
+            normalized_asset_path(&first.path),
+            asset_inventory_entry(first.path.clone(), first.kind.clone(), None, references),
+        );
+    }
+
+    inventory.into_values().collect()
+}
+
+struct AssetSearchLocation {
+    passage_id: Option<String>,
+    source_id: String,
+    source_name: String,
+}
+
+fn asset_search_location(story: &Story, asset: &CoreAssetInventoryEntry) -> AssetSearchLocation {
+    if let Some(reference) = asset.references.first() {
+        return AssetSearchLocation {
+            passage_id: reference.passage_id.clone(),
+            source_id: reference.source_id.clone(),
+            source_name: reference.source_name.clone(),
+        };
+    }
+
+    AssetSearchLocation {
+        passage_id: None,
+        source_id: format!("{}:assets", story.id.as_ref()),
+        source_name: "Assets".into(),
+    }
+}
+
+fn asset_diagnostics(
+    story: &Story,
+    metadata_source_id: &str,
+    inventory: &[CoreAssetInventoryEntry],
+) -> Vec<CoreDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for asset in inventory {
+        if asset.missing {
+            let location = asset.references.first();
+
+            diagnostics.push(CoreDiagnostic {
+                code: "missing-asset".into(),
+                end: location.map_or(asset.path.len(), |reference| reference.end),
+                line: location.map_or(1, |reference| reference.line),
+                message: format!("Referenced asset \"{}\" is missing", asset.path),
+                passage_id: location.and_then(|reference| reference.passage_id.clone()),
+                quick_fixes: vec![CoreQuickFix {
+                    command: format!("import-asset:{}", asset.path),
+                    title: "Import or relink asset".into(),
+                }],
+                severity: CoreDiagnosticSeverity::Error,
+                source_id: location
+                    .map(|reference| reference.source_id.clone())
+                    .unwrap_or_else(|| metadata_source_id.into()),
+                start: location.map_or(0, |reference| reference.start),
+            });
+        }
+
+        if asset.unused {
+            diagnostics.push(CoreDiagnostic {
+                code: "unused-asset".into(),
+                end: asset.path.len(),
+                line: 1,
+                message: format!("Asset \"{}\" is not referenced", asset.path),
+                passage_id: None,
+                quick_fixes: vec![CoreQuickFix {
+                    command: format!("delete-asset:{}", asset.path),
+                    title: "Delete unused asset".into(),
+                }],
+                severity: CoreDiagnosticSeverity::Info,
+                source_id: format!("{}:assets", story.id.as_ref()),
+                start: 0,
+            });
+        }
+    }
+
+    diagnostics
+}
+
 fn locate_link_target(text: &str, target: &str) -> Option<(usize, usize, usize)> {
     let start = text.find(target)?;
     let end = start + target.len();
@@ -2318,7 +2684,7 @@ fn contents_entries(
     files: &[CoreSourceFile],
     tag_entries: &[CoreTagEntry],
     symbols: &[CoreSymbol],
-    assets: &[CoreAssetReference],
+    asset_inventory: &[CoreAssetInventoryEntry],
     diagnostics: &[CoreDiagnostic],
     graph: &GraphIndex,
     metadata_source_id: &str,
@@ -2406,16 +2772,28 @@ fn contents_entries(
         });
     }
 
-    for (path, source) in asset_entries(assets) {
+    for asset in asset_inventory {
+        let location = asset.references.first();
+
         entries.push(CoreContentsEntry {
-            count: source.count,
-            detail: None,
-            id: format!("asset:{path}"),
+            count: asset.reference_count,
+            detail: Some(if asset.missing {
+                "missing".into()
+            } else if asset.unused {
+                "unused".into()
+            } else {
+                asset.kind.clone()
+            }),
+            id: format!("asset:{}", asset.path),
             kind: CoreContentsEntryKind::Asset,
-            label: path,
-            passage_id: source.passage_id,
-            severity: None,
-            source_id: Some(source.source_id),
+            label: asset.path.clone(),
+            passage_id: location.and_then(|reference| reference.passage_id.clone()),
+            severity: asset_status_severity(asset),
+            source_id: Some(
+                location
+                    .map(|reference| reference.source_id.clone())
+                    .unwrap_or_else(|| format!("{}:assets", story.id.as_ref())),
+            ),
         });
     }
 
@@ -2490,21 +2868,14 @@ fn symbol_entries(symbols: &[CoreSymbol]) -> BTreeMap<String, IndexedContentSour
     result
 }
 
-fn asset_entries(assets: &[CoreAssetReference]) -> BTreeMap<String, IndexedContentSource> {
-    let mut result = BTreeMap::new();
-
-    for asset in assets {
-        result
-            .entry(asset.path.clone())
-            .and_modify(|entry: &mut IndexedContentSource| entry.count += 1)
-            .or_insert_with(|| IndexedContentSource {
-                count: 1,
-                passage_id: asset.passage_id.clone(),
-                source_id: asset.source_id.clone(),
-            });
+fn asset_status_severity(asset: &CoreAssetInventoryEntry) -> Option<CoreDiagnosticSeverity> {
+    if asset.missing {
+        Some(CoreDiagnosticSeverity::Error)
+    } else if asset.unused {
+        Some(CoreDiagnosticSeverity::Info)
+    } else {
+        None
     }
-
-    result
 }
 
 fn unique_passage_name(story: &Story, base: &str) -> String {
@@ -2965,6 +3336,88 @@ mod tests {
                 .iter()
                 .any(|hit| hit.scope == CoreSearchScope::Variable)
         );
+    }
+
+    #[test]
+    fn story_index_merges_file_backed_asset_inventory_contract() {
+        let mut session = session();
+
+        {
+            let story = session.story_mut("story-1").expect("story");
+            let passage = story
+                .passage_by_id_mut(&PassageId::new("a"))
+                .expect("passage");
+
+            passage.text = r#"<img src="assets/missing.png">"#.into();
+        }
+
+        let batch = session
+            .apply(StoryCommand::QueryStoryIndex {
+                story_id: "story-1".into(),
+                options: CoreStoryIndexOptions {
+                    known_assets: vec![
+                        asset_inventory_entry(
+                            "assets/missing.png".into(),
+                            "image".into(),
+                            Some(false),
+                            Vec::new(),
+                        ),
+                        asset_inventory_entry(
+                            "assets/unused.png".into(),
+                            "image".into(),
+                            Some(true),
+                            Vec::new(),
+                        ),
+                    ],
+                    ..CoreStoryIndexOptions::default()
+                },
+            })
+            .expect("index query should apply");
+
+        let Patch::StoryIndexUpdated { index, .. } = &batch.patches[0] else {
+            panic!("expected story index patch");
+        };
+
+        assert!(index.asset_inventory.iter().any(|asset| {
+            asset.path == "assets/missing.png"
+                && asset.missing
+                && asset.reference_count == 1
+                && !asset.unused
+        }));
+        assert!(index.asset_inventory.iter().any(|asset| {
+            asset.path == "assets/unused.png"
+                && !asset.missing
+                && asset.reference_count == 0
+                && asset.unused
+        }));
+        assert!(index.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "missing-asset"
+                && diagnostic.severity == CoreDiagnosticSeverity::Error
+        }));
+        assert!(index.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "unused-asset" && diagnostic.severity == CoreDiagnosticSeverity::Info
+        }));
+        assert!(index.contents.iter().any(|entry| {
+            entry.kind == CoreContentsEntryKind::Asset
+                && entry.label == "assets/unused.png"
+                && entry.severity == Some(CoreDiagnosticSeverity::Info)
+        }));
+    }
+
+    #[test]
+    fn asset_commands_are_explicit_m5_host_stubs() {
+        let mut session = session();
+        let error = session
+            .apply(StoryCommand::ImportAsset {
+                overwrite: false,
+                source_path: "/tmp/cover.png".into(),
+                story_id: "story-1".into(),
+                target_path: None,
+            })
+            .expect_err("asset commands are not implemented in ProjectSession yet");
+
+        assert!(matches!(error, CoreError::UnsupportedCommand(_)));
+        assert!(!session.dirty());
     }
 
     #[test]
