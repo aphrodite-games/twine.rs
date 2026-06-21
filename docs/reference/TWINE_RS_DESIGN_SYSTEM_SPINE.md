@@ -95,30 +95,33 @@ D8, and the M6 graph-projection requirement is satisfied by D5.
 
 M6 (Story Formats, Build, Test, Publishing) is **partially done** and is closed
 out *by* the D-series rather than as a standalone push. Its engine (Rust
-contracts + the TS data layer) is largely in place — the capability manifest and
-publish-safety are done, and the graph-projection DTO/command contract
+contracts + the TS data layer) is largely in place, and the 2026-06-21 M6
+closure pass promoted the primary Formats and Build surfaces into DS shell
+routes. The capability manifest and publish-safety are done, and the
+graph-projection DTO/command contract
 (`CoreGraphProjection`, `queryGraphProjection`, `graphProjectionUpdated`) plus
 the asset/command contracts (`importAsset`, `insertAssetSnippet`,
 `renameAsset`, …) are generated from Rust and host-wired. The current renderer
 projection is a TypeScript parity bridge that implements the generated contract;
 a native/WASM runtime `ProjectSession` bridge is still a core follow-up. What
-remains is overwhelmingly *rendering those contracts in the design system*:
+remains is deeper integration and retiring compatibility surfaces:
 
 | M6 item | Status | Closed by |
 | --- | --- | --- |
-| Capability manifest (1) | done (engine) | surfaced in D6 |
-| Format host API (2) | partial — types/loader/resolver done | UI = D6 on the D2 shell |
-| Local format dev workflow (3) | missing | D6 (+ engine plumbing) |
-| Build / export / package targets (4) | partial — play/test/proof/publish + Twee/Rust export | engine now; Build screen = D7 |
+| Capability manifest (1) | done (engine); surfaced in `/formats` and `/stories/:storyId/build` | D6/D7 polish |
+| Format host API (2) | partial — types/loader/resolver done; `/formats` surfaces capabilities/modules/defaults/proofing/extensions | D6 completion |
+| Local format dev workflow (3) | partial — dev metadata and URL-add surfaced | D6 + engine plumbing |
+| Build / export / package targets (4) | partial — package builder plus `/stories/:storyId/build` for Play/Test/Proof/HTML/Twee/JSON/Package/Publish | D7 advanced policy |
 | Runtime/debug hooks (5) | missing | D8 |
-| Publish-safety (6) | done (engine) | surfaced in D7 |
+| Publish-safety (6) | done (engine); surfaced in Build/Formats routes | D7 polish |
 | H1 previews on host/query | partial — app-owned iframe routes; debugger/reveal bridge still missing | D8 |
 | H2 graph projection | D5 done on the app side; native/WASM host bridge still follow-up | D5 + core bridge |
 | H3 run-from-here | partial (`startId` plumbed; not everywhere) | D4 / D5 / D8 |
 
-**Do not build M6's UI in legacy chrome.** Finish the engine gaps (export/package
-targets, format-module loader, stricter publish-safety) as core-first work in
-parallel with D0; let D5–D8 bring them onscreen. The engine half is tracked in
+**Do not build M6's UI in legacy chrome.** Finish the remaining gaps
+(compatibility export mode, archive/project-folder packaging, full format-dev
+reload loop, runtime/debug hooks) as core-first or DS-shell work; let D5–D8
+finish the surrounding screens. The engine half is tracked in
 [`TWINE_RS_MILESTONES.md`](./TWINE_RS_MILESTONES.md) (M6 section).
 
 ---
@@ -333,6 +336,12 @@ Core deliverables:
 - **Story Formats** manager as a DS screen replacing
   [`src/dialogs/story-formats`](../../src/dialogs/story-formats).
 
+Implementation note (2026-06-21): `/formats` now exists as a DS shell screen for
+format capabilities, publish safety, module/development metadata, defaults,
+proofing, editor extension enablement, URL-added formats, and custom-format
+removal. D6 still owns the surrounding Contents/Diagnostics/Assets surfaces and
+full retirement of the legacy dialog entry point.
+
 Exit criteria: each of the four is a DS-built screen/panel reachable from the
 shell, consuming host/query data, with no legacy dialog as the primary surface.
 
@@ -355,6 +364,14 @@ Core deliverables:
   accessibility (reduced motion, high contrast, keybindings), editor prefs,
   default folders, integrations. (This is also where M7 prefs land — on the DS
   shell, not a dialog.)
+
+Implementation note (2026-06-21): `/stories/:storyId/build` now exists as a DS
+shell screen with Play, Test From Selection, Proof, Export HTML, Export Twee,
+Export JSON, Package, and Publish targets, build/save/report actions,
+capability/fidelity/output panels, missing-asset and publish-safety warnings, and
+build output logs. D7 still owns Settings plus advanced Build policy: compatibility
+export mode, streamed logs, archive/project-folder packaging, source/HTML
+inspection, and diagnostic promotion.
 
 Exit criteria: build and settings are DS screens; App Prefs dialog retired.
 

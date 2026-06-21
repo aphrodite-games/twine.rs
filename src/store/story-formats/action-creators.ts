@@ -7,6 +7,11 @@ import {
 	StoryFormatsDispatch
 } from './story-formats.types';
 
+const pendingFormatLoads = new Map<
+	string,
+	Promise<StoryFormatProperties | undefined>
+>();
+
 /**
  * Creates a new story format based on properties (probably loaded externally).
  */
@@ -40,52 +45,65 @@ async function loadFormatThunk(
 	format: StoryFormat,
 	dispatch: StoryFormatsDispatch
 ) {
+	const pendingLoad = pendingFormatLoads.get(format.id);
+
+	if (pendingLoad) {
+		return pendingLoad;
+	}
+
 	dispatch({
 		type: 'update',
 		id: format.id,
 		props: {loadState: 'loading'}
 	});
 
-	try {
-		let properties = await fetchStoryFormatProperties(format.url);
+	const loadPromise = (async () => {
+		try {
+			let properties = await fetchStoryFormatProperties(format.url);
 
-		// If the format contains a `hydrate` property, try running it and merge in
-		// properties that function creates by modifiying what's bound to its
-		// `this`. This allows creation of properties that can't be serialized to
-		// JSON on the format. The hydrate function cannot override properties
-		// already present in the format properties, e.g. to change its source.
+			// If the format contains a `hydrate` property, try running it and merge in
+			// properties that function creates by modifiying what's bound to its
+			// `this`. This allows creation of properties that can't be serialized to
+			// JSON on the format. The hydrate function cannot override properties
+			// already present in the format properties, e.g. to change its source.
 
-		if (properties.hydrate) {
-			try {
-				const hydrateResult: Partial<StoryFormatProperties> = {};
+			if (properties.hydrate) {
+				try {
+					const hydrateResult: Partial<StoryFormatProperties> = {};
 
-				// eslint-disable-next-line no-new-func
-				const hydrateFunc = new Function(properties.hydrate);
+					// eslint-disable-next-line no-new-func
+					const hydrateFunc = new Function(properties.hydrate);
 
-				hydrateFunc.call(hydrateResult);
-				properties = {...hydrateResult, ...properties};
-			} catch (e) {
-				console.error(
-					`Format ${format.id} has a hydrate property but it threw an error when called`,
-					e
-				);
+					hydrateFunc.call(hydrateResult);
+					properties = {...hydrateResult, ...properties};
+				} catch (e) {
+					console.error(
+						`Format ${format.id} has a hydrate property but it threw an error when called`,
+						e
+					);
+				}
 			}
+
+			dispatch({
+				type: 'update',
+				id: format.id,
+				props: {properties, loadState: 'loaded'}
+			});
+
+			return properties;
+		} catch (loadError) {
+			dispatch({
+				type: 'update',
+				id: format.id,
+				props: {loadError: loadError as unknown as Error, loadState: 'error'}
+			});
+		} finally {
+			pendingFormatLoads.delete(format.id);
 		}
+	})();
 
-		dispatch({
-			type: 'update',
-			id: format.id,
-			props: {properties, loadState: 'loaded'}
-		});
-
-		return properties;
-	} catch (loadError) {
-		dispatch({
-			type: 'update',
-			id: format.id,
-			props: {loadError: loadError as unknown as Error, loadState: 'error'}
-		});
-	}
+	pendingFormatLoads.set(format.id, loadPromise);
+	return loadPromise;
 }
 
 /**

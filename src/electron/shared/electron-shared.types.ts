@@ -8,6 +8,11 @@ export interface TwineElectronWindow extends Window {
 		loadPrefs(): Promise<any>;
 		loadStories(): Promise<any>;
 		loadStoryFormats(): Promise<any>;
+		jsonp(
+			url: string,
+			options: {name?: string; timeout?: number},
+			callback: (error: Error | null, data?: any) => void
+		): () => void;
 		onceStoryRenamed(callback: () => void): void;
 		openWithScratchFile(data: string, filename: string): void;
 		openWithScratchPackage(

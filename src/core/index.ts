@@ -8,6 +8,7 @@ import type {Patch} from './bindings/Patch';
 import type {PatchBatch} from './bindings/PatchBatch';
 import type {ProjectSnapshot} from './bindings/ProjectSnapshot';
 import type {StoryCommand} from './bindings/StoryCommand';
+import {createUntitledPassage, Story} from '../store/stories';
 
 export * from './story-index';
 export * from './graph-projection';
@@ -46,6 +47,26 @@ export function createPassageCommand(
 		tags: options.tags ?? [],
 		text: options.text ?? ''
 	};
+}
+
+export function createUntitledPassageCommand(
+	story: Story,
+	centerX: number,
+	centerY: number
+): StoryCommand {
+	const {props} = createUntitledPassage(story, centerX, centerY);
+
+	return createPassageCommand(story.id, {
+		layout: {
+			height: props.height ?? 100,
+			left: props.left ?? 0,
+			top: props.top ?? 0,
+			width: props.width ?? 100
+		},
+		name: props.name,
+		tags: props.tags,
+		text: props.text
+	});
 }
 
 export function deletePassagesCommand(
@@ -115,6 +136,14 @@ export function renamePassageCommand(
 	};
 }
 
+export function renameStoryCommand(storyId: string, name: string): StoryCommand {
+	return {
+		type: 'renameStory',
+		name,
+		story_id: storyId
+	};
+}
+
 export function setPassageTagsCommand(
 	storyId: string,
 	passageId: string,
@@ -136,6 +165,41 @@ export function setStartPassageCommand(
 		type: 'setStartPassage',
 		passage_id: passageId,
 		story_id: storyId
+	};
+}
+
+export function setStoryFormatCommand(
+	storyId: string,
+	storyFormat: string,
+	storyFormatVersion: string
+): StoryCommand {
+	return {
+		type: 'setStoryFormat',
+		story_format: storyFormat,
+		story_format_version: storyFormatVersion,
+		story_id: storyId
+	};
+}
+
+export function setStorySnapToGridCommand(
+	storyId: string,
+	enabled: boolean
+): StoryCommand {
+	return {
+		type: 'setStorySnapToGrid',
+		enabled,
+		story_id: storyId
+	};
+}
+
+export function setStoryZoomCommand(
+	storyId: string,
+	zoom: number
+): StoryCommand {
+	return {
+		type: 'setStoryZoom',
+		story_id: storyId,
+		zoom
 	};
 }
 

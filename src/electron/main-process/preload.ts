@@ -8,6 +8,7 @@
 // place a privileged jsonp function into renderer context.
 
 import {contextBridge, ipcRenderer} from 'electron';
+import jsonp from 'jsonp';
 import {Story} from '../../store/stories/stories.types';
 
 contextBridge.exposeInMainWorld('twineElectron', {
@@ -25,6 +26,9 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	},
 	loadStoryFormats() {
 		return ipcRenderer.invoke('load-story-formats');
+	},
+	jsonp(url: string, options: {name?: string; timeout?: number}, callback: any) {
+		return jsonp(url, options, callback);
 	},
 	onceStoryRenamed(callback: () => void): void {
 		ipcRenderer.once('story-renamed', callback);

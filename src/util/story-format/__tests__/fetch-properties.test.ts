@@ -11,7 +11,7 @@ describe('fetchStoryFormatProperties', () => {
 		(isElectronRenderer as jest.Mock).mockReturnValue(false);
 		(jsonp as jest.Mock).mockImplementation(
 			(url: string, props: any, callback: any) => {
-				if (url === '/mock-format-url' && props.name === 'storyFormat') {
+				if (url === 'mock-format-url' && props.name === 'storyFormat') {
 					callback(null, {mockJsonpResponse: true});
 				} else {
 					throw new Error(`Incorrect JSONP call: "${url}"`);
@@ -56,7 +56,7 @@ describe('fetchStoryFormatProperties', () => {
 		expect((electronWindow.twineElectron as any).jsonp).toHaveBeenCalled();
 	});
 
-	fit('only makes one request at a time', async () => {
+	it('only makes one request at a time', async () => {
 		let pending = true;
 		const jsonpMock = jsonp as jest.Mock;
 

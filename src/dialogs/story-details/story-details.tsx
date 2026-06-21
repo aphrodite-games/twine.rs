@@ -4,8 +4,13 @@ import {ButtonBar} from '../../components/container/button-bar';
 import {CardContent} from '../../components/container/card';
 import {DialogCard} from '../../components/container/dialog-card';
 import {Checkbox} from '../../components/design-system';
+import {
+	setStoryFormatCommand,
+	setStorySnapToGridCommand,
+	useCoreProjectHost
+} from '../../core';
 import {StoryFormatSelect} from '../../components/story-format/story-format-select';
-import {storyWithId, updateStory, useStoriesContext} from '../../store/stories';
+import {storyWithId, useStoriesContext} from '../../store/stories';
 import {
 	formatWithId,
 	formatWithNameAndVersion,
@@ -21,7 +26,8 @@ export interface StoryDetailsDialogProps extends DialogComponentProps {
 
 export const StoryDetailsDialog: React.FC<StoryDetailsDialogProps> = props => {
 	const {storyId, ...other} = props;
-	const {dispatch, stories} = useStoriesContext();
+	const {stories} = useStoriesContext();
+	const coreProjectHost = useCoreProjectHost();
 	const {formats} = useStoryFormatsContext();
 	const story = storyWithId(stories, storyId);
 	const {t} = useTranslation();
@@ -29,11 +35,8 @@ export const StoryDetailsDialog: React.FC<StoryDetailsDialogProps> = props => {
 	function handleFormatChange(event: React.ChangeEvent<HTMLSelectElement>) {
 		const newFormat = formatWithId(formats, event.target.value);
 
-		dispatch(
-			updateStory(stories, story, {
-				storyFormat: newFormat.name,
-				storyFormatVersion: newFormat.version
-			})
+		coreProjectHost.applyStoryCommand(
+			setStoryFormatCommand(story.id, newFormat.name, newFormat.version)
 		);
 	}
 
@@ -70,7 +73,9 @@ export const StoryDetailsDialog: React.FC<StoryDetailsDialogProps> = props => {
 					checked={story.snapToGrid}
 					label={t('dialogs.storyDetails.snapToGrid')}
 					onChange={value =>
-						dispatch(updateStory(stories, story, {snapToGrid: value}))
+						coreProjectHost.applyStoryCommand(
+							setStorySnapToGridCommand(story.id, value)
+						)
 					}
 				/>
 			</ButtonBar>

@@ -1,11 +1,7 @@
 import * as React from 'react';
 import {RenamePassageButton} from '../../../components/passage/rename-passage-button';
-import {
-	Passage,
-	Story,
-	updatePassage,
-	useStoriesContext
-} from '../../../store/stories';
+import {renamePassageCommand, useCoreProjectHost} from '../../../core';
+import {Passage, Story} from '../../../store/stories';
 import {Point} from '../../../util/geometry';
 import {CreatePassageButton} from './create-passage-button';
 import {DeletePassagesButton} from './delete-passages-button';
@@ -24,7 +20,7 @@ export interface PassageActionsProps {
 
 export const PassageActions: React.FC<PassageActionsProps> = props => {
 	const {getCenter, onOpenFuzzyFinder, story} = props;
-	const {dispatch} = useStoriesContext();
+	const coreProjectHost = useCoreProjectHost();
 	const selectedPassages = React.useMemo(
 		() => story.passages.filter(passage => passage.selected),
 		[story.passages]
@@ -44,7 +40,9 @@ export const PassageActions: React.FC<PassageActionsProps> = props => {
 		// existing passages, updates them, but does not see that the passage name
 		// has been updated since that hasn't happened yet.
 
-		dispatch(updatePassage(story, passage, {name}, {dontUpdateOthers: true}));
+		coreProjectHost.applyStoryCommand(
+			renamePassageCommand(story.id, passage.id, name, false)
+		);
 	}
 
 	return (

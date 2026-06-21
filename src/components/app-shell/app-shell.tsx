@@ -43,21 +43,33 @@ function currentStoryId(pathname: string) {
 	return match ? decodeURIComponent(match[1]) : undefined;
 }
 
+function routeHasSegment(pathname: string, segment: string) {
+	return pathname.split('/').includes(segment);
+}
+
 function routeMode(pathname: string): RouteMode {
 	if (pathname.startsWith('/new-project')) {
 		return {icon: 'folder-plus', label: 'New Project'};
 	}
 
-	if (pathname.includes('/play')) {
+	if (pathname.startsWith('/formats')) {
+		return {icon: 'puzzle', label: 'Formats'};
+	}
+
+	if (routeHasSegment(pathname, 'play')) {
 		return {icon: 'player-play', label: 'Play'};
 	}
 
-	if (pathname.includes('/proof')) {
+	if (routeHasSegment(pathname, 'proof')) {
 		return {icon: 'eyeglass', label: 'Proof'};
 	}
 
-	if (pathname.includes('/test')) {
+	if (routeHasSegment(pathname, 'test')) {
 		return {icon: 'tool', label: 'Test'};
+	}
+
+	if (routeHasSegment(pathname, 'build')) {
+		return {icon: 'package-export', label: 'Build'};
 	}
 
 	if (pathname.startsWith('/stories/')) {
@@ -108,6 +120,10 @@ function breadcrumbs(
 
 	if (pathname.startsWith('/new-project')) {
 		return ['Stories', mode.label];
+	}
+
+	if (pathname.startsWith('/formats')) {
+		return ['Story Formats'];
 	}
 
 	if (story) {
@@ -292,6 +308,13 @@ export const AppShell: React.FC = ({children}) => {
 			},
 			{
 				group: 'Navigation',
+				icon: 'puzzle',
+				id: 'nav.formats',
+				label: 'Story Formats',
+				run: () => history.push('/formats')
+			},
+			{
+				group: 'Navigation',
 				icon: 'folder-plus',
 				id: 'nav.new-project',
 				label: 'New Project',
@@ -304,6 +327,15 @@ export const AppShell: React.FC = ({children}) => {
 				id: 'nav.current-story',
 				label: currentStory ? `Edit ${currentStory.name}` : 'Edit Story',
 				run: () => currentStory && history.push(`/stories/${currentStory.id}`)
+			},
+			{
+				disabled: !currentStory,
+				group: 'Build',
+				icon: 'package-export',
+				id: 'build.screen',
+				label: 'Build & Export',
+				run: () =>
+					currentStory && history.push(`/stories/${currentStory.id}/build`)
 			},
 			{
 				disabled: !currentStory,
@@ -462,7 +494,13 @@ export const AppShell: React.FC = ({children}) => {
 					</button>
 					<button
 						aria-current={
-							location.pathname.startsWith('/stories/') ? 'page' : undefined
+							location.pathname.startsWith('/stories/') &&
+							!routeHasSegment(location.pathname, 'play') &&
+							!routeHasSegment(location.pathname, 'proof') &&
+							!routeHasSegment(location.pathname, 'test') &&
+							!routeHasSegment(location.pathname, 'build')
+								? 'page'
+								: undefined
 						}
 						className="app-shell__rail-button"
 						disabled={!currentStory}
@@ -484,6 +522,20 @@ export const AppShell: React.FC = ({children}) => {
 						<TablerIcon icon="player-play" />
 					</button>
 					<button
+						aria-current={
+							routeHasSegment(location.pathname, 'build') ? 'page' : undefined
+						}
+						className="app-shell__rail-button"
+						disabled={!currentStory}
+						onClick={() =>
+							currentStory && history.push(`/stories/${currentStory.id}/build`)
+						}
+						title="Build & Export"
+						type="button"
+					>
+						<TablerIcon icon="package-export" />
+					</button>
+					<button
 						className="app-shell__rail-button"
 						disabled={!currentStory}
 						onClick={() => setDrawerOpen(open => !open)}
@@ -494,6 +546,17 @@ export const AppShell: React.FC = ({children}) => {
 						{diagnosticCount > 0 && (
 							<span className="app-shell__rail-count">{diagnosticCount}</span>
 						)}
+					</button>
+					<button
+						aria-current={
+							location.pathname.startsWith('/formats') ? 'page' : undefined
+						}
+						className="app-shell__rail-button"
+						onClick={() => history.push('/formats')}
+						title="Story Formats"
+						type="button"
+					>
+						<TablerIcon icon="puzzle" />
 					</button>
 					<button
 						aria-current={

@@ -21,7 +21,7 @@ export const MarqueeSelection: React.FC<MarqueeSelectionProps> = props => (
 			onClick={() =>
 				props.onTemporarySelectRect(
 					{top: 10, left: 10, width: 100, height: 150},
-					true
+					false
 				)
 			}
 		>

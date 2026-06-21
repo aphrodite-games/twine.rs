@@ -2,8 +2,8 @@ import * as React from 'react';
 import {useHotkeys} from 'react-hotkeys-hook';
 import {useTranslation} from 'react-i18next';
 import {IconButton} from '../../../components/design-system';
-import {deletePassages, Passage, Story} from '../../../store/stories';
-import {useUndoableStoriesContext} from '../../../store/undoable-stories';
+import {deletePassagesCommand, useCoreProjectHost} from '../../../core';
+import {Passage, Story} from '../../../store/stories';
 
 export interface DeletePassagesButtonProps {
 	passages: Passage[];
@@ -14,7 +14,7 @@ export const DeletePassagesButton: React.FC<
 	DeletePassagesButtonProps
 > = props => {
 	const {passages, story} = props;
-	const {dispatch} = useUndoableStoriesContext();
+	const coreProjectHost = useCoreProjectHost();
 	const {t} = useTranslation();
 	const disabled = React.useMemo(() => {
 		if (passages.length === 0) {
@@ -28,13 +28,16 @@ export const DeletePassagesButton: React.FC<
 			return;
 		}
 
-		dispatch(
-			deletePassages(story, passages),
+		coreProjectHost.applyStoryCommand(
+			deletePassagesCommand(
+				story.id,
+				passages.map(passage => passage.id)
+			),
 			passages.length > 1
 				? 'undoChange.deletePassages'
 				: 'undoChange.deletePassage'
 		);
-	}, [dispatch, passages, story]);
+	}, [coreProjectHost, passages, story.id]);
 
 	useHotkeys('Backspace,Delete', handleClick, [handleClick]);
 

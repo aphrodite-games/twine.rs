@@ -1,9 +1,12 @@
 import * as React from 'react';
 import {addPassageEditors, useDialogsContext} from '../../dialogs';
 import {
-	createUntitledPassage,
+	createUntitledPassageCommand,
+	movePassagesCommand,
+	useCoreProjectHost
+} from '../../core';
+import {
 	deselectPassage,
-	movePassages,
 	Passage,
 	selectPassage,
 	selectPassagesInRect,
@@ -19,6 +22,7 @@ export function usePassageChangeHandlers(story: Story) {
 	);
 	const {dispatch: undoableStoriesDispatch} = useUndoableStoriesContext();
 	const {dispatch: dialogsDispatch} = useDialogsContext();
+	const coreProjectHost = useCoreProjectHost();
 
 	const handleDeselectPassage = React.useCallback(
 		(passage: Passage) =>
@@ -28,11 +32,11 @@ export function usePassageChangeHandlers(story: Story) {
 
 	const handleCreatePassage = React.useCallback(
 		(point: Point) =>
-			undoableStoriesDispatch(
-				createUntitledPassage(story, point.left, point.top),
+			coreProjectHost.applyStoryCommand(
+				createUntitledPassageCommand(story, point.left, point.top),
 				'undoChange.newPassage'
 			),
-		[story, undoableStoriesDispatch]
+		[coreProjectHost, story]
 	);
 
 	const handleDragPassages = React.useCallback(
@@ -44,23 +48,35 @@ export function usePassageChangeHandlers(story: Story) {
 				return;
 			}
 
-			undoableStoriesDispatch(
-				movePassages(
-					story,
-					story.passages.reduce<string[]>(
-						(result, current) =>
-							current.selected ? [...result, current.id] : result,
-						[]
-					),
-					change.left / story.zoom,
-					change.top / story.zoom
+			coreProjectHost.applyStoryCommand(
+				movePassagesCommand(
+					story.id,
+					selectedPassages.map(passage => {
+						let left = Math.max(passage.left + change.left / story.zoom, 0);
+						let top = Math.max(passage.top + change.top / story.zoom, 0);
+
+						if (story.snapToGrid) {
+							left = Math.round(left / 25) * 25;
+							top = Math.round(top / 25) * 25;
+						}
+
+						return {
+							bounds: {
+								height: passage.height,
+								left,
+								top,
+								width: passage.width
+							},
+							passageId: passage.id
+						};
+					})
 				),
 				selectedPassages.length > 1
 					? 'undoChange.movePassages'
 					: 'undoChange.movePassages'
 			);
 		},
-		[selectedPassages.length, story, undoableStoriesDispatch]
+		[coreProjectHost, selectedPassages, story]
 	);
 
 	const handleEditPassage = React.useCallback(

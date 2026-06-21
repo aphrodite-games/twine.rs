@@ -12,15 +12,20 @@ export const StoryTestRoute: React.FC = () => {
 		storyId: string;
 	}>();
 	const {publishStory} = usePublishing();
+	const publishStoryRef = React.useRef(publishStory);
 	const {stories} = useStoriesContext();
 	const storyExists = stories.some(story => story.id === storyId);
+
+	React.useEffect(() => {
+		publishStoryRef.current = publishStory;
+	}, [publishStory]);
 
 	React.useEffect(() => {
 		let active = true;
 
 		async function load() {
 			try {
-				const published = await publishStory(storyId, {
+				const published = await publishStoryRef.current(storyId, {
 					buildTarget: 'test',
 					formatOptions: 'debug',
 					startId: passageId
@@ -46,7 +51,7 @@ export const StoryTestRoute: React.FC = () => {
 		return () => {
 			active = false;
 		};
-	}, [passageId, publishStory, storyExists, storyId]);
+	}, [passageId, storyExists, storyId]);
 
 	return (
 		<StoryPreviewFrame

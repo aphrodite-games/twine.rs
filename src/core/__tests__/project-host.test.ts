@@ -6,7 +6,11 @@ import {
 	insertAssetSnippetCommand,
 	queryGraphProjectionCommand,
 	renameAssetCommand,
-	saveGeneratedLayoutCommand
+	renameStoryCommand,
+	saveGeneratedLayoutCommand,
+	setStoryFormatCommand,
+	setStorySnapToGridCommand,
+	setStoryZoomCommand
 } from '..';
 import {StoreCoreProjectHost, useCoreProjectHost} from '../project-host';
 import {reducer as storiesReducer} from '../../store/stories/reducer';
@@ -153,6 +157,43 @@ describe('StoreCoreProjectHost asset commands', () => {
 				]
 			})
 		);
+	});
+
+	it('applies story metadata commands through the host boundary', () => {
+		const context = hostWithStory();
+
+		context.host.applyStoryCommand(
+			renameStoryCommand(context.story.id, 'Renamed Story')
+		);
+		context.host.applyStoryCommand(
+			setStoryFormatCommand(context.story.id, 'Chapbook', '2.2.0')
+		);
+		context.host.applyStoryCommand(
+			setStorySnapToGridCommand(context.story.id, false)
+		);
+		context.host.applyStoryCommand(setStoryZoomCommand(context.story.id, 0.6));
+
+		expect(context.stories[0]).toEqual(
+			expect.objectContaining({
+				name: 'Renamed Story',
+				snapToGrid: false,
+				storyFormat: 'Chapbook',
+				storyFormatVersion: '2.2.0',
+				zoom: 0.6
+			})
+		);
+		expect(
+			(
+				context.dispatch.mock.calls as unknown as Array<
+					[StoriesActionOrThunk, string]
+				>
+			).map(call => call[1])
+		).toEqual([
+			'undoChange.renameStory',
+			'undoChange.changeStoryDetails',
+			'undoChange.changeStoryDetails',
+			'undoChange.changeStoryDetails'
+		]);
 	});
 });
 

@@ -1,7 +1,9 @@
 import * as React from 'react';
 import {HashRouter, Route, Switch} from 'react-router-dom';
 import {AppShell} from '../components/app-shell';
+import {BuildRoute} from './build';
 import {NewProjectRoute} from './new-project';
+import {StoryFormatsRoute} from './story-formats';
 import {StoryEditRoute} from './story-edit';
 import {StoryListRoute} from './story-list';
 import {StoryPlayRoute} from './story-play';
@@ -29,6 +31,12 @@ export const Routes: React.FC = () => {
 					</Route>
 					<Route path="/new-project/import">
 						<NewProjectRoute />
+					</Route>
+					<Route exact path="/formats">
+						<StoryFormatsRoute />
+					</Route>
+					<Route path="/stories/:storyId/build">
+						<BuildRoute />
 					</Route>
 					<Route path="/stories/:storyId/play">
 						<StoryPlayRoute />

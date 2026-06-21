@@ -13,7 +13,7 @@ This repository currently contains:
 
 ## Current Focus
 
-Pre-M0 setup: preserve the TwineJS baseline, build out the Rust core safely, and keep the new UI/design work referenceable without cluttering the root.
+D-series workbench migration plus Rust-first project/asset integration. The current app has a store-backed `CoreProjectHost` compatibility layer while the remaining M0/M5 work connects New/Open Project and Assets to file-backed `ProjectSession` roots.
 
 ## License
 

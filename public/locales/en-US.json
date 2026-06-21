@@ -491,6 +491,7 @@
 	},
 	"undoChange": {
 		"addTag": "Add Tag",
+		"changeStoryDetails": "Change Story Details",
 		"changeTagColor": "Change Tag Color",
 		"newPassage": "New Passage",
 		"deletePassage": "Delete Passage",
@@ -499,6 +500,7 @@
 		"movePassage": "Move Passage",
 		"movePassages": "Move Passages",
 		"renamePassage": "Rename Passage",
+		"renameStory": "Rename Story",
 		"removeTag": "Remove Tag",
 		"renameTag": "Rename Tag",
 		"replaceAllText": "Replace All"

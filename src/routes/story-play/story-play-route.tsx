@@ -9,15 +9,22 @@ export const StoryPlayRoute: React.FC = () => {
 	const [html, setHtml] = React.useState<string>();
 	const {storyId} = useParams<{storyId: string}>();
 	const {publishStory} = usePublishing();
+	const publishStoryRef = React.useRef(publishStory);
 	const {stories} = useStoriesContext();
 	const storyExists = stories.some(story => story.id === storyId);
+
+	React.useEffect(() => {
+		publishStoryRef.current = publishStory;
+	}, [publishStory]);
 
 	React.useEffect(() => {
 		let active = true;
 
 		async function load() {
 			try {
-				const published = await publishStory(storyId, {buildTarget: 'play'});
+				const published = await publishStoryRef.current(storyId, {
+					buildTarget: 'play'
+				});
 
 				if (active) {
 					setHtml(published);
@@ -39,7 +46,7 @@ export const StoryPlayRoute: React.FC = () => {
 		return () => {
 			active = false;
 		};
-	}, [publishStory, storyExists, storyId]);
+	}, [storyExists, storyId]);
 
 	return (
 		<StoryPreviewFrame

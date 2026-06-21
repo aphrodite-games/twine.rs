@@ -854,6 +854,10 @@ pub enum StoryCommand {
         #[serde(default = "default_true")]
         update_references: bool,
     },
+    RenameStory {
+        name: String,
+        story_id: String,
+    },
     RenameAsset {
         new_path: String,
         path: String,
@@ -882,6 +886,19 @@ pub enum StoryCommand {
     SetStartPassage {
         passage_id: String,
         story_id: String,
+    },
+    SetStoryFormat {
+        story_format: String,
+        story_format_version: String,
+        story_id: String,
+    },
+    SetStorySnapToGrid {
+        enabled: bool,
+        story_id: String,
+    },
+    SetStoryZoom {
+        story_id: String,
+        zoom: f64,
     },
     SaveGeneratedLayout {
         story_id: String,
@@ -920,12 +937,16 @@ impl StoryCommand {
             Self::QueryStoryIndex { .. } => "Query Story Index",
             Self::RenameAsset { .. } => "Rename Asset",
             Self::RenamePassage { .. } => "Rename Passage",
+            Self::RenameStory { .. } => "Rename Story",
             Self::ReplaceAsset { .. } => "Replace Asset",
             Self::RestorePassages { .. } => "Restore Passages",
             Self::RevealAsset { .. } => "Reveal Asset",
             Self::SaveGeneratedLayout { .. } => "Save Layout",
             Self::SetPassageTags { .. } => "Set Passage Tags",
             Self::SetStartPassage { .. } => "Set Start Passage",
+            Self::SetStoryFormat { .. } => "Set Story Format",
+            Self::SetStorySnapToGrid { .. } => "Set Story Snap To Grid",
+            Self::SetStoryZoom { .. } => "Set Story Zoom",
             Self::UpdatePassageText { .. } => "Update Passage Text",
             Self::UpdateStoryScript { .. } => "Update Story JavaScript",
             Self::UpdateStoryStylesheet { .. } => "Update Story Stylesheet",
@@ -1294,6 +1315,7 @@ impl ProjectSession {
                 story_id,
                 update_references,
             } => self.rename_passage(&story_id, &passage_id, name, update_references),
+            StoryCommand::RenameStory { name, story_id } => self.rename_story(&story_id, name),
             StoryCommand::RenameAsset {
                 new_path,
                 path,
@@ -1319,6 +1341,15 @@ impl ProjectSession {
                 passage_id,
                 story_id,
             } => self.set_start_passage(&story_id, &passage_id),
+            StoryCommand::SetStoryFormat {
+                story_format,
+                story_format_version,
+                story_id,
+            } => self.set_story_format(&story_id, story_format, story_format_version),
+            StoryCommand::SetStorySnapToGrid { enabled, story_id } => {
+                self.set_story_snap_to_grid(&story_id, enabled)
+            }
+            StoryCommand::SetStoryZoom { story_id, zoom } => self.set_story_zoom(&story_id, zoom),
             StoryCommand::UpdatePassageText {
                 passage_id,
                 story_id,
@@ -1645,6 +1676,64 @@ impl ProjectSession {
         Ok(vec![Patch::StartPassageChanged {
             passage_id: passage_id.as_ref().to_owned(),
             story_id: story_id.to_owned(),
+        }])
+    }
+
+    fn rename_story(&mut self, story_id: &str, name: String) -> Result<Vec<Patch>, CoreError> {
+        {
+            let story = self.story_mut(story_id)?;
+
+            story.name = name;
+        }
+
+        Ok(vec![Patch::ProjectSnapshotReplaced {
+            snapshot: self.snapshot(),
+        }])
+    }
+
+    fn set_story_format(
+        &mut self,
+        story_id: &str,
+        story_format: String,
+        story_format_version: String,
+    ) -> Result<Vec<Patch>, CoreError> {
+        {
+            let story = self.story_mut(story_id)?;
+
+            story.story_format = story_format;
+            story.story_format_version = story_format_version;
+        }
+
+        Ok(vec![Patch::ProjectSnapshotReplaced {
+            snapshot: self.snapshot(),
+        }])
+    }
+
+    fn set_story_snap_to_grid(
+        &mut self,
+        story_id: &str,
+        enabled: bool,
+    ) -> Result<Vec<Patch>, CoreError> {
+        {
+            let story = self.story_mut(story_id)?;
+
+            story.snap_to_grid = enabled;
+        }
+
+        Ok(vec![Patch::ProjectSnapshotReplaced {
+            snapshot: self.snapshot(),
+        }])
+    }
+
+    fn set_story_zoom(&mut self, story_id: &str, zoom: f64) -> Result<Vec<Patch>, CoreError> {
+        {
+            let story = self.story_mut(story_id)?;
+
+            story.zoom = zoom;
+        }
+
+        Ok(vec![Patch::ProjectSnapshotReplaced {
+            snapshot: self.snapshot(),
         }])
     }
 
@@ -4163,6 +4252,49 @@ mod tests {
                 stylesheet: "tw-story { color: red; }".into(),
             }
         );
+    }
+
+    #[test]
+    fn updates_story_metadata_through_commands() {
+        let mut session = session();
+
+        session
+            .apply(StoryCommand::RenameStory {
+                story_id: "story-1".into(),
+                name: "Renamed Story".into(),
+            })
+            .expect("story rename should apply");
+        session
+            .apply(StoryCommand::SetStoryFormat {
+                story_id: "story-1".into(),
+                story_format: "Chapbook".into(),
+                story_format_version: "2.2.0".into(),
+            })
+            .expect("story format should apply");
+        session
+            .apply(StoryCommand::SetStorySnapToGrid {
+                story_id: "story-1".into(),
+                enabled: false,
+            })
+            .expect("snap-to-grid should apply");
+        let zoom_batch = session
+            .apply(StoryCommand::SetStoryZoom {
+                story_id: "story-1".into(),
+                zoom: 0.6,
+            })
+            .expect("zoom should apply");
+        let story = session.story("story-1").expect("story");
+
+        assert_eq!(story.name, "Renamed Story");
+        assert_eq!(story.story_format, "Chapbook");
+        assert_eq!(story.story_format_version, "2.2.0");
+        assert!(!story.snap_to_grid);
+        assert_eq!(story.zoom, 0.6);
+        assert_eq!(zoom_batch.label, "Set Story Zoom");
+        assert!(matches!(
+            zoom_batch.patches[0],
+            Patch::ProjectSnapshotReplaced { .. }
+        ));
     }
 
     #[test]

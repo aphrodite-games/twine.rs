@@ -1,7 +1,8 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {IconButton} from '../../components/design-system';
-import {updateStory, useStoriesContext, Story} from '../../store/stories';
+import {setStoryZoomCommand, useCoreProjectHost} from '../../core';
+import {Story} from '../../store/stories';
 import './zoom-buttons.css';
 
 export interface ZoomButtonsProps {
@@ -9,14 +10,14 @@ export interface ZoomButtonsProps {
 }
 
 export const ZoomButtons: React.FC<ZoomButtonsProps> = React.memo(({story}) => {
-	const {dispatch, stories} = useStoriesContext();
+	const coreProjectHost = useCoreProjectHost();
 	const {t} = useTranslation();
 
 	const handleZoomChange = React.useCallback(
 		(zoom: number) => {
-			dispatch(updateStory(stories, story, {zoom}));
+			coreProjectHost.applyStoryCommand(setStoryZoomCommand(story.id, zoom));
 		},
-		[dispatch, stories, story]
+		[coreProjectHost, story.id]
 	);
 
 	return (

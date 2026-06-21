@@ -89,7 +89,26 @@ test('publishes the current project to a playable page', async ({context, page})
 	]);
 
 	await expect(
-		publishedPage.locator(':visible:text-is("Smoke story is playable.")')
+		publishedPage
+			.frameLocator('iframe[title="Story preview"]')
+			.locator(':visible:text-is("Smoke story is playable.")')
 	).toBeVisible();
 	await publishedPage.close();
+});
+
+test('opens the M6 Build and Formats surfaces', async ({page}) => {
+	await createProject(page, 'M6 surface smoke');
+
+	await page.getByTitle('Build & Export').click();
+	await expect(page).toHaveURL(/#\/stories\/[^/]+\/build$/);
+	await expect(page.getByRole('heading', {name: 'Export HTML'})).toBeVisible();
+	await expect(page.getByText('Format Capabilities')).toBeVisible();
+
+	await page.getByRole('button', {name: 'Prepare Report'}).click();
+	await expect(page.getByText('M6 surface smoke.html')).toBeVisible();
+
+	await page.getByTitle('Story Formats').click();
+	await expect(page).toHaveURL(/#\/formats$/);
+	await expect(page.getByLabel('Story formats')).toBeVisible();
+	await expect(page.getByLabel('Story format URL')).toBeVisible();
 });

@@ -71,10 +71,16 @@ function storyCommandAnnotation(command: StoryCommand) {
 			return 'undoChange.movePassage';
 		case 'renamePassage':
 			return 'undoChange.renamePassage';
+		case 'renameStory':
+			return 'undoChange.renameStory';
 		case 'setPassageTags':
 			return 'undoChange.changeTags';
 		case 'setStartPassage':
 			return 'undoChange.startPassage';
+		case 'setStoryFormat':
+		case 'setStorySnapToGrid':
+		case 'setStoryZoom':
+			return 'undoChange.changeStoryDetails';
 		case 'updatePassageText':
 		case 'updateStoryScript':
 		case 'updateStoryStylesheet':
@@ -272,6 +278,13 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 				return;
 			}
 
+			case 'renameStory': {
+				const story = storyForId(this.stories, command.story_id);
+
+				dispatch(updateStory(this.stories, story, {name: command.name}));
+				return;
+			}
+
 			case 'restorePassages':
 				dispatch({
 					props: restoredPassageProps(command),
@@ -296,6 +309,36 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 						startPassage: command.passage_id
 					})
 				);
+				return;
+			}
+
+			case 'setStoryFormat': {
+				const story = storyForId(this.stories, command.story_id);
+
+				dispatch(
+					updateStory(this.stories, story, {
+						storyFormat: command.story_format,
+						storyFormatVersion: command.story_format_version
+					})
+				);
+				return;
+			}
+
+			case 'setStorySnapToGrid': {
+				const story = storyForId(this.stories, command.story_id);
+
+				dispatch(
+					updateStory(this.stories, story, {
+						snapToGrid: command.enabled
+					})
+				);
+				return;
+			}
+
+			case 'setStoryZoom': {
+				const story = storyForId(this.stories, command.story_id);
+
+				dispatch(updateStory(this.stories, story, {zoom: command.zoom}));
 				return;
 			}
 

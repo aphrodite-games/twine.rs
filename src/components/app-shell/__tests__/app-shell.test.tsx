@@ -77,7 +77,8 @@ describe('AppShell', () => {
 				name: index === 0 ? 'Opening' : 'Atrium',
 				selected: index === 0,
 				text: index === 0 ? 'one two three' : 'four five'
-			}))
+			})),
+			selected: true
 		};
 	});
 
@@ -113,6 +114,35 @@ describe('AppShell', () => {
 
 		await waitFor(() => expect(mockPlayStory).toHaveBeenCalledWith(story.id));
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('navigates to the first-class Build surface from commands', async () => {
+		renderShell(story);
+
+		fireEvent.keyDown(window, {key: 'k', metaKey: true});
+
+		const input = await screen.findByLabelText('Command');
+
+		fireEvent.change(input, {target: {value: 'build export'}});
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		await waitFor(() =>
+			expect(screen.getByTitle('Build & Export')).toHaveAttribute(
+				'aria-current',
+				'page'
+			)
+		);
+		expect(screen.getByTitle('Workbench')).not.toHaveAttribute('aria-current');
+	});
+
+	it('marks the Story Formats surface in shell navigation', () => {
+		renderShell(story, '/formats');
+
+		expect(screen.getByTitle('Story Formats')).toHaveAttribute(
+			'aria-current',
+			'page'
+		);
+		expect(screen.getByText('Story Formats')).toBeInTheDocument();
 	});
 
 	it('reports persistence errors in the status bar', async () => {

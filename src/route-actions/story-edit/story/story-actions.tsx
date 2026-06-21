@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {RenameStoryButton} from '../../../components/story/rename-story-button';
-import {Story, updateStory, useStoriesContext} from '../../../store/stories';
+import {renameStoryCommand, useCoreProjectHost} from '../../../core';
+import {Story, useStoriesContext} from '../../../store/stories';
 import {DetailsButton} from './details-button';
 import {FindReplaceButton} from './find-replace-button';
 import {JavaScriptButton} from './javascript-button';
@@ -12,7 +13,8 @@ export interface StoryActionsProps {
 }
 
 export const StoryActions: React.FC<StoryActionsProps> = props => {
-	const {dispatch, stories} = useStoriesContext();
+	const {stories} = useStoriesContext();
+	const coreProjectHost = useCoreProjectHost();
 	const {story} = props;
 
 	return (
@@ -20,7 +22,9 @@ export const StoryActions: React.FC<StoryActionsProps> = props => {
 			<FindReplaceButton story={story} />
 			<RenameStoryButton
 				existingStories={stories}
-				onRename={name => dispatch(updateStory(stories, story, {name}))}
+				onRename={name =>
+					coreProjectHost.applyStoryCommand(renameStoryCommand(story.id, name))
+				}
 				story={story}
 			/>
 			<DetailsButton story={story} />

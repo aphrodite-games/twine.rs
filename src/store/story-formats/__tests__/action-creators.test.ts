@@ -59,9 +59,13 @@ describe('deleteFormat', () => {
 describe('loadAllFormatProperties', () => {
 	let dispatch: jest.Mock;
 	let formats: StoryFormat[];
+	let properties: StoryFormatProperties;
 
 	beforeEach(() => {
 		dispatch = jest.fn();
+		properties = fakeStoryFormatProperties();
+		(fetchStoryFormatProperties as jest.Mock).mockReset();
+		(fetchStoryFormatProperties as jest.Mock).mockResolvedValue(properties);
 		formats = [
 			fakeFailedStoryFormat(),
 			fakeLoadedStoryFormat(),
@@ -85,8 +89,20 @@ describe('loadAllFormatProperties', () => {
 		expect(dispatch.mock.calls).toEqual([
 			[{type: 'update', id: formats[0].id, props: {loadState: 'loading'}}],
 			[{type: 'update', id: formats[3].id, props: {loadState: 'loading'}}],
-			[{type: 'update', id: formats[0].id, props: {loadState: 'loaded'}}],
-			[{type: 'update', id: formats[3].id, props: {loadState: 'loaded'}}]
+			[
+				{
+					type: 'update',
+					id: formats[0].id,
+					props: {loadState: 'loaded', properties}
+				}
+			],
+			[
+				{
+					type: 'update',
+					id: formats[3].id,
+					props: {loadState: 'loaded', properties}
+				}
+			]
 		]);
 	});
 });
@@ -158,7 +174,7 @@ describe('loadFormatProperties', () => {
 		it('returns the format properties', async () =>
 			expect(await loadFormatProperties(format)(dispatch)).toBe(properties));
 
-		describe.only('if the format properties contain a hydrate property', () => {
+		describe('if the format properties contain a hydrate property', () => {
 			it('merges in properties set on this by the hydrate property', async () => {
 				properties.hydrate = 'this.hydrated = true';
 				await loadFormatProperties(format)(dispatch);
@@ -258,6 +274,46 @@ describe('loadFormatProperties', () => {
 				.properties;
 
 			expect(await loadFormatProperties(format)(dispatch)).toBe(loadedProps);
+		});
+	});
+
+	describe('when the format is already loading', () => {
+		it('returns the pending load instead of starting another request', async () => {
+			let resolveProperties: (properties: StoryFormatProperties) => void;
+			const properties = fakeStoryFormatProperties();
+
+			fetchPropertiesMock.mockImplementationOnce(
+				() =>
+					new Promise<StoryFormatProperties>(resolve => {
+						resolveProperties = resolve;
+					})
+			);
+
+			const firstLoad = loadFormatProperties(format)(dispatch);
+			const secondLoad = loadFormatProperties({
+				...format,
+				loadState: 'loading'
+			})(dispatch);
+
+			expect(fetchPropertiesMock).toHaveBeenCalledTimes(1);
+			expect(dispatch.mock.calls).toEqual([
+				[{type: 'update', id: format.id, props: {loadState: 'loading'}}]
+			]);
+
+			resolveProperties!(properties);
+
+			await expect(firstLoad).resolves.toBe(properties);
+			await expect(secondLoad).resolves.toBe(properties);
+			expect(dispatch.mock.calls).toEqual([
+				[{type: 'update', id: format.id, props: {loadState: 'loading'}}],
+				[
+					{
+						type: 'update',
+						id: format.id,
+						props: {loadState: 'loaded', properties}
+					}
+				]
+			]);
 		});
 	});
 });

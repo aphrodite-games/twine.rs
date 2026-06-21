@@ -7,7 +7,9 @@ import {fakePrefs} from '../../test-util';
 
 jest.mock('../story-edit/story-edit-route');
 jest.mock('../story-list/story-list-route');
+jest.mock('../build/build-route');
 jest.mock('../new-project/new-project-route');
+jest.mock('../story-formats/story-formats-route');
 jest.mock('../story-play/story-play-route');
 jest.mock('../story-proof/story-proof-route');
 jest.mock('../story-test/story-test-route');
@@ -54,6 +56,18 @@ describe('<Routes>', () => {
 		it('renders the story play route at /stories/:id/play', () => {
 			renderAtRoute('/stories/123/play');
 			expect(screen.getByTestId('mock-story-play-route')).toBeInTheDocument();
+		});
+
+		it('renders the story build route at /stories/:id/build', () => {
+			renderAtRoute('/stories/123/build');
+			expect(screen.getByTestId('mock-build-route')).toBeInTheDocument();
+		});
+
+		it('renders the story formats route at /formats', () => {
+			renderAtRoute('/formats');
+			expect(
+				screen.getByTestId('mock-story-formats-route')
+			).toBeInTheDocument();
 		});
 
 		it('renders the story proof route at /stories/:id/proof', () => {
