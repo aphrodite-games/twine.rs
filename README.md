@@ -1,14 +1,41 @@
 # twine.rs
 
-`twine.rs` is a Rust-backed Twine editor.
+`twine.rs` is a Rust-backed Twine editor built from TwineJS.
 
-It is built from TwineJS, keeping the React/Electron workbench and Twine story
-format compatibility while adding native project folders, asset handling, graph
-tools, import/export code, and CLI workflows through Rust crates.
+It keeps the familiar React/Electron workbench and Twine story format
+compatibility, while moving project structure, parsing, graph data, storage,
+import/export, and CLI workflows into Rust crates.
 
 Use this repo to run the web or desktop editor, work on directory-backed Twine
-projects, and test the Rust core that supports parsing, storage, graph
-projection, search, and export.
+projects, and test the native core that supports the editor.
+
+## What's Implemented
+
+- Directory-backed project folders for stories, assets, metadata, and layout.
+- Electron project sessions with file-backed save/load, disk change tracking,
+  and conflict review.
+- A Rust model for stories, passages, IDs, geometry, project manifests, graph
+  layout, storage policy, and undo-friendly structural changes.
+- Importers for Twee, Twine 2 HTML, practical Twine 1 tiddler HTML, JSON
+  interchange, and TwineJS localStorage data.
+- Exporters for JSON, Twee, Twine HTML, story-format output, and archive-style
+  HTML.
+- A native story graph layer with outgoing links, backlinks, broken links,
+  self-links, node states, generated layouts, focus neighborhoods, link layers,
+  and viewport projections.
+- Contents and diagnostics views for passages, tags, variables, assets,
+  metadata, broken links, duplicate names, missing assets, orphans, and entry
+  points.
+- Asset inventory and management for project files, references, snippets,
+  previews, missing/unused states, replacement, rename, reveal, and publish
+  rules.
+- Story workspace modes for map, graph, and text-focused editing.
+- Search/index plumbing for source files, symbols, tags, diagnostics, and
+  replace previews.
+- Generated TypeScript bindings for Rust-shaped commands, patches, project
+  snapshots, graph projections, diagnostics, assets, and indexes.
+- A `twine_cli` tool for inspecting, graphing, importing, exporting, and
+  benchmarking stories and project folders.
 
 ## Prerequisites
 
