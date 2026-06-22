@@ -31,7 +31,9 @@ import {
 	listNativeProjectAssets,
 	loadNativeProjectFolder,
 	nativeProjectFileManifest,
-	prepareNativeHtmlImport
+	prepareNativeHtmlImport,
+	prepareNativeProjectImport,
+	saveNativeProjectFolder
 } from './native';
 import {getStoryDirectoryPath} from './story-directory';
 
@@ -210,6 +212,15 @@ const importAssetExtensions = new Set([
 ]);
 const importAssetReferenceRegex =
 	/([A-Za-z0-9_./~%:@?&=+-]+\.(?:apng|avif|css|gif|jpe?g|js|m4a|mp3|mp4|oga|ogg|otf|png|svg|ttf|wav|webm|webp|woff2?))/gi;
+const sugarCubeMacroSignalRegex =
+	/<<(?:set|if|elseif|else|switch|case|default|for|capture|widget|button|link(?:append|prepend|replace)?|goto|include|display|print|run|script|style|audio|nobr|notify|timed|repeat|silently|remember|forget|done)\b|<<\/(?:if|for|widget|button|link(?:append|prepend|replace)?|nobr|silently|script|style|notify|timed|repeat)>>/i;
+const sugarCubeSignalTags = new Set([
+	'init',
+	'nobr',
+	'script',
+	'stylesheet',
+	'widget'
+]);
 const obviousImportAssetDirectoryNames = new Set([
 	'asset',
 	'assets',
@@ -764,6 +775,111 @@ function booleanOrFallback(value: unknown, fallback: boolean) {
 
 function stringOrFallback(value: unknown, fallback: string) {
 	return typeof value === 'string' ? value : fallback;
+}
+
+function storyFormatCanBeSugarCubeRepaired(format: string) {
+	const normalized = format.trim().toLowerCase();
+
+	return normalized === '' || normalized === 'harlowe';
+}
+
+function sourceLooksLikeSugarCube(source?: string) {
+	return typeof source === 'string' && sugarCubeMacroSignalRegex.test(source);
+}
+
+function storyTextLooksLikeSugarCube(story: Story) {
+	return (
+		sourceLooksLikeSugarCube(story.script) ||
+		sourceLooksLikeSugarCube(story.stylesheet) ||
+		story.passages.some(passage => sourceLooksLikeSugarCube(passage.text))
+	);
+}
+
+function passageTagsLookLikeSugarCube(tags?: string[]) {
+	return tags?.some(tag => sugarCubeSignalTags.has(tag.toLowerCase())) ?? false;
+}
+
+function storyTagsLookLikeSugarCube(story: Story) {
+	return story.passages.some(passage =>
+		passageTagsLookLikeSugarCube(passage.tags)
+	);
+}
+
+function parsedStoryTagsLookLikeSugarCube(story?: ParsedProjectStory) {
+	return (
+		story?.passages.some(passage => passageTagsLookLikeSugarCube(passage.tags)) ??
+		false
+	);
+}
+
+function parsedStoriesByIdentity(stories: ParsedProjectStory[]) {
+	return new Map(
+		stories.flatMap((story, index) => {
+			const entries: Array<[string, ParsedProjectStory]> = [
+				[`index:${index}`, story]
+			];
+
+			if (story.id) {
+				entries.push([`id:${story.id}`, story]);
+			}
+
+			return entries;
+		})
+	);
+}
+
+function repairStoryFormatFromProjectSignals(
+	story: Story,
+	parsedStory?: ParsedProjectStory
+) {
+	if (!storyFormatCanBeSugarCubeRepaired(story.storyFormat)) {
+		return story;
+	}
+
+	if (
+		!storyTextLooksLikeSugarCube(story) &&
+		!storyTagsLookLikeSugarCube(story) &&
+		!parsedStoryTagsLookLikeSugarCube(parsedStory)
+	) {
+		return story;
+	}
+
+	return {
+		...story,
+		storyFormat: 'SugarCube',
+		storyFormatVersion: ''
+	};
+}
+
+function repairProjectStoryFormats(
+	stories: Story[],
+	parsedStories: ParsedProjectStory[] = []
+) {
+	if (
+		!stories.some(story => storyFormatCanBeSugarCubeRepaired(story.storyFormat))
+	) {
+		return stories;
+	}
+
+	const parsedByIdentity = parsedStoriesByIdentity(parsedStories);
+	let repaired = false;
+	const result = stories.map((story, index) => {
+		const parsedStory =
+			parsedByIdentity.get(`id:${story.id}`) ??
+			parsedByIdentity.get(`index:${index}`);
+		const repairedStory = repairStoryFormatFromProjectSignals(
+			story,
+			parsedStory
+		);
+
+		if (repairedStory !== story) {
+			repaired = true;
+		}
+
+		return repairedStory;
+	});
+
+	return repaired ? result : stories;
 }
 
 function tomlString(value: string) {
@@ -1387,7 +1503,7 @@ async function storiesFromProjectManifest(
 		});
 	}
 
-	return stories;
+	return repairProjectStoryFormats(stories, parsedStories);
 }
 
 async function readProjectStories(
@@ -1404,7 +1520,7 @@ async function readProjectFolder(
 	const nativeResult = loadNativeProjectFolder(rootPath, options);
 
 	if (nativeResult) {
-		return nativeResult;
+		return mergeNativeProjectMetadata(rootPath, nativeResult);
 	}
 
 	const manifestSource = await readTextIfPresent(join(rootPath, 'twine.toml'));
@@ -1424,6 +1540,90 @@ async function readProjectFolder(
 		rootPath,
 		stories,
 		storyIds: stories.map(story => story.id)
+	};
+}
+
+async function mergeNativeProjectMetadata(
+	rootPath: string,
+	projectFolder: NativeProjectFolderResult
+): Promise<NativeProjectFolderResult> {
+	const metadataStories = await metadataSidecarStories(
+		join(rootPath, '.twine', 'project.json'),
+		{maxBytes: maxProjectMetadataSidecarBytes}
+	);
+
+	if (metadataStories.length === 0) {
+		const stories = repairProjectStoryFormats(projectFolder.stories);
+
+		return stories === projectFolder.stories
+			? projectFolder
+			: {...projectFolder, stories};
+	}
+
+	const metadataById = new Map(
+		metadataStories.flatMap(story =>
+			story.id ? [[story.id, story] as const] : []
+		)
+	);
+	const stories = projectFolder.stories.map((story, storyIndex) => {
+		const metadataStory = metadataById.get(story.id) ?? metadataStories[storyIndex];
+
+		if (!metadataStory) {
+			return story;
+		}
+
+		const metadataPassages = new Map(
+			(metadataStory.passages ?? [])
+				.filter(
+					(passage): passage is RendererProjectMetadataPassage & {id: string} =>
+						typeof passage.id === 'string'
+				)
+				.map(passage => [passage.id, passage])
+		);
+
+		return {
+			...story,
+			passages: story.passages.map(passage => {
+				const metadataPassage = metadataPassages.get(passage.id);
+				const useMetadataLayout =
+					metadataPassage &&
+					passage.left === 0 &&
+					passage.top === 0 &&
+					passage.width === 100 &&
+					passage.height === 100;
+
+				return {
+					...passage,
+					height: useMetadataLayout
+						? numberOrFallback(metadataPassage.height, passage.height)
+						: passage.height,
+					highlighted: metadataPassage?.highlighted ?? passage.highlighted,
+					left: useMetadataLayout
+						? numberOrFallback(metadataPassage.left, passage.left)
+						: passage.left,
+					selected: metadataPassage?.selected ?? passage.selected,
+					top: useMetadataLayout
+						? numberOrFallback(metadataPassage.top, passage.top)
+						: passage.top,
+					width: useMetadataLayout
+						? numberOrFallback(metadataPassage.width, passage.width)
+						: passage.width
+				};
+			}),
+			selected: metadataStory.selected ?? story.selected,
+			tagColors:
+				Object.keys(story.tagColors).length > 0
+					? story.tagColors
+					: metadataStory.tagColors ?? story.tagColors,
+			zoom: numberOrFallback(story.zoom, metadataStory.zoom ?? 1)
+		};
+	});
+
+	const repairedStories = repairProjectStoryFormats(stories);
+
+	return {
+		...projectFolder,
+		stories: repairedStories
 	};
 }
 
@@ -1642,6 +1842,23 @@ export async function prepareProjectImport(
 	}
 
 	try {
+		const nativePreparedSource = prepareNativeProjectImport(absoluteSourcePath);
+
+		if (nativePreparedSource) {
+			const {cleanupPath: nativeCleanupPath, ...source} = nativePreparedSource;
+			const preparedImport: NativeProjectImportSource = {
+				...source,
+				id: uuid()
+			};
+
+			preparedProjectImports.set(preparedImport.id, {
+				assets: preparedImport.assets,
+				cleanupPath: nativeCleanupPath
+			});
+
+			return preparedImport;
+		}
+
 		if (sourceKind === 'zip') {
 			cleanupPath = await mkdtemp(join(tmpdir(), 'twine-import-'));
 			await extractZip(absoluteSourcePath, {dir: cleanupPath});
@@ -1717,6 +1934,10 @@ export async function prepareProjectImport(
 }
 
 async function writeProjectFolder(rootPath: string, story: Story) {
+	if (saveNativeProjectFolder(rootPath, story)) {
+		return;
+	}
+
 	const storySlug = pathSlug(story.name);
 	const passageRoot = join(rootPath, 'passages', storySlug);
 	const passageFiles = story.passages.map(
@@ -1939,6 +2160,47 @@ export async function deleteProjectAsset(rootPath: string, path: string) {
 
 	await remove(asset.absolutePath);
 	await refreshProjectSessionBaseline(rootPath);
+}
+
+export async function deleteProjectFolder(rootPath: string) {
+	const absoluteRootPath = resolve(rootPath);
+	const rootStats = await stat(absoluteRootPath);
+
+	if (!rootStats.isDirectory()) {
+		throw Object.assign(
+			new Error(`${absoluteRootPath} is not a project folder directory.`),
+			{code: 'ENOTDIR'}
+		);
+	}
+
+	if (!basename(absoluteRootPath).endsWith('.twine.rs')) {
+		throw new Error(
+			`Refusing to delete ${absoluteRootPath}; project folders must end with .twine.rs.`
+		);
+	}
+
+	let manifestStats: {isFile(): boolean};
+
+	try {
+		manifestStats = await stat(join(absoluteRootPath, 'twine.toml'));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			throw new Error(
+				`Refusing to delete ${absoluteRootPath}; no twine.toml project manifest was found.`
+			);
+		}
+
+		throw error;
+	}
+
+	if (!manifestStats.isFile()) {
+		throw new Error(
+			`Refusing to delete ${absoluteRootPath}; no twine.toml project manifest was found.`
+		);
+	}
+
+	stopProjectSession(absoluteRootPath);
+	await remove(absoluteRootPath);
 }
 
 export async function projectSessionSnapshot(

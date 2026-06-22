@@ -191,7 +191,7 @@
 
 .story-list-launcher__table th:last-child,
 .story-list-launcher__table td:last-child {
-	width: 44px;
+	width: 82px;
 }
 
 .story-list-launcher__row {
@@ -232,6 +232,24 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 5px;
+}
+
+.story-list-launcher__row-actions,
+.story-list-launcher__card-actions {
+	align-items: center;
+	display: flex;
+	gap: 6px;
+	justify-content: flex-end;
+	min-width: 0;
+}
+
+.story-list-launcher__danger-action {
+	color: var(--sem-error);
+}
+
+.story-list-launcher__danger-action:hover {
+	background: color-mix(in oklab, var(--sem-error) 12%, transparent);
+	color: var(--sem-error);
 }
 
 .story-list-launcher__cards {
@@ -305,7 +323,7 @@
 	min-width: 0;
 }
 
-.story-list-launcher__card-foot > span:last-child {
+.story-list-launcher__card-actions > span {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

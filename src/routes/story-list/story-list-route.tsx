@@ -26,10 +26,16 @@ import {useDonationCheck} from '../../store/prefs/use-donation-check';
 import {
 	deselectAllStories,
 	deselectStory,
+	deleteStory as deleteStoryAction,
 	selectStory,
 	Story,
 	useStoriesContext
 } from '../../store/stories';
+import {
+	deleteProjectMetadata,
+	loadProjectMetadata
+} from '../../store/project-metadata';
+import type {TwineElectronWindow} from '../../electron/shared';
 import {UndoableStoriesContextProvider} from '../../store/undoable-stories';
 import './story-list-route.css';
 
@@ -61,6 +67,19 @@ function storyHealth(story: Story) {
 	).length;
 
 	return {brokenLinks: index.graph.brokenLinks, errors};
+}
+
+function desktopBridge() {
+	return (window as TwineElectronWindow).twineElectron;
+}
+
+function fileBackedProjectRoot(story: Story) {
+	const metadata = loadProjectMetadata(story.id);
+
+	return metadata?.storageKind === 'electron-project-folder' &&
+		metadata.status === 'file-backed'
+		? metadata.rootPath
+		: undefined;
 }
 
 function ProjectMiniMap({story}: {story: Story}) {
@@ -212,6 +231,41 @@ export const InnerStoryListRoute: React.FC = () => {
 
 	function selectProject(story: Story, additive: boolean) {
 		storiesDispatch(selectStory(story, !additive));
+	}
+
+	async function deleteProject(story: Story) {
+		const rootPath = fileBackedProjectRoot(story);
+		const twineElectron = desktopBridge();
+
+		if (!rootPath || !twineElectron?.deleteProjectFolder) {
+			return;
+		}
+
+		const projectStories = stories.filter(
+			candidate => fileBackedProjectRoot(candidate) === rootPath
+		);
+		const confirmed = window.confirm(
+			[
+				`Delete project "${story.name}"?`,
+				'',
+				`This will delete files from ${rootPath}.`,
+				'',
+				`It will remove ${projectStories.length} ${
+					projectStories.length === 1 ? 'story' : 'stories'
+				} from this library. This cannot be undone.`
+			].join('\n')
+		);
+
+		if (!confirmed) {
+			return;
+		}
+
+		await twineElectron.deleteProjectFolder(rootPath);
+
+		for (const projectStory of projectStories) {
+			deleteProjectMetadata(projectStory.id);
+			storiesDispatch(deleteStoryAction(projectStory));
+		}
 	}
 
 	return (
@@ -424,15 +478,30 @@ export const InnerStoryListRoute: React.FC = () => {
 												</td>
 												<td>{formatDate(story.lastUpdate)}</td>
 												<td>
-													<IconButton
-														icon="arrow-up-right"
-														label={`Open ${story.name}`}
-														onClick={event => {
-															event.stopPropagation();
-															openStory(story);
-														}}
-														size="sm"
-													/>
+													<div className="story-list-launcher__row-actions">
+														<IconButton
+															icon="arrow-up-right"
+															label={`Open ${story.name}`}
+															onClick={event => {
+																event.stopPropagation();
+																openStory(story);
+															}}
+															size="sm"
+														/>
+														{fileBackedProjectRoot(story) &&
+															desktopBridge()?.deleteProjectFolder && (
+																<IconButton
+																	className="story-list-launcher__danger-action"
+																	icon="trash"
+																	label={`Delete project ${story.name}`}
+																	onClick={event => {
+																		event.stopPropagation();
+																		void deleteProject(story);
+																	}}
+																	size="sm"
+																/>
+															)}
+													</div>
 												</td>
 											</tr>
 										))}
@@ -470,7 +539,22 @@ export const InnerStoryListRoute: React.FC = () => {
 												<Badge icon="file-code" tone="neutral">
 													{story.storyFormat}
 												</Badge>
-												<span>{formatDate(story.lastUpdate)}</span>
+												<div className="story-list-launcher__card-actions">
+													<span>{formatDate(story.lastUpdate)}</span>
+													{fileBackedProjectRoot(story) &&
+														desktopBridge()?.deleteProjectFolder && (
+															<IconButton
+																className="story-list-launcher__danger-action"
+																icon="trash"
+																label={`Delete project ${story.name}`}
+																onClick={event => {
+																	event.stopPropagation();
+																	void deleteProject(story);
+																}}
+																size="sm"
+															/>
+														)}
+												</div>
 											</div>
 										</div>
 									</article>

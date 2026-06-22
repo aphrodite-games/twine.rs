@@ -62,3 +62,7 @@ export function loadProjectMetadata(storyId: string) {
 		return undefined;
 	}
 }
+
+export function deleteProjectMetadata(storyId: string) {
+	window.localStorage.removeItem(projectMetadataKey(storyId));
+}

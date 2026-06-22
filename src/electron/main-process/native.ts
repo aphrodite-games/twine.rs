@@ -22,12 +22,14 @@ interface NativeProjectAddon {
 		rootPath: string,
 		loadPassageText?: boolean
 	): string;
+	prepareProjectImportJson(sourcePath: string): string;
 	prepareHtmlImportJson(
 		sourcePath: string,
 		htmlFilePath: string,
 		sourceKind: string
 	): string;
 	projectFileManifestJson(rootPath: string, assetsJson?: string): string;
+	saveProjectFolderJson(rootPath: string, storyJson: string): string;
 }
 
 interface NativeHealthReport {
@@ -206,6 +208,14 @@ export function loadNativeProjectFolder(
 	);
 }
 
+export function saveNativeProjectFolder(rootPath: string, story: Story) {
+	return reviveProjectFolderResult(
+		callNative<NativeProjectFolderResult>('project save', addon =>
+			addon.saveProjectFolderJson(rootPath, JSON.stringify(story))
+		)
+	);
+}
+
 export function listNativeProjectAssets(rootPath: string) {
 	return callNative<CoreAssetInventoryEntry[]>('asset scan', addon =>
 		addon.listProjectAssetsJson(rootPath)
@@ -239,6 +249,13 @@ export function diffNativeProjectFileManifest(
 export function findNativeTwineHtmlFiles(rootPath: string) {
 	return callNative<string[]>('HTML discovery', addon =>
 		addon.findTwineHtmlFilesJson(rootPath)
+	);
+}
+
+export function prepareNativeProjectImport(sourcePath: string) {
+	return callNative<Omit<NativeProjectImportSource, 'id'> & {cleanupPath?: string}>(
+		'project import preparation',
+		addon => addon.prepareProjectImportJson(sourcePath)
 	);
 }
 

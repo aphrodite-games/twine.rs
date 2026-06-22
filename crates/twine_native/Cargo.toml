@@ -18,6 +18,7 @@ serde_json.workspace = true
 time.workspace = true
 twine_model.workspace = true
 twine_store.workspace = true
+zip.workspace = true
 
 [build-dependencies]
 napi-build = "2"

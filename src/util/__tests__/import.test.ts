@@ -99,6 +99,41 @@ describe('importStories', () => {
 		);
 	});
 
+	it('preserves each story format in mixed Twine HTML', () => {
+		const result = importStories(`
+			<tw-storydata name="Harlowe Story" format="Harlowe" format-version="3.3.9" hidden>
+				<tw-passagedata pid="1" name="Start">(print: "hi")</tw-passagedata>
+			</tw-storydata>
+			<tw-storydata name="SugarCube Story" format="SugarCube" format-version="2.37.3" hidden>
+				<tw-passagedata pid="1" name="Start">&lt;&lt;set $score to 1&gt;&gt;</tw-passagedata>
+			</tw-storydata>
+		`);
+
+		expect(result.map(story => story.storyFormat)).toEqual([
+			'Harlowe',
+			'SugarCube'
+		]);
+		expect(result.map(story => story.storyFormatVersion)).toEqual([
+			'3.3.9',
+			'2.37.3'
+		]);
+	});
+
+	it('infers SugarCube when imported story data omits format attributes', () => {
+		const result = importStories(`
+			<tw-storydata name="Trigaea-like" hidden>
+				<tw-passagedata pid="1" name="Start">&lt;&lt;set $visited to true&gt;&gt;</tw-passagedata>
+			</tw-storydata>
+		`);
+
+		expect(result[0]).toEqual(
+			expect.objectContaining({
+				storyFormat: 'SugarCube',
+				storyFormatVersion: ''
+			})
+		);
+	});
+
 	it("allows setting the story's creation date manually", () => {
 		const forceDate = new Date(Date.parse('January 1, 1987'));
 		const result = importStories(testHtml, forceDate);

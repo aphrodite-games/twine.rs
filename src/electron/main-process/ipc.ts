@@ -32,6 +32,7 @@ import {
 	copyAssetToProject,
 	createProjectFolder,
 	deleteProjectAsset,
+	deleteProjectFolder,
 	discardProjectImport,
 	hydrateProjectFolder,
 	listProjectAssets,
@@ -189,6 +190,10 @@ export function initIpc() {
 		'delete-project-asset',
 		async (_event, rootPath: string, path: string) =>
 			deleteProjectAsset(rootPath, path)
+	);
+
+	ipcMain.handle('delete-project-folder', async (_event, rootPath: string) =>
+		deleteProjectFolder(rootPath)
 	);
 
 	ipcMain.handle('choose-story-library-folder', async () => {

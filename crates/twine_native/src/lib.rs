@@ -6,17 +6,20 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    fs,
+    fs::{self, File},
+    io,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
-use twine_model::{GraphPosition, Passage, Story};
-use twine_store::{load_project_path_with_options, LoadProjectOptions};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use twine_model::{GraphPosition, Passage, Project, StoragePolicy, Story};
+use twine_store::{
+    LoadProjectOptions, SaveOptions, load_project_path_with_options, save_project_path,
+};
 
 const IMPORT_ASSET_EXTENSIONS: &[&str] = &[
-    "apng", "avif", "css", "gif", "jpeg", "jpg", "js", "m4a", "mp3", "mp4", "oga", "ogg",
-    "otf", "png", "svg", "ttf", "wav", "webm", "webp", "woff", "woff2",
+    "apng", "avif", "css", "gif", "jpeg", "jpg", "js", "m4a", "mp3", "mp4", "oga", "ogg", "otf",
+    "png", "svg", "ttf", "wav", "webm", "webp", "woff", "woff2",
 ];
 const OBVIOUS_IMPORT_ASSET_DIRECTORIES: &[&str] = &[
     "asset", "assets", "audio", "font", "fonts", "image", "images", "img", "media", "music",
@@ -151,6 +154,8 @@ struct NativeProjectImportAsset {
 #[serde(rename_all = "camelCase")]
 struct NativeProjectImportSource {
     assets: Vec<NativeProjectImportAsset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cleanup_path: Option<String>,
     html_file_path: String,
     html_source: String,
     source_kind: String,
@@ -166,6 +171,8 @@ pub fn health_json() -> String {
             "file-manifest",
             "manifest-diff",
             "html-import-assets",
+            "zip-import",
+            "project-save",
         ],
         ok: true,
         version: env!("CARGO_PKG_VERSION"),
@@ -203,6 +210,41 @@ pub fn load_project_folder_json(
     .map_err(native_error)
 }
 
+#[napi(js_name = "saveProjectFolderJson")]
+pub fn save_project_folder_json(root_path: String, story_json: String) -> NativeResult<String> {
+    let root = PathBuf::from(&root_path);
+    let story_value =
+        serde_json::from_str::<serde_json::Value>(&story_json).map_err(native_error)?;
+    let story = serde_json::from_value::<Story>(story_value.clone()).map_err(native_error)?;
+    let mut project = Project::from_story(story.clone());
+
+    project.manifest.app_version = "twine.rs-desktop".into();
+    project.manifest.storage = StoragePolicy {
+        message: "Native twine.rs desktop project folder".into(),
+        ..StoragePolicy::default()
+    };
+
+    save_project_path(
+        &root,
+        &project,
+        &SaveOptions {
+            create_backup: false,
+            max_backups: project.manifest.storage.max_backups,
+            write_generated_indexes: true,
+        },
+    )
+    .map_err(native_error)?;
+    write_renderer_project_sidecar(&root, story_value).map_err(native_error)?;
+
+    json_string(&NativeProjectFolderResult {
+        passage_text_loaded: true,
+        root_path,
+        stories: vec![NativeStory::from_story(&story)],
+        story_ids: vec![story.id.as_ref().to_owned()],
+    })
+    .map_err(native_error)
+}
+
 #[napi(js_name = "listProjectAssetsJson")]
 pub fn list_project_assets_json(root_path: String) -> NativeResult<String> {
     let assets = list_project_assets(Path::new(&root_path)).map_err(native_error)?;
@@ -220,9 +262,28 @@ pub fn project_file_manifest_json(
         .map(serde_json::from_str::<Vec<CoreAssetInventoryEntry>>)
         .transpose()
         .map_err(native_error)?;
-    let files = project_file_manifest(Path::new(&root_path), assets.as_deref()).map_err(native_error)?;
+    let files =
+        project_file_manifest(Path::new(&root_path), assets.as_deref()).map_err(native_error)?;
 
     json_string(&files).map_err(native_error)
+}
+
+#[napi(js_name = "prepareProjectImportJson")]
+pub fn prepare_project_import_json(source_path: String) -> NativeResult<String> {
+    let source_path = PathBuf::from(source_path);
+    let extension = path_extension(&source_path);
+
+    let source = if extension == "zip" {
+        prepare_zip_import(&source_path).map_err(native_error)?
+    } else if extension == "html" || extension == "htm" {
+        prepare_html_import(&source_path, &source_path, "html", None).map_err(native_error)?
+    } else {
+        return Err(native_error(
+            "Project import must be a Twine HTML file or a zip archive.",
+        ));
+    };
+
+    json_string(&source).map_err(native_error)
 }
 
 #[napi(js_name = "diffProjectFileManifestJson")]
@@ -232,8 +293,8 @@ pub fn diff_project_file_manifest_json(
 ) -> NativeResult<String> {
     let previous = serde_json::from_str::<Vec<NativeProjectFileEntry>>(&previous_files_json)
         .map_err(native_error)?;
-    let current =
-        serde_json::from_str::<Vec<NativeProjectFileEntry>>(&current_files_json).map_err(native_error)?;
+    let current = serde_json::from_str::<Vec<NativeProjectFileEntry>>(&current_files_json)
+        .map_err(native_error)?;
     let conflicts = project_session_conflicts(&previous, &current);
 
     json_string(&conflicts).map_err(native_error)
@@ -252,22 +313,15 @@ pub fn prepare_html_import_json(
     html_file_path: String,
     source_kind: String,
 ) -> NativeResult<String> {
-    let html_path = PathBuf::from(&html_file_path);
-    let html_source = fs::read_to_string(&html_path).map_err(native_error)?;
-    let source_root = html_path.parent().unwrap_or_else(|| Path::new("."));
-    let assets = discover_project_import_assets(source_root, &html_path, &html_source)
-        .map_err(native_error)?;
-    let html_source = rewrite_project_import_asset_references(&html_source, &assets)
-        .map_err(native_error)?;
+    let source = prepare_html_import(
+        Path::new(&source_path),
+        Path::new(&html_file_path),
+        &source_kind,
+        None,
+    )
+    .map_err(native_error)?;
 
-    json_string(&NativeProjectImportSource {
-        assets,
-        html_file_path,
-        html_source,
-        source_kind,
-        source_path,
-    })
-    .map_err(native_error)
+    json_string(&source).map_err(native_error)
 }
 
 impl NativeStory {
@@ -319,6 +373,177 @@ impl NativePassage {
             width,
         }
     }
+}
+
+type NativeBoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+fn prepare_zip_import(source_path: &Path) -> Result<NativeProjectImportSource, NativeBoxError> {
+    let cleanup_path = std::env::temp_dir().join(format!("twine-import-{}", timestamp_nanos()));
+
+    fs::create_dir_all(&cleanup_path)?;
+    extract_zip_archive(source_path, &cleanup_path)?;
+
+    let html_files = find_twine_html_files(&cleanup_path)?;
+
+    if html_files.is_empty() {
+        return Err("No Twine HTML story was found in the zip archive.".into());
+    }
+
+    let html_file_path = best_twine_html_file(&cleanup_path, source_path, &html_files)
+        .ok_or("No Twine HTML story was found in the zip archive.")?;
+
+    prepare_html_import(
+        source_path,
+        Path::new(&html_file_path),
+        "zip",
+        Some(cleanup_path),
+    )
+}
+
+fn prepare_html_import(
+    source_path: &Path,
+    html_file_path: &Path,
+    source_kind: &str,
+    cleanup_path: Option<PathBuf>,
+) -> Result<NativeProjectImportSource, NativeBoxError> {
+    let html_source = fs::read_to_string(html_file_path)?;
+    let source_root = html_file_path.parent().unwrap_or_else(|| Path::new("."));
+    let assets = discover_project_import_assets(source_root, html_file_path, &html_source)?;
+    let html_source = rewrite_project_import_asset_references(&html_source, &assets)?;
+
+    Ok(NativeProjectImportSource {
+        assets,
+        cleanup_path: cleanup_path.map(|path| path.to_string_lossy().into_owned()),
+        html_file_path: html_file_path.to_string_lossy().into_owned(),
+        html_source,
+        source_kind: source_kind.into(),
+        source_path: source_path.to_string_lossy().into_owned(),
+    })
+}
+
+fn extract_zip_archive(source_path: &Path, target_root: &Path) -> Result<(), NativeBoxError> {
+    let file = File::open(source_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+
+    for index in 0..archive.len() {
+        let mut zipped_file = archive.by_index(index)?;
+        let Some(enclosed_name) = zipped_file.enclosed_name() else {
+            continue;
+        };
+        let target_path = target_root.join(enclosed_name);
+
+        if zipped_file.is_dir() {
+            fs::create_dir_all(&target_path)?;
+            continue;
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut output = File::create(&target_path)?;
+
+        io::copy(&mut zipped_file, &mut output)?;
+    }
+
+    Ok(())
+}
+
+fn best_twine_html_file(
+    root_path: &Path,
+    source_path: &Path,
+    html_files: &[String],
+) -> Option<String> {
+    let source_base_name = source_path
+        .file_stem()
+        .map(|name| name.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
+        .trim_end_matches(".zip")
+        .to_owned();
+    let mut candidates = html_files.to_vec();
+
+    candidates.sort_by(|left, right| {
+        let left_path = Path::new(left);
+        let right_path = Path::new(right);
+        let left_base = left_path
+            .file_stem()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let right_base = right_path
+            .file_stem()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let left_relative = slash_path(left_path.strip_prefix(root_path).unwrap_or(left_path));
+        let right_relative = slash_path(right_path.strip_prefix(root_path).unwrap_or(right_path));
+        let left_score = [
+            if left_base == source_base_name { 0 } else { 1 },
+            if left_base.contains(&source_base_name) {
+                0
+            } else {
+                1
+            },
+            left_relative.split('/').count(),
+            left_relative.len(),
+        ];
+        let right_score = [
+            if right_base == source_base_name { 0 } else { 1 },
+            if right_base.contains(&source_base_name) {
+                0
+            } else {
+                1
+            },
+            right_relative.split('/').count(),
+            right_relative.len(),
+        ];
+
+        left_score
+            .cmp(&right_score)
+            .then_with(|| left_relative.cmp(&right_relative))
+    });
+
+    candidates.into_iter().next()
+}
+
+fn write_renderer_project_sidecar(
+    root: &Path,
+    story: serde_json::Value,
+) -> Result<(), NativeBoxError> {
+    let sidecar_dir = root.join(".twine");
+    let sidecar_path = sidecar_dir.join("project.json");
+    let temp_path = sidecar_dir.join(format!("project.json.{}.tmp", timestamp_nanos()));
+    let payload = serde_json::json!({
+        "schema": "twine.rs/renderer-project",
+        "version": 1,
+        "stories": [renderer_project_metadata(story)]
+    });
+
+    fs::create_dir_all(&sidecar_dir)?;
+    fs::write(
+        &temp_path,
+        format!("{}\n", serde_json::to_string(&payload)?),
+    )?;
+
+    if sidecar_path.exists() {
+        fs::remove_file(&sidecar_path)?;
+    }
+
+    fs::rename(temp_path, sidecar_path)?;
+    Ok(())
+}
+
+fn renderer_project_metadata(mut story: serde_json::Value) -> serde_json::Value {
+    if let Some(passages) = story
+        .get_mut("passages")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for passage in passages {
+            if let Some(passage) = passage.as_object_mut() {
+                passage.remove("text");
+            }
+        }
+    }
+
+    story
 }
 
 fn list_project_assets(root: &Path) -> Result<Vec<CoreAssetInventoryEntry>, std::io::Error> {
@@ -564,7 +789,10 @@ fn discover_project_import_assets(
         let path = entry.path();
 
         if entry.file_type()?.is_dir()
-            && is_obvious_import_asset_directory(&entry.file_name().to_string_lossy(), &html_base_name)
+            && is_obvious_import_asset_directory(
+                &entry.file_name().to_string_lossy(),
+                &html_base_name,
+            )
         {
             scan_import_asset_directory(&mut assets, source_root, &path)?;
         }
@@ -700,7 +928,10 @@ fn rewrite_project_import_asset_references(
 
         source = regex
             .replace_all(&source, |captures: &regex::Captures<'_>| {
-                format!("{}{target_root}/", captures.get(1).map_or("", |value| value.as_str()))
+                format!(
+                    "{}{target_root}/",
+                    captures.get(1).map_or("", |value| value.as_str())
+                )
             })
             .into_owned();
     }
@@ -832,7 +1063,10 @@ fn file_url_for_path(path: &str) -> Option<String> {
         format!("/{normalized}")
     };
 
-    Some(format!("file://{}", percent_encode_file_path(&absolute_path)))
+    Some(format!(
+        "file://{}",
+        percent_encode_file_path(&absolute_path)
+    ))
 }
 
 fn percent_encode_file_path(path: &str) -> String {
@@ -872,6 +1106,13 @@ fn system_time_to_ms(time: SystemTime) -> f64 {
         .unwrap_or_default()
 }
 
+fn timestamp_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
 fn parse_iso_to_ms(value: &str) -> Option<f64> {
     OffsetDateTime::parse(value, &Rfc3339)
         .ok()
@@ -896,6 +1137,12 @@ fn slash_path(path: &Path) -> String {
         .map(|component| component.to_string_lossy())
         .collect::<Vec<_>>()
         .join("/")
+}
+
+fn path_extension(path: &Path) -> String {
+    path.extension()
+        .map(|extension| extension.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
 }
 
 fn is_import_asset_file(path: &str) -> bool {
@@ -955,7 +1202,10 @@ fn import_asset_target_path(relative_source_path: &str) -> String {
 }
 
 fn import_asset_reference_path(reference: &str) -> Option<PathBuf> {
-    let normalized = reference.replace('\\', "/").trim_start_matches("./").to_owned();
+    let normalized = reference
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .to_owned();
 
     if normalized.starts_with('/')
         || path_looks_like_url(&normalized)
@@ -988,7 +1238,8 @@ fn percent_decode_lossy(value: &str) -> String {
         index += 1;
     }
 
-    String::from_utf8(decoded).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+    String::from_utf8(decoded)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
 }
 
 fn hex_value(value: u8) -> Option<u8> {
@@ -1049,6 +1300,18 @@ fn native_error(error: impl std::fmt::Display) -> napi::Error {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "twine-native-{label}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ))
+    }
 
     #[test]
     fn asset_kind_matches_typescript_mapping() {
@@ -1060,8 +1323,110 @@ mod tests {
 
     #[test]
     fn import_asset_target_paths_are_project_local() {
-        assert_eq!(import_asset_target_path("images/cover.png"), "assets/images/cover.png");
-        assert_eq!(import_asset_target_path("assets/cover.png"), "assets/cover.png");
+        assert_eq!(
+            import_asset_target_path("images/cover.png"),
+            "assets/images/cover.png"
+        );
+        assert_eq!(
+            import_asset_target_path("assets/cover.png"),
+            "assets/cover.png"
+        );
+    }
+
+    #[test]
+    fn saves_project_folder_and_slim_renderer_sidecar() {
+        let root = temp_path("save-project");
+        let story = serde_json::json!({
+            "ifid": "IFID",
+            "id": "story-1",
+            "lastUpdate": "2026-01-01T00:00:00.000Z",
+            "name": "Native Save",
+            "passages": [{
+                "height": 100,
+                "highlighted": true,
+                "id": "passage-1",
+                "left": 25,
+                "name": "Start",
+                "selected": true,
+                "story": "story-1",
+                "tags": ["hub"],
+                "text": "A very important passage body",
+                "top": 25,
+                "width": 100
+            }],
+            "script": "",
+            "selected": true,
+            "snapToGrid": true,
+            "startPassage": "passage-1",
+            "storyFormat": "Harlowe",
+            "storyFormatVersion": "3.3.9",
+            "stylesheet": "",
+            "tags": [],
+            "tagColors": {"hub": "#f00"},
+            "zoom": 1
+        });
+
+        save_project_folder_json(root.to_string_lossy().into_owned(), story.to_string())
+            .expect("project should save");
+
+        let sidecar = fs::read_to_string(root.join(".twine/project.json"))
+            .expect("sidecar should be written");
+
+        assert!(root.join("twine.toml").exists());
+        assert!(root.join("passages/native-save/0001-start.twee").exists());
+        assert!(sidecar.contains("\"highlighted\":true"));
+        assert!(sidecar.contains("\"selected\":true"));
+        assert!(!sidecar.contains("A very important passage body"));
+
+        fs::remove_dir_all(root).expect("project should be removed");
+    }
+
+    #[test]
+    fn prepares_zip_import_with_rewritten_assets() {
+        let root = temp_path("zip-import");
+        let zip_path = root.join("Archive Story.zip");
+
+        fs::create_dir_all(&root).expect("temp root should be created");
+
+        let zip_file = File::create(&zip_path).expect("zip should be created");
+        let mut zip = zip::ZipWriter::new(zip_file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("Archive Story.html", options)
+            .expect("html entry should start");
+        zip.write_all(
+            br#"<tw-storydata name="Archive Story" hidden><tw-passagedata pid="1" name="Start">images/cover.png</tw-passagedata></tw-storydata>"#,
+        )
+        .expect("html should write");
+        zip.start_file("images/cover.png", options)
+            .expect("asset entry should start");
+        zip.write_all(b"cover").expect("asset should write");
+        zip.finish().expect("zip should finish");
+
+        let prepared = prepare_project_import_json(zip_path.to_string_lossy().into_owned())
+            .expect("zip import should prepare");
+        let prepared: serde_json::Value =
+            serde_json::from_str(&prepared).expect("prepared import should parse");
+        let cleanup_path = prepared
+            .get("cleanupPath")
+            .and_then(serde_json::Value::as_str)
+            .expect("zip import should return cleanup path")
+            .to_owned();
+
+        assert_eq!(prepared["sourceKind"], "zip");
+        assert_eq!(
+            prepared["assets"][0]["targetPath"],
+            "assets/images/cover.png"
+        );
+        assert!(
+            prepared["htmlSource"]
+                .as_str()
+                .expect("html source should be a string")
+                .contains("assets/images/cover.png")
+        );
+
+        fs::remove_dir_all(cleanup_path).expect("cleanup path should be removed");
+        fs::remove_dir_all(root).expect("temp root should be removed");
     }
 
     #[test]

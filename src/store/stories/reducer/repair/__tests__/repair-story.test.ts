@@ -104,7 +104,85 @@ describe('repairStory', () => {
 		});
 	});
 
+	it('canonicalizes the story format name if it matches installed formats', () => {
+		allFormats[1].name = 'SugarCube';
+		allFormats[1].version = '2.36.1';
+		story.storyFormat = ' sugarcube ';
+		story.storyFormatVersion = '2.36.1';
+
+		expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+			...story,
+			storyFormat: 'SugarCube'
+		});
+	});
+
+	it('repairs an obvious SugarCube story that was mislabeled as Harlowe', () => {
+		defaultFormat.name = 'Harlowe';
+		defaultFormat.version = '3.3.9';
+		allFormats[1].name = 'SugarCube';
+		allFormats[1].version = '2.36.1';
+		story.storyFormat = 'Harlowe';
+		story.storyFormatVersion = '3.3.9';
+		story.passages[0].text = '<<set $visited to true>>';
+
+		expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+			...story,
+			storyFormat: 'SugarCube',
+			storyFormatVersion: '2.36.1'
+		});
+	});
+
+	it('repairs a lazy SugarCube story shell from SugarCube passage tags', () => {
+		defaultFormat.name = 'Harlowe';
+		defaultFormat.version = '3.3.9';
+		allFormats[1].name = 'SugarCube';
+		allFormats[1].version = '2.36.1';
+		story.storyFormat = 'Harlowe';
+		story.storyFormatVersion = '3.3.9';
+		story.passages[0].tags = ['widget'];
+		story.passages[0].text = '';
+
+		expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+			...story,
+			storyFormat: 'SugarCube',
+			storyFormatVersion: '2.36.1'
+		});
+	});
+
+	it('preserves SugarCube if the installed format list is temporarily incomplete', () => {
+		allFormats = [defaultFormat];
+		story.storyFormat = 'SugarCube';
+		story.storyFormatVersion = '2.37.3';
+
+		expect(repairStory(story, [story], allFormats, defaultFormat)).toBe(story);
+	});
+
+	it('preserves a bundled format name when its version is unavailable', () => {
+		allFormats = [defaultFormat];
+		story.storyFormat = 'sugarcube';
+		(story as any).storyFormatVersion = undefined;
+
+		expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+			...story,
+			storyFormat: 'SugarCube',
+			storyFormatVersion: ''
+		});
+	});
+
 	describe("when the story's story format does not exist", () => {
+		it('assigns it the newest matching format when the version is unset', () => {
+			allFormats[1].name = 'SugarCube';
+			allFormats[1].version = '2.36.1';
+			story.storyFormat = 'SugarCube';
+			(story as any).storyFormatVersion = undefined;
+
+			expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+				...story,
+				storyFormat: 'SugarCube',
+				storyFormatVersion: '2.36.1'
+			});
+		});
+
 		it('assigns it one that matches semver', () => {
 			allFormats[1].version = '1.2.0';
 			story.storyFormatVersion = '1.1.0';
@@ -115,8 +193,18 @@ describe('repairStory', () => {
 			});
 		});
 
-		it('assigns the default format if none match semver', () => {
+		it('keeps the named format if none of its versions match semver', () => {
 			allFormats[1].version = '2.0.0';
+			story.storyFormatVersion = '1.1.0';
+
+			expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+				...story,
+				storyFormatVersion: allFormats[1].version
+			});
+		});
+
+		it('assigns the default format if no installed format name matches', () => {
+			story.storyFormat = 'missing-format';
 			story.storyFormatVersion = '1.1.0';
 
 			expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({

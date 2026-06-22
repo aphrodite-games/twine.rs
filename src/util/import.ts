@@ -42,6 +42,15 @@ const selectors = {
 	tagColors: 'tw-tag',
 	passageData: 'tw-passagedata'
 };
+const sugarCubeMacroSignalRegex =
+	/<<(?:set|if|elseif|else|switch|case|default|for|capture|widget|button|link(?:append|prepend|replace)?|goto|include|display|print|run|script|style|audio|nobr|notify|timed|repeat|silently|remember|forget|done)\b|<<\/(?:if|for|widget|button|link(?:append|prepend|replace)?|nobr|silently|script|style|notify|timed|repeat)>>/i;
+const sugarCubeSignalTags = new Set([
+	'init',
+	'nobr',
+	'script',
+	'stylesheet',
+	'widget'
+]);
 
 /**
  * Convenience function to convert a string value to an float.
@@ -156,6 +165,39 @@ function passageFromDom(passageEl: Element) {
 	};
 }
 
+function storyLooksLikeSugarCube(story: ImportedStory) {
+	const sources = [
+		story.script,
+		story.stylesheet,
+		...story.passages.map(passage => passage.text)
+	].filter((source): source is string => typeof source === 'string');
+	const hasSugarCubeTag = story.passages.some(
+		passage =>
+			Array.isArray(passage.tags) &&
+			passage.tags.some(tag => sugarCubeSignalTags.has(tag.toLowerCase()))
+	);
+
+	return (
+		hasSugarCubeTag ||
+		sources.some(source => sugarCubeMacroSignalRegex.test(source))
+	);
+}
+
+function inferMissingStoryFormat(story: ImportedStory): ImportedStory {
+	if (typeof story.storyFormat === 'string' && story.storyFormat.trim() !== '') {
+		return story;
+	}
+
+	if (storyLooksLikeSugarCube(story)) {
+		return {
+			...story,
+			storyFormat: 'SugarCube'
+		};
+	}
+
+	return story;
+}
+
 /**
  * Converts a DOM <tw-storydata> element to a story object matching the format
  * in the store. This *may* be missing data, or data it returns may be
@@ -220,7 +262,11 @@ function finalizeImportedStory(
 	// Merge in defaults. We can't use object spreads here because undefined
 	// values would override defaults.
 
-	const story: Story = defaults(importedStory, {id: uuid()}, storyDefaults());
+	const story: Story = defaults(
+		inferMissingStoryFormat(importedStory),
+		{id: uuid()},
+		storyDefaults()
+	);
 
 	// Override the last update as requested.
 

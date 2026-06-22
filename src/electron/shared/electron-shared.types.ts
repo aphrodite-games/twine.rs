@@ -131,6 +131,7 @@ export interface TwineElectronWindow extends Window {
 			preferredParent?: string
 		): Promise<NativeProjectFolderResult>;
 		deleteProjectAsset(rootPath: string, path: string): Promise<void>;
+		deleteProjectFolder(rootPath: string): Promise<void>;
 		discardProjectImport(importId: string): Promise<void>;
 		deleteStory(story: Story): void;
 		filePathForFile(file: File): string;

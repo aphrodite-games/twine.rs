@@ -1,8 +1,12 @@
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {createMemoryHistory} from 'history';
 import {axe} from 'jest-axe';
 import * as React from 'react';
 import {Router} from 'react-router-dom';
+import {
+	loadProjectMetadata,
+	saveProjectMetadata
+} from '../../../store/project-metadata';
 import {useDonationCheck} from '../../../store/prefs/use-donation-check';
 import {
 	FakeStateProvider,
@@ -18,9 +22,15 @@ describe('<StoryListRoute>', () => {
 	const useDonationCheckMock = useDonationCheck as jest.Mock;
 
 	beforeEach(() => {
+		window.localStorage.clear();
 		useDonationCheckMock.mockReturnValue({
 			shouldShowDonationPrompt: () => false
 		});
+	});
+
+	afterEach(() => {
+		delete (window as any).twineElectron;
+		jest.restoreAllMocks();
 	});
 
 	function renderComponent(contexts?: FakeStateProviderProps) {
@@ -60,6 +70,59 @@ describe('<StoryListRoute>', () => {
 	it('displays story rows if there are stories in state', () => {
 		renderComponent({stories: [fakeStory()]});
 		expect(screen.getByTestId('story-list-row')).toBeInTheDocument();
+	});
+
+	it('deletes a file-backed project folder after confirming the directory', async () => {
+		const story = fakeStory();
+		const rootPath = '/Users/ben/Documents/Twine RS/Stories/Projects/trigaea.twine.rs';
+		const deleteProjectFolder = jest.fn().mockResolvedValue(undefined);
+		const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+		story.name = 'Trigaea';
+		saveProjectMetadata(story.id, {
+			rootPath,
+			status: 'file-backed',
+			storageKind: 'electron-project-folder'
+		});
+		(window as any).twineElectron = {deleteProjectFolder};
+
+		renderComponent({stories: [story]});
+		fireEvent.click(
+			screen.getByRole('button', {name: /delete project trigaea/i})
+		);
+
+		await waitFor(() => expect(deleteProjectFolder).toHaveBeenCalledWith(rootPath));
+		expect(confirmSpy).toHaveBeenCalledWith(
+			expect.stringContaining(`This will delete files from ${rootPath}.`)
+		);
+		await waitFor(() =>
+			expect(screen.queryByTestId('story-list-row')).not.toBeInTheDocument()
+		);
+		expect(loadProjectMetadata(story.id)).toBeUndefined();
+	});
+
+	it('keeps a file-backed project folder if deletion is canceled', () => {
+		const story = fakeStory();
+		const rootPath = '/native/moon-castle.twine.rs';
+		const deleteProjectFolder = jest.fn().mockResolvedValue(undefined);
+
+		story.name = 'Moon Castle';
+		saveProjectMetadata(story.id, {
+			rootPath,
+			status: 'file-backed',
+			storageKind: 'electron-project-folder'
+		});
+		(window as any).twineElectron = {deleteProjectFolder};
+		jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+		renderComponent({stories: [story]});
+		fireEvent.click(
+			screen.getByRole('button', {name: /delete project moon castle/i})
+		);
+
+		expect(deleteProjectFolder).not.toHaveBeenCalled();
+		expect(screen.getByTestId('story-list-row')).toBeInTheDocument();
+		expect(loadProjectMetadata(story.id)?.rootPath).toBe(rootPath);
 	});
 
 	it('displays an empty launcher state if there are no stories in state', () => {

@@ -81,6 +81,9 @@ const bridge = {
 	deleteProjectAsset(rootPath: string, path: string) {
 		return ipcRenderer.invoke('delete-project-asset', rootPath, path);
 	},
+	deleteProjectFolder(rootPath: string) {
+		return ipcRenderer.invoke('delete-project-folder', rootPath);
+	},
 	discardProjectImport(importId: string) {
 		return ipcRenderer.invoke('discard-project-import', importId);
 	},
