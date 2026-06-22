@@ -187,6 +187,61 @@ describe('publishPassage()', () => {
 		);
 	});
 
+	it.each([
+		['SugarCube', '<<goto "Target \\"Passage\\"">>'],
+		['Harlowe', '(go-to: "Target \\"Passage\\"")'],
+		[
+			'Chapbook',
+			'[JavaScript]\nwindow.setTimeout(function() {\n\twindow.go("Target \\"Passage\\"");\n}, 0);'
+		],
+		[
+			'Snowman',
+			'<% window.setTimeout(function() {\n\twindow.story.show("Target \\"Passage\\"");\n}, 0); %>'
+		]
+	])(
+		'can start a %s test preview from a generated post-startup runner',
+		(format, expectedText) => {
+			story.storyFormat = format;
+			story.passages[1].name = 'Target "Passage"';
+
+			const result = toDOM(
+				publish.publishStory(story, appInfo, {
+					startId: story.passages[1].id,
+					startMode: 'afterStartup'
+				})
+			);
+			const passageEls = result.querySelectorAll('tw-passagedata');
+			const runner = passageEls[story.passages.length];
+
+			expect(passageEls.length).toBe(story.passages.length + 1);
+			expect(result.getAttribute('startnode')).toBe(
+				runner.getAttribute('pid')
+			);
+			expect(runner.getAttribute('name')).toBe('twine.rs Test Start');
+			expect(runner.textContent).toBe(expectedText);
+		}
+	);
+
+	it('uses a direct start override for formats without a known test runner', () => {
+		story.storyFormat = 'Paperthin';
+
+		const result = toDOM(
+			publish.publishStory(story, appInfo, {
+				startId: story.passages[1].id,
+				startMode: 'afterStartup'
+			})
+		);
+		const passageEls = result.querySelectorAll('tw-passagedata');
+		const startPassageData = result.querySelector(
+			`tw-passagedata[name="${story.passages[1].name}"]`
+		);
+
+		expect(passageEls.length).toBe(story.passages.length);
+		expect(result.getAttribute('startnode')).toBe(
+			startPassageData?.getAttribute('pid')
+		);
+	});
+
 	it('adds StoryData graph metadata only when requested', () => {
 		let result = toDOM(publish.publishStory(story, appInfo));
 

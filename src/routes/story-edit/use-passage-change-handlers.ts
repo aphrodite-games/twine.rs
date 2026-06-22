@@ -9,6 +9,7 @@ import {
 	deselectPassage,
 	Passage,
 	selectPassage,
+	selectPassagesById,
 	selectPassagesInRect,
 	Story
 } from '../../store/stories';
@@ -91,6 +92,19 @@ export function usePassageChangeHandlers(story: Story) {
 		[story, undoableStoriesDispatch]
 	);
 
+	const handleSelectPassageIds = React.useCallback(
+		(passageIds: string[], additive: boolean) => {
+			undoableStoriesDispatch(
+				selectPassagesById(
+					story,
+					passageIds,
+					additive ? selectedPassages.map(passage => passage.id) : []
+				)
+			);
+		},
+		[selectedPassages, story, undoableStoriesDispatch]
+	);
+
 	const handleSelectRect = React.useCallback(
 		(rect: Rect, additive: boolean) => {
 			// The rect we receive is in screen coordinates--we need to convert to
@@ -120,6 +134,7 @@ export function usePassageChangeHandlers(story: Story) {
 		handleDragPassages,
 		handleEditPassage,
 		handleSelectPassage,
+		handleSelectPassageIds,
 		handleSelectRect
 	};
 }

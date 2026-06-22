@@ -77,6 +77,10 @@ const generatedLayout = {
 const spatialCellSize = 512;
 const viewportOverscan = 256;
 const graphProjectionCache = new WeakMap<Story, GraphProjectionData>();
+const generatedLayoutTargetAspect = 1.25;
+const generatedLayoutMaxRowsPerLevel = 10;
+const generatedLayoutMaxWrapColumns = 4;
+const generatedLayoutMinWrapCount = 5;
 
 export function normalizeGraphProjectionOptions(
 	options: GraphProjectionQuery = {}
@@ -386,6 +390,35 @@ function layoutComponents(index: GraphIndex) {
 	return components;
 }
 
+function layoutBlockShape(count: number) {
+	if (count < generatedLayoutMinWrapCount) {
+		return {columns: 1, rows: Math.max(1, count)};
+	}
+
+	const bestColumnCount = Math.min(generatedLayoutMaxWrapColumns, count);
+	let best = {columns: 1, rows: count, score: Number.POSITIVE_INFINITY};
+
+	for (let columns = 1; columns <= bestColumnCount; columns++) {
+		const rows = Math.ceil(count / columns);
+		const width =
+			columns * generatedLayout.cardWidth +
+			(columns - 1) * generatedLayout.columnGap;
+		const height =
+			rows * generatedLayout.cardHeight + (rows - 1) * generatedLayout.rowGap;
+		const aspect = width / Math.max(height, 1);
+		const tallPenalty =
+			Math.max(0, rows - generatedLayoutMaxRowsPerLevel) * 0.45;
+		const score =
+			Math.abs(Math.log(aspect / generatedLayoutTargetAspect)) + tallPenalty;
+
+		if (score < best.score) {
+			best = {columns, rows, score};
+		}
+	}
+
+	return {columns: best.columns, rows: best.rows};
+}
+
 function generateLayout(index: GraphIndex) {
 	const result = new Map<string, CoreRect>();
 	let componentTop = generatedLayout.originTop;
@@ -400,30 +433,43 @@ function generateLayout(index: GraphIndex) {
 		const sortedLevels = Array.from(levels).sort(
 			([left], [right]) => left - right
 		);
-		const maxRows = Math.max(
-			1,
-			...Array.from(levels.values()).map(ids => ids.length)
-		);
+		const blockShapes = new Map<number, {columns: number; rows: number}>();
+		let levelLeft = generatedLayout.originLeft;
+		let maxRows = 1;
 
 		for (const [level, ids] of sortedLevels) {
+			const shape = layoutBlockShape(ids.length);
+
+			blockShapes.set(level, shape);
+			maxRows = Math.max(maxRows, shape.rows);
+		}
+
+		for (const [level, ids] of sortedLevels) {
+			const shape = blockShapes.get(level) ?? {columns: 1, rows: ids.length};
+
 			ids.sort(
 				(left, right) =>
 					(index.storyRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
 					(index.storyRank.get(right) ?? Number.MAX_SAFE_INTEGER)
 			);
 
-			ids.forEach((id, row) => {
+			ids.forEach((id, index) => {
+				const column = Math.floor(index / shape.rows);
+				const row = index % shape.rows;
+
 				result.set(id, {
 					height: generatedLayout.cardHeight,
 					left:
-						generatedLayout.originLeft +
-						level * (generatedLayout.cardWidth + generatedLayout.columnGap),
+						levelLeft +
+						column * (generatedLayout.cardWidth + generatedLayout.columnGap),
 					top:
 						componentTop +
 						row * (generatedLayout.cardHeight + generatedLayout.rowGap),
 					width: generatedLayout.cardWidth
 				});
 			});
+
+			levelLeft += shape.columns * (generatedLayout.cardWidth + generatedLayout.columnGap);
 		}
 
 		componentTop +=

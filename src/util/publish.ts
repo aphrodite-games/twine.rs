@@ -35,6 +35,13 @@ export interface PublishOptions {
 	startId?: string;
 
 	/**
+	 * How a manually supplied startId should be reached. Test previews use
+	 * "afterStartup" so story-format startup/init/widget passages can run before
+	 * the selected passage renders.
+	 */
+	startMode?: 'afterStartup' | 'direct';
+
+	/**
 	 * If true, publishing will proceed even if the story has no starting passage
 	 * set and one wasn't set manually.
 	 */
@@ -97,6 +104,68 @@ export function publishPassage(passage: Passage, localId: number) {
 	);
 }
 
+function formatName(story: Story) {
+	return story.storyFormat.trim().toLowerCase();
+}
+
+function uniquePassageName(story: Story, baseName: string) {
+	const passageNames = new Set(story.passages.map(passage => passage.name));
+	let result = baseName;
+	let suffix = 2;
+
+	while (passageNames.has(result)) {
+		result = `${baseName} ${suffix++}`;
+	}
+
+	return result;
+}
+
+function quotedString(value: string) {
+	return JSON.stringify(value);
+}
+
+function testStartPassageText(story: Story, target: Passage) {
+	const targetName = quotedString(target.name);
+	const format = formatName(story);
+
+	if (format.includes('sugarcube')) {
+		return `<<goto ${targetName}>>`;
+	}
+
+	if (format.includes('harlowe')) {
+		return `(go-to: ${targetName})`;
+	}
+
+	if (format.includes('chapbook')) {
+		return `[JavaScript]\nwindow.setTimeout(function() {\n\twindow.go(${targetName});\n}, 0);`;
+	}
+
+	if (format.includes('snowman')) {
+		return `<% window.setTimeout(function() {\n\twindow.story.show(${targetName});\n}, 0); %>`;
+	}
+}
+
+function testStartPassage(story: Story, target: Passage): Passage | undefined {
+	const text = testStartPassageText(story, target);
+
+	if (!text) {
+		return;
+	}
+
+	return {
+		...target,
+		height: 100,
+		id: '__twine_rs_test_start__',
+		left: target.left,
+		name: uniquePassageName(story, 'twine.rs Test Start'),
+		selected: false,
+		tags: [],
+		text,
+		top: target.top,
+		width: 100
+	};
+}
+
 /**
  * Does a "naked" publish of a story -- creating an HTML representation of it,
  * but without any story format binding.
@@ -109,10 +178,13 @@ export function publishStory(
 		formatOptions,
 		includeStoryGraph,
 		startId,
+		startMode = 'direct',
 		startOptional
 	}: PublishOptions = {}
 ) {
 	assertAssetInventoryPublishable(assetInventory);
+
+	const manualStartId = startId;
 
 	startId = startId ?? story.startPassage;
 
@@ -136,14 +208,25 @@ export function publishStory(
 
 	let startLocalId;
 	let passageData = '';
+	const startPassage =
+		startId && story.passages.find(passage => passage.id === startId);
+	const publishTestStartPassage =
+		startMode === 'afterStartup' && manualStartId && startPassage
+			? testStartPassage(story, startPassage)
+			: undefined;
 
 	story.passages.forEach((p, index) => {
 		passageData += publishPassage(p, index + 1);
 
-		if (p.id === startId) {
+		if (!publishTestStartPassage && p.id === startId) {
 			startLocalId = index + 1;
 		}
 	});
+
+	if (publishTestStartPassage) {
+		startLocalId = story.passages.length + 1;
+		passageData += publishPassage(publishTestStartPassage, startLocalId);
+	}
 
 	const tagData = Object.keys(story.tagColors).reduce(
 		(result, tag) =>

@@ -101,7 +101,9 @@ export function useStoryLaunch(): UseStoryLaunchProps {
 					assetInventory,
 					buildTarget: 'test',
 					formatOptions: 'debug',
-					startId: startPassageId
+					...(startPassageId
+						? {startId: startPassageId, startMode: 'afterStartup' as const}
+						: {startId: undefined})
 				});
 
 				twineElectronBridge.openWithScratchPackage(

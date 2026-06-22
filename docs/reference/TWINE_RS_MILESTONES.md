@@ -10,6 +10,20 @@ Classification rule: every request has one primary milestone so the roadmap is b
 
 Important product correction: `twine.rs` should be mode-native. It is not graph-first and it is not text-only. The base experience can be an incredible Twine-aware text editor; the graph can be a dreamy native GUI editor; split mode can make them feel like one instrument. Some projects will have saved story positions and graph layouts. Some projects will have no graph metadata at all. Both cases must feel native.
 
+Architecture lock: the milestones assume Rust owns the product model. TypeScript owns presentation,
+interaction state, and applying Rust patches to the UI; it does not own parsing, indexing, graph
+facts, project/session mutations, undo/redo, asset manifests, import/export semantics, external
+edit reingest, diagnostics, search, or publish/build preparation. Compatibility code may remain for
+legacy import/export and temporary migration, but a milestone is not complete while its route-facing
+core behavior still depends on TypeScript producers or Redux-derived story mutations as the source
+of truth.
+
+Removal rule: milestones must remove supports as Rust takes ownership. Because there are no
+external users depending on the current app, it is better to break a TypeScript-era path loudly
+than to preserve a hidden second engine. Each implementation milestone should name the TS
+producer/reducer/scanner/importer it deletes or quarantines, plus the CI/static/runtime check that
+prevents product code from drifting back to it.
+
 ## What People Want Most
 
 The strongest demand signal is not one isolated feature. It is a repeated desire for author ownership, scale, and navigation: people want visible local files, safer import/export, a map that does not bog down, richer search/contents tooling, better tags/organization, stronger code editing, real asset handling, format extensibility, and platform/accessibility reliability.
@@ -332,7 +346,7 @@ Implementation locks after the D1-D5/M0-M6 audit:
 
 - **DONE in engine:** Normal Twine `tw-passagedata position/size` attributes and Twee passage header position metadata parse into passage layout fields.
 - **DONE in engine:** Passage layout exports back into ordinary Twine HTML/Twee `position`/`size` metadata when that layout is present.
-- **DONE in app compatibility host:** the migrated D4/D5 editor controls now route passage creation, deletion, movement, rename, start-passage changes, story rename, story format, snap-to-grid, zoom, source edits, generated layout save, and asset operations through `CoreProjectHost.applyStoryCommand()`.
+- **STAGING, NOT CLOSED:** the migrated D4/D5 editor controls now route passage creation, deletion, movement, rename, start-passage changes, story rename, story format, snap-to-grid, zoom, source edits, generated layout save, and asset operations through `CoreProjectHost.applyStoryCommand()`. This is only a seam; it is not complete until `CoreProjectHost` sends those commands to Rust `ProjectSession`, applies Rust patches back to the UI, and deletes the TypeScript reducer-as-authority path from product routes.
 - **DONE in native desktop app integration:** New/Open Project uses the
   Electron desktop session bridge to create/open a real `twine.rs` project
   folder under the configured story library/default folder, writes
@@ -415,13 +429,19 @@ Implementation locks after the D5 audit/advance pass:
   to actual passage card sizes during move/resize, rotates edge anchors with the
   view orientation, restores a dot-grid graph background, and has a 10k-passage
   viewport-bounded projection test. The remaining scale risk is browser-level
-  interaction validation and the Rust/WASM `ProjectSession` bridge.
+  interaction validation and making Rust/WASM `ProjectSession` the live route
+  authority. A TypeScript graph projector can exist only as migration/test
+  scaffolding.
 - **PARTIAL:** compatibility import/export now preserves normal Twine
   position/size metadata and lifts it into sidecar layout; remaining work is
   end-to-end project-folder parity through the live Rust session.
 - **REMAINING:** performance validation still needs 50k passage projects,
   pan/zoom latency traces, viewport projection latency, edge-layer filtering,
-  search/filter responsiveness, and memory ceilings in the running app.
+  search/filter responsiveness, and memory ceilings in the running app. M2 is
+  not closed until graph commands, projection, layout save, undo/redo, and
+  cache invalidation flow through Rust `ProjectSession` patches instead of
+  TypeScript-derived story mutations. Closure also requires a removal guard
+  proving product graph routes cannot call the old TypeScript projector.
 
 Highest-signal requests in this milestone:
 
@@ -483,7 +503,8 @@ M4 handoff notes from M1-M3 readiness:
   references, replacement previews, symbols, and diagnostics. The Electron-era
   UI now treats `CoreProjectHost.queryStoryIndex()` as the only route-facing
   boundary; file-backed assets and external source edits enter that boundary
-  through the project-session bridge instead of route-local scanners.
+  through the project-session runtime instead of route-local scanners. This
+  boundary must be Rust-owned to close M4.
 - D6 now promotes the indexed Contents and Diagnostics data into first-class
   DS shell routes: `/stories/:storyId/contents` and
   `/stories/:storyId/diagnostics`. These routes are the primary UI for browsing
@@ -493,13 +514,16 @@ M4 handoff notes from M1-M3 readiness:
   validation counts. Unlinked/unreachable passages are warnings, not errors,
   because story formats can still reach passages through macros such as
   `(display: "passage")`, scripts, or other runtime behavior.
-- M4 app contract is closed for the current Electron architecture: the
-  compatibility producer now covers variable/symbol extraction, regex/fuzzy
-  ranking, case/options handling, replacement previews, asset/file references,
-  tag count/color workflows, diagnostics severities/quick fixes, and Contents
-  Navigator state through the same DTO shape as Rust. A future native/WASM host
-  can swap in the Rust producer behind `CoreProjectHost` without changing the
-  inspector/search UI contract.
+- M4 UI contract is shaped for the current Electron architecture, but the
+  TypeScript compatibility producer is migration debt. The route-facing product
+  is not M4-complete until variable/symbol extraction, regex/fuzzy ranking,
+  case/options handling, replacement previews, asset/file references, tag
+  count/color workflows, diagnostics severities/quick fixes, Contents Navigator
+  data, and external-edit reindexing come from Rust queries and patch events.
+  The TS producer may remain only as import/export compatibility or test
+  scaffolding once the Rust host lands. Closure also requires a forbidden-import
+  or equivalent runtime guard showing Contents/Search/Diagnostics routes cannot
+  use the TypeScript index producer.
 
 Highest-signal requests in this milestone:
 

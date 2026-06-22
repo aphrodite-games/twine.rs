@@ -141,3 +141,31 @@ export function selectPassagesInRect(
 		}
 	};
 }
+
+export function selectPassagesById(
+	story: Story,
+	passageIds: string[],
+	ignoreIds: string[] = []
+): Thunk<StoriesState, UpdatePassagesAction> {
+	return dispatch => {
+		const passageUpdates: Record<string, Partial<Passage>> = {};
+		const ignored = new Set(ignoreIds);
+		const selectedIds = new Set(passageIds);
+
+		story.passages.forEach(passage => {
+			if (ignored.has(passage.id)) {
+				return;
+			}
+
+			const selected = selectedIds.has(passage.id);
+
+			if (passage.selected !== selected) {
+				passageUpdates[passage.id] = {selected};
+			}
+		});
+
+		if (Object.keys(passageUpdates).length > 0) {
+			dispatch({type: 'updatePassages', passageUpdates, storyId: story.id});
+		}
+	};
+}

@@ -34,6 +34,34 @@ fn default_overscan() -> f64 {
 }
 
 const SPATIAL_CELL_SIZE: f64 = 512.0;
+const GENERATED_LAYOUT_TARGET_ASPECT: f64 = 1.25;
+const GENERATED_LAYOUT_MAX_ROWS_PER_LEVEL: usize = 10;
+const GENERATED_LAYOUT_MAX_WRAP_COLUMNS: usize = 4;
+const GENERATED_LAYOUT_MIN_WRAP_COUNT: usize = 5;
+
+fn layout_block_shape(count: usize, options: &AutoLayoutOptions) -> (usize, usize) {
+    if count < GENERATED_LAYOUT_MIN_WRAP_COUNT {
+        return (1, count.max(1));
+    }
+
+    let best_column_count = GENERATED_LAYOUT_MAX_WRAP_COLUMNS.min(count);
+    let mut best = (1, count, f64::INFINITY);
+
+    for columns in 1..=best_column_count {
+        let rows = (count + columns - 1) / columns;
+        let width = options.card_width + columns.saturating_sub(1) as f64 * options.column_gap;
+        let height = options.card_height + rows.saturating_sub(1) as f64 * options.row_gap;
+        let aspect = width / height.max(1.0);
+        let tall_penalty = rows.saturating_sub(GENERATED_LAYOUT_MAX_ROWS_PER_LEVEL) as f64 * 0.45;
+        let score = (aspect / GENERATED_LAYOUT_TARGET_ASPECT).ln().abs() + tall_penalty;
+
+        if score < best.2 {
+            best = (columns, rows, score);
+        }
+    }
+
+    (best.0, best.1)
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -376,31 +404,46 @@ impl GraphIndex {
                 levels.entry(level).or_default().push(id);
             }
 
-            let max_rows = levels.values().map(Vec::len).max().unwrap_or(0);
+            let mut level_shapes = BTreeMap::<usize, (usize, usize)>::new();
+            let mut max_rows = 1;
+
+            for (level, ids) in &levels {
+                let shape = layout_block_shape(ids.len(), options);
+                level_shapes.insert(*level, shape);
+                max_rows = max_rows.max(shape.1);
+            }
+
+            let mut level_left = options.origin_left;
 
             for (level, mut ids) in levels {
+                let (columns, rows) = level_shapes
+                    .get(&level)
+                    .copied()
+                    .unwrap_or((1, ids.len().max(1)));
                 ids.sort_by_key(|id| self.story_order_index(id));
 
-                for (row, id) in ids.into_iter().enumerate() {
+                for (index, id) in ids.into_iter().enumerate() {
+                    let column = index / rows;
+                    let row = index % rows;
+
                     layout.passages.insert(
                         id,
                         PassageLayout {
                             bounds: GraphPosition {
                                 height: options.card_height,
-                                left: options.origin_left
-                                    + level as f64 * (options.card_width + options.column_gap),
-                                top: component_top
-                                    + row as f64 * (options.card_height + options.row_gap),
+                                left: level_left + column as f64 * options.column_gap,
+                                top: component_top + row as f64 * options.row_gap,
                                 width: options.card_width,
                             },
                             ..PassageLayout::default()
                         },
                     );
                 }
+
+                level_left += columns as f64 * options.column_gap;
             }
 
-            component_top += max_rows.max(1) as f64 * (options.card_height + options.row_gap)
-                + options.component_gap;
+            component_top += max_rows as f64 * options.row_gap + options.component_gap;
         }
 
         layout
@@ -1096,6 +1139,79 @@ mod tests {
                 .passages
                 .iter()
                 .all(|passage| passage.layout.is_none())
+        );
+    }
+
+    #[test]
+    fn generated_layout_wraps_dense_levels_into_balanced_blocks() {
+        let target_count = 12;
+        let targets = (0..target_count)
+            .map(|index| {
+                json!({
+                    "id": format!("target-{index}"),
+                    "name": format!("Target {index}"),
+                    "story": "story-1",
+                    "tags": [],
+                    "text": ""
+                })
+            })
+            .collect::<Vec<_>>();
+        let target_links = (0..target_count)
+            .map(|index| format!("[[Target {index}]]"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut passages = vec![json!({
+            "id": "start",
+            "name": "Start",
+            "story": "story-1",
+            "tags": [],
+            "text": target_links
+        })];
+
+        passages.extend(targets);
+
+        let story = serde_json::from_value::<Story>(json!({
+            "ifid": "IFID",
+            "id": "story-1",
+            "lastUpdate": "2026-01-01T00:00:00.000Z",
+            "name": "Dense Layout",
+            "passages": passages,
+            "script": "",
+            "selected": false,
+            "snapToGrid": true,
+            "startPassage": "start",
+            "storyFormat": "Harlowe",
+            "storyFormatVersion": "3.3.9",
+            "stylesheet": "",
+            "tags": [],
+            "tagColors": {},
+            "zoom": 1
+        }))
+        .expect("dense story json should deserialize");
+        let graph = GraphIndex::from_story(&story);
+        let layout = graph.generate_ephemeral_layout(&AutoLayoutOptions::default());
+        let target_bounds = (0..target_count)
+            .map(|index| {
+                layout.passages[&PassageId::new(format!("target-{index}"))].bounds
+            })
+            .collect::<Vec<_>>();
+        let target_lefts = target_bounds
+            .iter()
+            .map(|bounds| bounds.left as i64)
+            .collect::<BTreeSet<_>>();
+        let target_tops = target_bounds
+            .iter()
+            .map(|bounds| bounds.top as i64)
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(target_lefts.len(), 3);
+        assert_eq!(target_tops.len(), 4);
+        assert_eq!(
+            target_bounds
+                .iter()
+                .filter(|bounds| (bounds.left - 240.0).abs() <= f64::EPSILON)
+                .count(),
+            4
         );
     }
 

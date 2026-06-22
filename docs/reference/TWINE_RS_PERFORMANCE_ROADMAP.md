@@ -3,7 +3,8 @@
 This roadmap makes `twine.rs` open, navigate, and edit massive real projects (the
 `Transylvania0.6.01` sample: **4,622 passages, 2,889 links, 2,656 asset files, ~404 MB**)
 feel instant. It is **fully aligned with the dream architecture**, not a parallel plan:
-every major item here is a step toward *completing the Rust/WASM `ProjectSession` bridge*
+every major item here is a step toward *making the Rust/WASM/native `ProjectSession` the
+live product authority*
 that [`TWINE_RS_MILESTONES.md`](./TWINE_RS_MILESTONES.md) already names as the remaining
 scale risk for **M2** and the foundation for **M4**. We are not inventing a new engine — we
 are letting the engine that already exists do the work it was built for.
@@ -16,7 +17,29 @@ are letting the engine that already exists do the work it was built for.
 > [`src/core/bindings/`](../../src/core/bindings/) were emitted by `ts-rs` "for the workbench
 > bridge," but **nothing crosses that bridge yet**. Closing that gap is the whole game.
 
-## 0. Review Position
+## 0. Architecture Lock: Rust Owns The Product Model
+
+As of the P3 push, the roadmap assumes an explicit Rust-first direction:
+
+- Rust is the source of truth for project state, story semantics, parsing, indexing, graph
+  facts, command validation, patch generation, undo/redo, import/export, asset manifests,
+  external-edit reingest, and publish/build preparation.
+- TypeScript is allowed to own presentation, transient UI/workspace state, React rendering,
+  CodeMirror integration, keyboard/accessibility behavior, and applying Rust patches to the
+  visible UI state. It must not be the long-term owner of story/project semantics.
+- Generated TypeScript bindings are an adapter surface generated from Rust, not an alternate
+  schema and not permission to reimplement the core model in TS.
+- Fallbacks and compatibility producers are temporary migration scaffolding. They must be
+  feature-flagged, observable in diagnostics/perf artifacts, and removed or demoted to test-only
+  once the Rust path exists. A milestone is not complete while its core behavior still depends on
+  a TypeScript producer.
+- It is acceptable for a Rust cutover to break TypeScript-era assumptions temporarily. Fix the
+  product around the Rust authority instead of preserving a second implementation.
+- This roadmap is a deletion roadmap as much as a build roadmap. Because `twine.rs` is not yet a
+  user-dependent product, we should kick out compatibility supports aggressively after each Rust
+  cutover. Temporary breakage is acceptable; silent dual ownership is not.
+
+## 0.1 Review Position
 
 I agree with the roadmap's direction: **the app should become a thin, responsive UI over the
 Rust core**, not a second TypeScript implementation of the same domain model. The plan is right
@@ -33,7 +56,7 @@ has spatial-cell viewport projection - so the biggest immediate wins are:
 4. keep React rendering O(viewport), not O(project).
 
 In other words: use Phase 0 to shrink the live data shape and de-risk lazy hydration, then use
-Phases 1-2 to replace the computational owners. Do not wait until the full native bridge to fix
+Phases 1-2 to replace the computational owners. Do not wait until the full native runtime to fix
 the contents screen, project-open lifecycle, and file-scan duplication.
 
 ---
@@ -58,10 +81,11 @@ allocations, persistence write-back, and React render churn → ~7s observed.
 
 ### 1.2 Root causes (not project size — architecture)
 
-1. **Rust is not wired into the live app.** `twine_core::ProjectSession`,
+1. **Rust is not wired into the live app as authority.** `twine_core::ProjectSession`,
    `twine_graph::GraphIndex`, and the parsers are production-ready but reachable only through
    `twine_cli`. The renderer's [project-host.ts](../../src/core/project-host.ts) re-implements
-   the command→patch model against Redux in TypeScript; bindings are imported `type`-only.
+   the command→patch model against Redux in TypeScript; bindings are imported `type`-only. This
+   is migration debt, not an acceptable destination.
 2. **Everything is on the main thread.** Parse, index, projection, and search block first
    paint and block every keystroke/pan frame.
 3. **Redundant work.** The asset tree is walked up to 3× on open; passage text is read in full
@@ -94,9 +118,10 @@ allocations, persistence write-back, and React render churn → ~7s observed.
 - **Fixtures:** [benchmarks/generate-fixtures.mjs](../../benchmarks/generate-fixtures.mjs)
   → `npm run bench:fixtures` / `:large` (1k/5k/10k/50k, deterministic links).
 - **Test harnesses:** Jest + jsdom (114 suites), Playwright ([e2e/](../../e2e/)), `cargo test`.
-- **Bridge-shaped UI surfaces:** the newer graph/contents work already routes through
+- **Boundary-shaped UI surfaces:** the newer graph/contents work already routes through
   `useCoreProjectHost()` and generated core types. That is good news: many call sites can switch
-  from `StoreCoreProjectHost` to a WASM/native-backed host without a wholesale UI rewrite.
+  from `StoreCoreProjectHost` to a WASM/native-backed host without a wholesale UI rewrite. That
+  switch is required, not optional, for the relevant milestones to close.
 
 ---
 
@@ -117,7 +142,8 @@ measurable, CI-enforceable budgets. Reference machine: Apple Silicon dev laptop,
 | **Incremental edit** | reindex after 1 passage change | ≤ 5ms | ≤ 1ms | full-story rebuild |
 | **Memory** | resident set, Transylvania open | ≤ 600MB | ≤ 350MB | > 1.2GB |
 | **Asset listing** | first asset grid paint | ≤ 300ms | ≤ 100ms | blocks open |
-| **Bridge overhead** | serialized bytes per graph query | viewport-bounded | no full story transfer | sends full `Story` |
+| **Rust authority** | command/index/projection owner | Rust/WASM/native | TS applies patches only | TS computes core facts |
+| **Boundary overhead** | serialized bytes per graph query | viewport-bounded | no full story transfer | sends full `Story` |
 | **React render shape** | rows/nodes mounted at 50k | O(viewport) | stable under scroll | O(n) mount |
 
 ---
@@ -153,9 +179,10 @@ a process per interaction:
   `StoryCommand` in, `PatchBatch` out — exactly the host interface
   [project-host.ts](../../src/core/project-host.ts) already models.
 
-### 3.1 Data ownership: revisioned snapshots, not giant story transfers
+### 3.1 Data ownership: revisioned Rust sessions, not giant story transfers
 
-The bridge should introduce a **session-owned project model** with small, revisioned views:
+The runtime boundary must expose a **Rust session-owned project model** with small, revisioned
+views:
 
 - `ProjectShellSnapshot`: project/story metadata, story ids, passage ids, names, tags, layout,
   file paths, start passage, story format, asset inventory summary. This is enough for the shell,
@@ -181,20 +208,47 @@ object churn, faster language."
 - **No duplicate indexes per runtime.** If WASM worker owns an index, the main process/native
   session should either share a serialized warm snapshot or rebuild only when the benchmark proves
   it is cheaper than transfer. Avoid quietly doubling memory.
-- **Capability flags must be per surface.** `rustGraph`, `rustIndex`, `nativeLoad`,
-  `nativeAssets`, `workerQueries` should flip independently so regressions can be isolated.
+- **Capability flags are rollout valves, not product modes.** `rustGraph`, `rustIndex`,
+  `nativeLoad`, `nativeAssets`, `workerQueries`, and `rustCommands` may flip independently so
+  regressions can be isolated, but the roadmap outcome is all core surfaces on Rust. A green TS
+  fallback does not satisfy a Rust-owned milestone.
+- **TypeScript core producers must shrink over time.** Every route-local scanner, parser,
+  indexer, graph projector, asset manifest builder, or undo reducer that derives story/project
+  facts is temporary until replaced by a Rust command/query.
+- **Cutovers include removals.** A Rust implementation is not done when it is added beside the
+  TypeScript one. It is done when product code can no longer reach the TypeScript producer.
 
 **Rejected alternatives & why:** per-pan `twine_cli` subprocess (process-startup cost dwarfs the
 2ms projection); full Tauri migration (too large a rewrite for an incremental bridge — revisit
-only if Electron overhead itself becomes the ceiling). The bridge is additive: each surface can
-cut over from JS to Rust independently behind a capability flag, with the JS path as fallback.
+only if Electron overhead itself becomes the ceiling). The cutover can happen surface by surface,
+but the JS path is a migration escape hatch, not a coequal engine.
+
+### 3.3 Removal gates and anti-regression checks
+
+Every Rust cutover must remove support code or add a failing guard that proves removal is next:
+
+- **Static ownership guard:** product routes and stores must not import TS core producers such as
+  `story-index.ts`, `graph-projection.ts`, route-local asset scanners, or Redux undo reducers after
+  their Rust replacements land. CI should fail on forbidden imports.
+- **Runtime authority guard:** command-path tests must assert that authoring operations call
+  `ProjectSession::apply` / native session commands first and apply returned patches; reducers may
+  apply patches but must not be the canonical mutation source.
+- **Deletion budget:** every P1-P5 milestone must include a "removed/deleted" checklist item.
+  If a migration shim remains, it must have an owner, an exit condition, and a test proving it is
+  not used by normal product routes.
+- **No green fallback credit:** tests passing through a TS fallback do not count for milestone
+  completion. Perf artifacts must record bridge/runtime mode and fail if a Rust-owned surface is
+  unexpectedly running in TS compatibility mode.
+- **Break loudly:** when a deprecated TS producer is invoked in development for a Rust-owned
+  surface, it should throw or log a loud diagnostic rather than quietly saving the workflow.
 
 ---
 
 ## 4. Phased Roadmap
 
-Each item: **Problem → Rust-friendly fix → Dream alignment → Headless test**. Phases 0 ships
-immediately in pure JS; Phases 1–5 land the bridge surface by surface.
+Each item: **Problem → Rust-owned fix → Dream alignment → Headless test**. Phase 0 exists only
+to stop acute waste before the Rust path lands. Phases 1–5 move ownership to Rust surface by
+surface and delete or quarantine TypeScript core producers.
 
 ### Phase 0 — Stop the bleeding (pure JS, ship now) · aligns M0/M2
 
@@ -231,28 +285,35 @@ Wins that need no Rust and remove the most egregious main-thread waste.
 
 ### Phase 1 — WASM graph + index core in the renderer · aligns M2 + M4
 
-The headline phase: the live graph and indexes start running Rust.
+The headline phase: the live graph and indexes stop being TypeScript-owned.
 
 - **P1.1 — Build `twine_wasm` crate.** `wasm-bindgen` wrapper exposing `ProjectSession::apply`
   for `QueryGraphProjection` / `QueryStoryIndex`, returning the existing `ts-rs` types.
   *Test:* `wasm-pack test --headless` parity vs. golden CLI projections on the fixture corpus.
-- **P1.2 — Cut the graph projection over to WASM.** Replace
+- **P1.2 — Cut the graph projection over to WASM as authority.** Replace
   [graph-projection.ts](../../src/core/graph-projection.ts)'s `storyToCoreGraphProjection` call
-  site with a WASM call behind a capability flag; JS stays as fallback.
-  *Test:* Jest parity (node-for-node equality JS vs WASM on 1k/5k/10k fixtures);
-  micro-bench asserting projection < 1ms p50 at 10k.
+  site with a WASM `ProjectSession` query. The JS projector becomes a temporary diagnostic/test
+  fallback, not a production owner.
+  *Test:* parity during cutover, then a regression test asserting the product path uses the WASM
+  worker and does not call the JS projector for graph mode.
 - **P1.3 — Move WASM into a Web Worker.** Projection/index/search run off the main thread;
   React receives small projections over `postMessage`/`Comlink`.
   *Test:* Worker round-trip latency harness; Playwright frame-time trace during a scripted pan
   asserting no frame > 50ms.
-- **P1.4 — Cut story index + search over to WASM.** Replace
+- **P1.4 — Cut story index + search over to WASM as authority.** Replace
   [story-index.ts](../../src/core/story-index.ts) with `QueryStoryIndex`; search uses
-  `twine_search`. *Test:* Jest parity on diagnostics/symbols/asset-refs; bench search < 50ms at 50k.
+  `twine_search`. The TypeScript indexer becomes test-only or deleted.
+  *Test:* product-path assertion that route-facing search/contents call Rust; bench search < 50ms
+  at 50k.
 - **P1.5 — Prove serialization does not eat the win.** Measure query payload size and
   structured-clone time for projection/index/search. If JSON transfer is too large, switch hot
   paths to compact arrays or binary buffers while keeping `ts-rs` types at the API edge.
   *Test:* worker benchmark reports compute time, transfer time, payload bytes, and React apply
   time separately.
+- **P1.6 — Delete renderer core producers from product imports.** After graph/index/search are on
+  Rust, remove or quarantine `storyToCoreGraphProjection`, `saveGeneratedGraphLayout`, and
+  `storyToCoreIndex` so normal app code cannot call them.
+  *Test:* forbidden-import check over `src/routes`, `src/store`, and `src/components`.
 
 **Exit gate:** pan/zoom meets the projection + frame budgets at 10k; index/search budgets at 50k.
 
@@ -278,14 +339,25 @@ The headline phase: the live graph and indexes start running Rust.
   feed asset grid, publish, project open, file-watch baseline, import copy results, and contents
   asset entries.
   *Test:* one fixture open asserts one asset manifest revision is reused by all consumers.
+- **P2.7 — Delete JS project-folder readers/scanners from product paths.** Remove the JS TOML
+  project reader, recursive asset scanner, and HTML/zip import preparer from normal Electron
+  paths after the native equivalents land. Keep only legacy import compatibility if needed.
+  *Test:* forbidden-import/static grep plus mocked native load asserting no JS filesystem loop runs
+  during open/session/asset list/import.
 
 **Exit gate:** Transylvania cold open ≤ 1.5s (target).
 
 ### Phase 3 — Incremental everything · aligns M4 + External-edit rule
 
+- **P3.0 — Delete the TypeScript command owner.** `StoreCoreProjectHost.applyStoryCommand`
+  must stop translating core commands into Redux mutations. Commands go to `ProjectSession`
+  first; TypeScript applies the returned `PatchBatch` to the visible store.
+  *Test:* command-path test asserting create/rename/move/text/asset/story-detail operations call
+  Rust/WASM/native `apply` and never invoke route-local reducers as the source of truth.
 - **P3.1 — Patch-level index updates.** A passage edit emits a `PatchBatch` that updates only
   affected index/graph slices (`ProjectSession::apply` already returns patches; honor them
-  instead of rebuilding). *Test:* bench reindex-after-1-edit ≤ 5ms at 50k; assert no full rebuild.
+  instead of rebuilding). *Test:* bench reindex-after-1-edit ≤ 5ms at 50k; assert no full rebuild
+  and no full `ProjectSnapshotReplaced` for a single-passage edit.
 - **P3.2 — Incremental external-edit reingest.** Native watcher diff → reparse only changed
   files → merge/conflict review. *Test:* Jest simulating an external edit to 1 passage asserting
   a single-file reparse.
@@ -296,10 +368,21 @@ The headline phase: the live graph and indexes start running Rust.
   instead of overwriting disk.
   *Test:* open shell-only snapshot → modify one passage on disk → hydrate/edit that passage →
   conflict review shows the single changed file.
-- **P3.5 — Undo/redo moves into the session boundary.** The current Redux undo path is another
-  whole-story invalidation source. Once commands go through `ProjectSession`, undo/redo should
-  replay patch batches and update only touched ids.
+- **P3.5 — Undo/redo moves into Rust.** The current Redux undo path is another
+  whole-story invalidation source. Undo/redo must call `ProjectSession::undo` / `redo`, receive
+  patch batches, and update only touched ids.
   *Test:* undo a rename/text edit at 50k and assert no full index/projection rebuild.
+- **P3.6 — TypeScript compatibility producers are removed from product routes.** Route-facing
+  graph, contents, diagnostics, assets, publish preparation, and project-session sync must all
+  consume Rust command/query results. Any remaining TS producer must be explicitly named as
+  import/export compatibility code or test scaffolding.
+  *Test:* static guard or Jest module mock fails if product routes import `story-index.ts` /
+  `graph-projection.ts` producers directly.
+- **P3.7 — Remove Redux undo as a product feature.** Once Rust undo/redo patches land, delete or
+  quarantine `src/store/undoable-stories` from route-facing product code. The UI can expose undo
+  buttons, but their implementation calls Rust session undo/redo.
+  *Test:* undo/redo route tests mock Rust session undo/redo and fail if Redux reverse-action logic
+  is invoked.
 
 **Exit gate:** keystroke→paint ≤ 16ms at 50k; incremental edit budget met.
 

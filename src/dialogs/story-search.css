@@ -6,14 +6,23 @@
 }
 
 .story-search-dialog .search-error {
+	color: var(--sem-error);
+	margin: 0;
 	padding: 0 var(--grid-size);
 }
 
 .story-search-dialog .search-results {
 	align-items: center;
 	display: flex;
+	gap: var(--grid-size);
 	justify-content: space-between;
-	padding-right: var(--grid-size);
+	padding: 0 var(--grid-size);
+}
+
+.story-search-dialog .search-results > span {
+	color: var(--tx-3);
+	font-size: var(--fs-sm);
+	text-align: right;
 }
 
 .story-search-dialog .search-result-list {

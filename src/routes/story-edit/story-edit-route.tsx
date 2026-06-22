@@ -34,8 +34,12 @@ export const InnerStoryEditRoute: React.FC = () => {
 	const mainContent = React.useRef<HTMLDivElement>(null);
 	const workspace = useStoryEditWorkspace(story);
 	const {getCenter, setCenter} = useViewCenter(story, mainContent);
-	const {handleCreatePassage, handleDeselectPassage, handleSelectPassage} =
-		usePassageChangeHandlers(story);
+	const {
+		handleCreatePassage,
+		handleDeselectPassage,
+		handleSelectPassage,
+		handleSelectPassageIds
+	} = usePassageChangeHandlers(story);
 	const visibleZoom = useZoomTransition(story.zoom, mainContent.current);
 	const handledRevealQuery = React.useRef('');
 
@@ -133,6 +137,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 							onDeselect={handleDeselectPassage}
 							onEdit={handleEditPassage}
 							onSelect={handleSelectPassageInMap}
+							onSelectIds={handleSelectPassageIds}
 							onTestPassage={handleTestPassage}
 							selectedPassageId={workspace.selectedPassageId}
 							story={story}

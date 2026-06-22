@@ -43,6 +43,7 @@
 		"rename": "Rename",
 		"renamePrompt": "What should “{{name}}” be renamed to?",
 		"remove": "Remove",
+		"save": "Save",
 		"selectAll": "Select All",
 		"skip": "Skip",
 		"story": "Story",
@@ -271,6 +272,7 @@
 			"matchCount": "{{count}} matching result",
 			"matchCount_plural": "{{count}} matching results",
 			"noMatches": "No matching results",
+			"ready": "Enter text to find matches across this story.",
 			"replaceAll": "Replace In Story Sources",
 			"replaceWith": "Replace With",
 			"scope": {

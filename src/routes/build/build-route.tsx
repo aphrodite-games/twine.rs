@@ -308,7 +308,9 @@ export const BuildRoute: React.FC = () => {
 		return publishStoryPackage(story.id, {
 			buildTarget: target,
 			formatOptions: target === 'test' ? 'debug' : undefined,
-			startId: target === 'test' ? startPassageId : undefined
+			...(target === 'test' && startPassageId
+				? {startId: startPassageId, startMode: 'afterStartup' as const}
+				: {startId: target === 'test' ? startPassageId : undefined})
 		});
 	}, [proofStoryPackage, publishStoryPackage, startPassageId, story, target]);
 

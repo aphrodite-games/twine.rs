@@ -128,6 +128,52 @@ describe('storyToCoreGraphProjection', () => {
 		expect(projection.nodes.length).toBeLessThan(50);
 		expect(projection.edges.length).toBeLessThan(80);
 	});
+
+	it('wraps dense generated graph levels into a usable block shape', () => {
+		const story = fakeStory(0);
+		const targets = Array.from({length: 12}, (_, index) =>
+			fakePassage({
+				height: 0,
+				id: `target-${index}`,
+				left: Number.NaN,
+				name: `Target ${index}`,
+				selected: false,
+				story: story.id,
+				tags: [],
+				text: '',
+				top: Number.NaN,
+				width: 0
+			})
+		);
+		const start = fakePassage({
+			height: 0,
+			id: 'start',
+			left: Number.NaN,
+			name: 'Start',
+			selected: false,
+			story: story.id,
+			tags: [],
+			text: targets.map(target => `[[${target.name}]]`).join(' '),
+			top: Number.NaN,
+			width: 0
+		});
+
+		story.passages = [start, ...targets];
+		story.startPassage = start.id;
+
+		const projection = storyToCoreGraphProjection(story);
+		const targetNodes = projection.nodes.filter(node =>
+			node.id.startsWith('target-')
+		);
+
+		expect(projection.layoutState).toBe('generated');
+		expect(new Set(targetNodes.map(node => node.bounds.left)).size).toBeGreaterThan(
+			1
+		);
+		expect(new Set(targetNodes.map(node => node.bounds.top)).size).toBeLessThan(
+			targetNodes.length
+		);
+	});
 });
 
 describe('saveGeneratedGraphLayout', () => {

@@ -62,7 +62,15 @@ describe('<StoryTestRoute>', () => {
 			).toContain('mock-published-story')
 		);
 		expect(publishStory.mock.calls).toEqual([
-			['123', {buildTarget: 'test', formatOptions: 'debug', startId: '456'}]
+			[
+				'123',
+				{
+					buildTarget: 'test',
+					formatOptions: 'debug',
+					startId: '456',
+					startMode: 'afterStartup'
+				}
+			]
 		]);
 	});
 

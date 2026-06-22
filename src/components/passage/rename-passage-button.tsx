@@ -22,6 +22,8 @@ export const EnabledRenamePassageButton: React.FC<EnabledRenamePassageButtonProp
 	const [newName, setNewName] = React.useState(passage.name);
 	const {t} = useTranslation();
 
+	React.useEffect(() => setNewName(passage.name), [passage]);
+
 	function validate(name: string) {
 		if (name.trim() === '') {
 			return {
@@ -43,9 +45,10 @@ export const EnabledRenamePassageButton: React.FC<EnabledRenamePassageButtonProp
 	return (
 		<PromptIconButton
 			cancelLabel={t('common.cancel')}
-			confirmLabel={t('common.ok')}
+			confirmLabel={t('common.save')}
 			icon="writing"
 			label={t('common.rename')}
+			onCancel={() => setNewName(passage.name)}
 			onChange={setNewName}
 			onSubmit={onRename}
 			prompt={t('common.renamePrompt', {name: passage.name})}

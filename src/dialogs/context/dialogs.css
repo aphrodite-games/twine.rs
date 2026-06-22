@@ -10,6 +10,7 @@
 	top: calc(
 		2 * var(--control-height) + var(--grid-size)
 	); /* below <top-bar> height */
+	z-index: 60;
 }
 
 .dialogs {
@@ -27,6 +28,7 @@
 	); /* below <top-bar> height */
 	left: var(--grid-size);
 	bottom: var(--grid-size);
+	z-index: 60;
 }
 
 .dialogs .dialog-card, .dialogs .background-dialog-card {

@@ -61,6 +61,7 @@ function renderComponent(
 	const onDeselect = jest.fn();
 	const onEdit = jest.fn();
 	const onSelect = jest.fn();
+	const onSelectIds = jest.fn();
 	const onTestPassage = jest.fn();
 	const storiesDispatch = jest.fn();
 	const undoableDispatch = jest.fn();
@@ -95,6 +96,7 @@ function renderComponent(
 				onDeselect={onDeselect}
 				onEdit={onEdit}
 				onSelect={onSelect}
+				onSelectIds={onSelectIds}
 				onTestPassage={onTestPassage}
 				selectedPassageId={options.selectedPassageId ?? start.id}
 				story={story}
@@ -110,6 +112,7 @@ function renderComponent(
 		onDeselect,
 		onEdit,
 		onSelect,
+		onSelectIds,
 		onTestPassage,
 		result,
 		start,
@@ -448,6 +451,7 @@ describe('<StoryGraphPanel>', () => {
 				pointerId: 9
 			})
 		);
+		expect(viewport).toHaveClass('story-edit-graph-viewport--panning');
 		fireEvent.pointerMove(
 			viewport,
 			new PointerEvent('pointermove', {
@@ -494,6 +498,63 @@ describe('<StoryGraphPanel>', () => {
 		expect(startNode).toHaveAttribute('data-selected', 'true');
 		expect(nextNode).toHaveAttribute('data-selected', 'true');
 		expect(onSelect).toHaveBeenCalledWith(next, false);
+	});
+
+	it('selects groups with a shift-drag marquee over the graph', () => {
+		const {onSelectIds, result} = renderComponent();
+		const viewport = result.container.querySelector(
+			'.story-edit-graph-viewport'
+		) as HTMLElement;
+		const startNode = result.container.querySelector(
+			'[data-passage-id="start"]'
+		) as HTMLElement;
+		const nextNode = result.container.querySelector(
+			'[data-passage-id="next"]'
+		) as HTMLElement;
+
+		fireEvent.keyDown(window, {key: 'Shift'});
+		expect(viewport).toHaveClass('story-edit-graph-viewport--selecting-mode');
+
+		fireEvent.pointerDown(
+			viewport,
+			new PointerEvent('pointerdown', {
+				button: 0,
+				clientX: 0,
+				clientY: 0,
+				pointerId: 14,
+				shiftKey: true
+			})
+		);
+		fireEvent.pointerMove(
+			viewport,
+			new PointerEvent('pointermove', {
+				button: 0,
+				clientX: 270,
+				clientY: 120,
+				pointerId: 14,
+				shiftKey: true
+			})
+		);
+
+		expect(startNode).toHaveAttribute('data-selected', 'true');
+		expect(nextNode).toHaveAttribute('data-selected', 'true');
+
+		fireEvent.pointerUp(
+			viewport,
+			new PointerEvent('pointerup', {
+				button: 0,
+				clientX: 270,
+				clientY: 120,
+				pointerId: 14,
+				shiftKey: true
+			})
+		);
+		fireEvent.keyUp(window, {key: 'Shift'});
+
+		expect(onSelectIds).toHaveBeenCalledWith(
+			expect.arrayContaining(['start', 'next']),
+			true
+		);
 	});
 
 	it('selects, edits, and creates passages from graph interactions', () => {

@@ -51,7 +51,9 @@ export const StoryTestRoute: React.FC = () => {
 				const published = await publishStoryRef.current(storyId, {
 					buildTarget: 'test',
 					formatOptions: 'debug',
-					startId: passageId
+					...(passageId
+						? {startId: passageId, startMode: 'afterStartup' as const}
+						: {startId: undefined})
 				});
 
 				if (active) {

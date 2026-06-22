@@ -40,10 +40,10 @@ describe('<RenamePassageButton>', () => {
 				}
 			);
 			await waitFor(() =>
-				expect(screen.getByRole('button', {name: 'common.ok'})).toBeEnabled()
+				expect(screen.getByRole('button', {name: 'common.save'})).toBeEnabled()
 			);
 			expect(onRename).not.toBeCalled();
-			fireEvent.click(screen.getByRole('button', {name: 'common.ok'}));
+			fireEvent.click(screen.getByRole('button', {name: 'common.save'}));
 			expect(onRename.mock.calls).toEqual([['new-name']]);
 		});
 
@@ -59,7 +59,9 @@ describe('<RenamePassageButton>', () => {
 				}
 			);
 			await act(() => Promise.resolve());
-			expect(screen.getByRole('button', {name: 'common.ok'})).not.toBeEnabled();
+			expect(
+				screen.getByRole('button', {name: 'common.save'})
+			).not.toBeEnabled();
 		});
 
 		it('is accessible', async () => {

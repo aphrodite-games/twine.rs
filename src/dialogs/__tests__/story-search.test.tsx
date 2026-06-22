@@ -263,6 +263,12 @@ describe('<StorySearchDialog>', () => {
 		).not.toBeInTheDocument();
 	});
 
+	it('shows ready guidance before a search has been entered', () => {
+		renderComponent();
+
+		expect(screen.getByText('dialogs.storySearch.ready')).toBeInTheDocument();
+	});
+
 	it('shows a message if no passages match the search', async () => {
 		const story = fakeStory(1);
 

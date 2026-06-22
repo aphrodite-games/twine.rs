@@ -2,7 +2,7 @@
 
 This reference captures the preferred stack and migration strategy: Tauri 2, a pure Rust core, React/Vite/TypeScript UI, CodeMirror 6, virtualized graph rendering, and WASM as the browser-mode core target.
 
-This project should not be "TwineJS rewritten in Rust" as a single heroic port. The strongest version is a new Twine-aware creative IDE: Rust owns the project model, parsing, indexing, graph intelligence, build pipeline, filesystem, and performance-sensitive work; a modern TypeScript web UI owns the dense interactive workbench, editor, accessibility, keyboard UX, and visual polish.
+This project should not be "TwineJS rewritten in Rust" as a single heroic port. The strongest version is a new Twine-aware creative IDE: Rust owns the project model, parsing, indexing, graph intelligence, command validation, patch generation, undo/redo, build pipeline, filesystem, and performance-sensitive work; a modern TypeScript web UI owns the dense interactive workbench, editor, accessibility, keyboard UX, and visual polish.
 
 The dream is not pure Rust UI and not pure web app. It is a Rust-native core with a first-class desktop shell, a shared browser target through WASM, and a UI that can move quickly enough to become beautiful.
 
@@ -24,6 +24,30 @@ Recommended target:
 - Type boundary: generated TypeScript types from Rust command/event schemas
 
 This gives you a serious desktop app, not an Electron-shaped web page with a faster parser. But it also preserves the best parts of the web platform: CodeMirror, CSS, mature accessibility primitives, layout, fast UI iteration, Playwright testing, and the ability to run a browser version later.
+
+## Architecture Lock: Rust Authority, TypeScript Adapter
+
+The product direction is now stricter than "put Rust behind the slow parts." Rust is the
+authority for story/project semantics. TypeScript is an adapter and presentation layer.
+
+Non-negotiable rules:
+
+- Story truth lives in Rust sessions. Passage text, passage names, tags, links, story metadata,
+  graph facts, asset manifests, diagnostics, search state, dirty state, and undo/redo history are
+  Rust-owned product state.
+- TypeScript may hold transient UI state: selection, hover, open tabs, editor focus, scroll,
+  panel layout, optimistic drag affordances, accessibility state, and rendering caches.
+- The UI sends typed Rust commands and receives patch/event batches. It does not validate,
+  derive, or mutate canonical story facts as the source of truth.
+- Generated TypeScript types are produced from Rust schemas. They are not a second schema layer.
+- Compatibility code is allowed for import/export and temporary migration only. A TS parser,
+  graph projector, search/index producer, asset scanner, or Redux undo reducer is debt until it is
+  replaced by Rust or quarantined as test-only compatibility scaffolding.
+- Breaking a TypeScript-era assumption during a Rust cutover is acceptable. Rebuild the UI around
+  the Rust contract instead of preserving a parallel TypeScript core.
+- This is a removal program. Each Rust migration must delete product support code, forbid old
+  imports, or add a dated removal gate. Since there are not yet external users depending on the
+  app, short-term breakage is acceptable when it prevents long-term dual ownership.
 
 ## Product Stack Decision: React First
 
@@ -48,7 +72,7 @@ flowchart TD
     UI["TypeScript Workbench UI"]
     Editor["CodeMirror 6 Text Editor"]
     Graph["Canvas/WebGL Graph Renderer"]
-    Store["UI State And Viewport State"]
+    Store["UI State, Viewport State, Patch Cache"]
 
     Bridge["Typed Command/Event/Patch Bridge"]
 
@@ -84,7 +108,9 @@ flowchart TD
     Browser --> OPFS
 ```
 
-The rule: UI state stays in the UI. Story truth stays in Rust.
+The rule: UI state stays in the UI. Story truth stays in Rust. If a piece of code knows what a
+passage means, which links are broken, how a graph should project, whether a project is dirty, or
+how undo should replay, it belongs in Rust.
 
 Examples:
 
@@ -94,7 +120,7 @@ Examples:
 - Diagnostics/search/backlinks: Rust-derived indexes.
 - Generated layout: Rust-derived view data.
 - Saved graph positions: optional project metadata.
-- Text edits: UI streams edit operations; Rust returns patches, diagnostics, changed graph facts, and dirty status.
+- Text edits: UI streams edit operations; Rust returns patches, diagnostics, changed graph facts, undo records, and dirty status.
 
 ## Why This Is The Dream Stack
 
@@ -173,6 +199,10 @@ The UI should be a serious web workbench because the required surface area is en
 
 This is exactly where the web platform is strongest.
 
+But "UI" means interaction and presentation, not a hidden second core. React components should
+render Rust-derived view data, dispatch Rust commands, and apply Rust patches. They should not
+quietly rebuild project semantics in hooks, route-local helpers, or Redux reducers.
+
 The design system currently in `docs/design-system/` is already web-native and React-shaped. It uses CSS tokens, JSX components, mock UI kits, Tabler icons, and a workbench layout that can become a real app. That makes React + Vite the correct implementation choice for this project.
 
 Svelte 5 remains worth tracking because it is an excellent dense-UI framework.
@@ -220,9 +250,9 @@ Use WASM for browser mode:
 - Export stories.
 - Validate project structure.
 
-Run it in a Web Worker so large projects do not freeze the UI. The UI sends commands to the worker; the worker calls the Rust WASM core; the worker returns patches/events.
+Run it in a Web Worker so large projects do not freeze the UI. The UI sends commands to the worker; the worker calls the Rust WASM core; the worker returns patches/events. The worker is not an optimization for a TypeScript model; it is the browser-mode home of the same Rust authority.
 
-Desktop mode should use native Rust directly through Tauri commands/events because it can access filesystem, threads, native watchers, and local caches more naturally.
+Desktop mode should use native Rust directly through Tauri commands/events because it can access filesystem, threads, native watchers, and local caches more naturally. Electron/N-API can be a migration host, but the target remains the same: native Rust owns load/save/watch/import/build and the UI consumes commands/events.
 
 Browser storage options:
 
@@ -235,7 +265,7 @@ Browser mode should be real, but it should be second priority after the desktop 
 
 ## The Core Contract
 
-The project needs a typed command/event/patch boundary early. This is more important than choosing every UI library perfectly.
+The project needs a typed command/event/patch boundary early. This is more important than choosing every UI library perfectly, and it is not optional plumbing. It is the line that prevents the TypeScript UI from becoming a second product model.
 
 Suggested protocol:
 
@@ -269,6 +299,19 @@ Use generated TypeScript types so the UI and Rust core cannot silently drift. Go
 - `ts-rs`
 
 The app should avoid sending giant full-project JSON snapshots after every edit. Use snapshots for initial load and patches for ongoing work.
+
+Completion rule: after a project is open, ordinary authoring operations must flow through Rust
+commands and patch events. A feature is not architecturally complete if TypeScript performs the
+canonical mutation first and asks Rust to catch up later.
+
+Required checks:
+
+- CI guards product code against importing deprecated TypeScript core producers after a Rust
+  replacement lands.
+- Runtime tests assert Rust command/query/session paths, not merely equivalent output.
+- Perf artifacts record whether each surface ran in native/WASM/Rust mode or a compatibility
+  fallback.
+- Every milestone reports code removed, not only code added.
 
 ## Storage Model
 

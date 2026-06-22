@@ -55,9 +55,10 @@ const EnabledRenameStoryButton: React.FC<EnabledRenameStoryButtonProps> = props 
 	return (
 		<PromptIconButton
 			cancelLabel={t('common.cancel')}
-			confirmLabel={t('common.ok')}
+			confirmLabel={t('common.save')}
 			icon="writing"
 			label={t('common.rename')}
+			onCancel={() => setNewName(story.name)}
 			onChange={setNewName}
 			onSubmit={onRename}
 			prompt={t('common.renamePrompt', {name: story.name})}

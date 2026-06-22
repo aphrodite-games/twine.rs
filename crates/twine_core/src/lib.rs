@@ -4115,6 +4115,58 @@ mod tests {
         })
     }
 
+    fn dense_source_only_session(target_count: usize) -> ProjectSession {
+        let target_passages = (0..target_count)
+            .map(|index| Passage {
+                custom_attributes: BTreeMap::new(),
+                id: PassageId::new(format!("target-{index}")),
+                layout: None,
+                metadata: BTreeMap::new(),
+                name: format!("Target {index}"),
+                source_pid: None,
+                story: StoryId::new("story-1"),
+                tags: Vec::new(),
+                text: String::new(),
+            })
+            .collect::<Vec<_>>();
+        let target_links = (0..target_count)
+            .map(|index| format!("[[Target {index}]]"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut passages = vec![Passage {
+            custom_attributes: BTreeMap::new(),
+            id: PassageId::new("start"),
+            layout: None,
+            metadata: BTreeMap::new(),
+            name: "Start".into(),
+            source_pid: None,
+            story: StoryId::new("story-1"),
+            tags: Vec::new(),
+            text: target_links,
+        }];
+
+        passages.extend(target_passages);
+
+        ProjectSession::new(Project {
+            manifest: ProjectManifest {
+                name: "Dense Layout".into(),
+                storage: StoragePolicy::default(),
+                ..ProjectManifest::default()
+            },
+            stories: vec![Story {
+                id: StoryId::new("story-1"),
+                ifid: "ifid".into(),
+                name: "Dense Layout".into(),
+                passages: PassageIndex::from(passages),
+                start_passage: PassageId::new("start"),
+                story_format: "Harlowe".into(),
+                story_format_version: "3.3.9".into(),
+                ..Story::default()
+            }],
+            ..Project::default()
+        })
+    }
+
     fn temp_path(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "twine-core-{label}-{}",
@@ -4859,6 +4911,48 @@ mod tests {
                 }
             )
         }));
+    }
+
+    #[test]
+    fn saves_dense_generated_layout_blocks_through_core_command() {
+        let target_count = 12;
+        let mut session = dense_source_only_session(target_count);
+        let save = session
+            .apply(StoryCommand::SaveGeneratedLayout {
+                story_id: "story-1".into(),
+            })
+            .expect("layout save should apply");
+        let layout_saved = save
+            .patches
+            .iter()
+            .find(|patch| matches!(patch, Patch::LayoutSaved { .. }))
+            .expect("save should include a layout projection");
+        let Patch::LayoutSaved { projection, .. } = layout_saved else {
+            panic!("expected layout saved patch");
+        };
+        let story = session.story("story-1").expect("story should exist");
+        let target_bounds = (0..target_count)
+            .map(|index| {
+                story
+                    .passage_by_id(&PassageId::new(format!("target-{index}")))
+                    .expect("target passage should exist")
+                    .layout
+                    .expect("target layout should be saved")
+            })
+            .collect::<Vec<_>>();
+        let target_lefts = target_bounds
+            .iter()
+            .map(|bounds| bounds.left as i64)
+            .collect::<BTreeSet<_>>();
+        let target_tops = target_bounds
+            .iter()
+            .map(|bounds| bounds.top as i64)
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(projection.layout_state, CoreGraphLayoutState::Saved);
+        assert_eq!(session.project.layout.passages.len(), target_count + 1);
+        assert_eq!(target_lefts.len(), 3);
+        assert_eq!(target_tops.len(), 4);
     }
 
     #[test]

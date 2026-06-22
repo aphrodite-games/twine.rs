@@ -24,7 +24,7 @@ import type {CoreGraphProjection} from '../../core/bindings/CoreGraphProjection'
 import type {CoreLinkLayerOptions} from '../../core/bindings/CoreLinkLayerOptions';
 import type {CoreRect} from '../../core/bindings/CoreRect';
 import {Passage, Story} from '../../store/stories';
-import {Point} from '../../util/geometry';
+import {Point, Rect, rectFromPoints, rectsIntersect} from '../../util/geometry';
 import {markPerformanceAfterPaint} from '../../util/performance';
 
 export interface StoryGraphPanelProps {
@@ -32,6 +32,7 @@ export interface StoryGraphPanelProps {
 	onDeselect: (passage: Passage) => void;
 	onEdit: (passage: Passage) => void;
 	onSelect: (passage: Passage, exclusive: boolean) => void;
+	onSelectIds: (passageIds: string[], additive: boolean) => void;
 	onTestPassage?: (passage: Passage) => void;
 	selectedPassageId?: string;
 	story: Story;
@@ -76,6 +77,14 @@ interface ResizeState {
 	startLeft: number;
 	startTop: number;
 	width: number;
+}
+
+interface MarqueeState {
+	additive: boolean;
+	pointerId?: number;
+	rect: Rect;
+	startLeft: number;
+	startTop: number;
 }
 
 interface ViewportState {
@@ -794,6 +803,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		onDeselect,
 		onEdit,
 		onSelect,
+		onSelectIds,
 		onTestPassage,
 		selectedPassageId,
 		story,
@@ -815,7 +825,9 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		selfLinks: true
 	});
 	const [drag, setDrag] = React.useState<DragState>();
+	const [marquee, setMarquee] = React.useState<MarqueeState>();
 	const [resize, setResize] = React.useState<ResizeState>();
+	const [shiftSelecting, setShiftSelecting] = React.useState(false);
 	const [viewport, setViewport] = React.useState<ViewportState>({
 		height: 1,
 		left: 0,
@@ -836,7 +848,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	const panRef = React.useRef<{
 		left: number;
 		moved: boolean;
-		pointerId: number;
+		pointerId?: number;
 		startLeft: number;
 		startTop: number;
 		top: number;
@@ -1027,6 +1039,39 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		story.snapToGrid,
 		visibleZoom
 	]);
+	const displaySelectedIdSet = React.useMemo(() => {
+		if (!marquee) {
+			return selectedIdSet;
+		}
+
+		const next = marquee.additive ? new Set(selectedIdSet) : new Set<string>();
+
+		for (const node of displayNodes) {
+			const bounds = interactionBounds(
+				node,
+				drag,
+				resize,
+				orientation,
+				story.snapToGrid,
+				visibleZoom
+			);
+
+			if (rectsIntersect(marquee.rect, bounds)) {
+				next.add(node.id);
+			}
+		}
+
+		return next;
+	}, [
+		displayNodes,
+		drag,
+		marquee,
+		orientation,
+		resize,
+		selectedIdSet,
+		story.snapToGrid,
+		visibleZoom
+	]);
 	const canvasSize = React.useMemo(() => {
 		const bounds = displayBounds;
 
@@ -1154,6 +1199,28 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	}, [persistedSelectionKey]);
 
 	React.useEffect(() => {
+		function handleKeyDown(event: KeyboardEvent) {
+			if (event.key === 'Shift') {
+				setShiftSelecting(true);
+			}
+		}
+
+		function handleKeyUp(event: KeyboardEvent) {
+			if (event.key === 'Shift') {
+				setShiftSelecting(false);
+			}
+		}
+
+		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('keyup', handleKeyUp);
+
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('keyup', handleKeyUp);
+		};
+	}, []);
+
+	React.useEffect(() => {
 		const element = viewportRef.current;
 		const node = selectedPassageId
 			? displayNodeById.get(selectedPassageId)
@@ -1203,13 +1270,8 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		visibleZoom
 	]);
 
-	function pointFromEvent(
-		event: React.MouseEvent<HTMLElement>
-	): Point | undefined {
-		if (
-			!canvasRef.current ||
-			(event.target as HTMLElement).closest(graphInteractiveSelector)
-		) {
+	function canvasPointFromEvent(event: {clientX: number; clientY: number}) {
+		if (!canvasRef.current) {
 			return undefined;
 		}
 
@@ -1219,6 +1281,16 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			left: Math.max((event.clientX - bounds.left) / visibleZoom, 0),
 			top: Math.max((event.clientY - bounds.top) / visibleZoom, 0)
 		};
+	}
+
+	function pointFromEvent(
+		event: React.MouseEvent<HTMLElement>
+	): Point | undefined {
+		if ((event.target as HTMLElement).closest(graphInteractiveSelector)) {
+			return undefined;
+		}
+
+		return canvasPointFromEvent(event);
 	}
 
 	function handleCreateAtEvent(event: React.MouseEvent<HTMLDivElement>) {
@@ -1260,17 +1332,45 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			return;
 		}
 
+		if (event.button === 0 && event.shiftKey) {
+			const start = canvasPointFromEvent(event);
+			const pointerId =
+				typeof event.pointerId === 'number' ? event.pointerId : undefined;
+
+			if (!start) {
+				return;
+			}
+
+			setMarquee({
+				additive: true,
+				pointerId,
+				rect: rectFromPoints(start, start),
+				startLeft: start.left,
+				startTop: start.top
+			});
+			if (pointerId !== undefined) {
+				element.setPointerCapture(pointerId);
+			}
+			event.preventDefault();
+			return;
+		}
+
+		const pointerId =
+			typeof event.pointerId === 'number' ? event.pointerId : undefined;
+
 		panRef.current = {
 			left: element.scrollLeft,
 			moved: false,
-			pointerId: event.pointerId,
+			pointerId,
 			startLeft: element.scrollLeft,
 			startTop: element.scrollTop,
 			top: element.scrollTop,
 			x: event.clientX,
 			y: event.clientY
 		};
-		element.setPointerCapture(event.pointerId);
+		if (pointerId !== undefined) {
+			element.setPointerCapture(pointerId);
+		}
 		element.classList.add('story-edit-graph-viewport--panning');
 		if (event.button !== 0) {
 			event.preventDefault();
@@ -1280,6 +1380,32 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	function handleViewportPointerMove(
 		event: React.PointerEvent<HTMLDivElement>
 	) {
+		const pointerId = event.pointerId;
+
+		if (
+			marquee &&
+			(marquee.pointerId === undefined || marquee.pointerId === pointerId)
+		) {
+			const point = canvasPointFromEvent(event);
+
+			if (point) {
+				setMarquee(current =>
+					current && current.pointerId === pointerId
+						? {
+								...current,
+								rect: rectFromPoints(
+									{left: current.startLeft, top: current.startTop},
+									point
+								)
+							}
+						: current
+				);
+			}
+
+			event.preventDefault();
+			return;
+		}
+
 		const pan = panRef.current;
 		const element = viewportRef.current;
 
@@ -1299,12 +1425,64 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	function stopPanning(event: React.PointerEvent<HTMLDivElement>) {
 		const element = viewportRef.current;
 
-		if (element && panRef.current?.pointerId === event.pointerId) {
-			element.releasePointerCapture(event.pointerId);
+		if (
+			element &&
+			marquee &&
+			(marquee.pointerId === undefined || marquee.pointerId === event.pointerId)
+		) {
+			if (marquee.pointerId !== undefined) {
+				element.releasePointerCapture(marquee.pointerId);
+			}
+			commitMarqueeSelection(marquee);
+			setMarquee(undefined);
+			event.preventDefault();
+			return;
+		}
+
+		if (
+			element &&
+			panRef.current &&
+			(panRef.current.pointerId === undefined ||
+				panRef.current.pointerId === event.pointerId)
+		) {
+			if (panRef.current.pointerId !== undefined) {
+				element.releasePointerCapture(panRef.current.pointerId);
+			}
 			element.classList.remove('story-edit-graph-viewport--panning');
 		}
 
 		panRef.current = undefined;
+	}
+
+	function idsInMarqueeRect(rect: Rect) {
+		return displayNodes.flatMap(node => {
+			const bounds = interactionBounds(
+				node,
+				drag,
+				resize,
+				orientation,
+				story.snapToGrid,
+				visibleZoom
+			);
+
+			return rectsIntersect(rect, bounds) ? [node.id] : [];
+		});
+	}
+
+	function commitMarqueeSelection(selection: MarqueeState) {
+		if (selection.rect.width < 2 && selection.rect.height < 2) {
+			return;
+		}
+
+		const ids = idsInMarqueeRect(selection.rect);
+		const next = selection.additive ? new Set(selectedIdSet) : new Set<string>();
+
+		for (const id of ids) {
+			next.add(id);
+		}
+
+		updateOptimisticSelection(next);
+		onSelectIds(Array.from(next), selection.additive);
 	}
 
 	function centerViewportOnMinimapPoint(clientX: number, clientY: number) {
@@ -1670,7 +1848,11 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	return (
 		<section className="story-edit-graph-layer" aria-label="Story graph">
 			<div
-				className="story-edit-graph-viewport"
+				className={classNames(
+					'story-edit-graph-viewport',
+					shiftSelecting && 'story-edit-graph-viewport--selecting-mode',
+					marquee && 'story-edit-graph-viewport--marqueeing'
+				)}
 				onContextMenu={handleContextMenu}
 				onDoubleClick={handleCreateAtEvent}
 				onPointerDown={handleViewportPointerDown}
@@ -1694,6 +1876,18 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 						nodeById={liveNodeById}
 						visibleZoom={visibleZoom}
 					/>
+					{marquee && (
+						<div
+							aria-hidden
+							className="story-edit-graph-marquee"
+							style={{
+								height: marquee.rect.height,
+								left: marquee.rect.left,
+								top: marquee.rect.top,
+								width: marquee.rect.width
+							}}
+						/>
+					)}
 					<div className="story-edit-graph-nodes">
 						{displayNodes.map(node => {
 							const passage = passagesById.get(node.id);
@@ -1723,7 +1917,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 										)}
 										data-layout-source={node.layoutSource}
 										data-passage-id={node.id}
-										data-selected={selectedIdSet.has(node.id)}
+										data-selected={displaySelectedIdSet.has(node.id)}
 										onPointerDown={event => handleNodePointerDown(node, event)}
 										style={{
 											height: bounds.height,
@@ -1750,7 +1944,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 											links={node.outgoingCount}
 											onClick={event => handleNodeClick(node, event)}
 											onDoubleClick={() => handleNodeDoubleClick(node)}
-											selected={selectedIdSet.has(node.id)}
+											selected={displaySelectedIdSet.has(node.id)}
 											start={node.isStart}
 											style={{
 												height: bounds.height,
@@ -1949,7 +2143,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 							<span
 								className={classNames(
 									'story-edit-graph-minimap__node',
-									node.id === selectedPassageId &&
+									displaySelectedIdSet.has(node.id) &&
 										'story-edit-graph-minimap__node--selected'
 								)}
 								key={node.id}

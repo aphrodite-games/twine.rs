@@ -770,12 +770,11 @@
 	box-shadow: var(--shadow-pop);
 	display: grid;
 	gap: 8px;
-	left: 0;
+	box-sizing: border-box;
 	min-width: min(320px, calc(100vw - 32px));
 	padding: 10px;
-	position: absolute;
-	top: calc(100% + 6px);
-	z-index: 80;
+	width: min(360px, calc(100vw - 24px));
+	z-index: 120;
 }
 
 .tw-prompt-icon__actions {

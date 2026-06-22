@@ -238,12 +238,13 @@ export const StorySearchDialog: React.FC<StorySearchDialogProps> = props => {
 					{t('dialogs.storySearch.replaceAll')}
 				</Button>
 				<span>
-					{find &&
-						(index.searchHits.length > 0
+					{find
+						? index.searchHits.length > 0
 							? t('dialogs.storySearch.matchCount', {
 									count: index.searchHits.length
 								})
-							: t('dialogs.storySearch.noMatches'))}
+							: t('dialogs.storySearch.noMatches')
+						: t('dialogs.storySearch.ready')}
 				</span>
 			</div>
 			{index.searchHits.length > 0 && (
