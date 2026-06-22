@@ -9,10 +9,18 @@ import {
 	TablerIcon
 } from '../../components/design-system';
 import type {TwineElectronWindow} from '../../electron/shared';
+import type {
+	NativeBackupResult,
+	NativePlatformSettings,
+	NativePlatformSettingsUpdate
+} from '../../electron/shared';
 import {useStoryFormatsContext} from '../../store/story-formats';
 import {setPref, usePrefsContext} from '../../store/prefs';
 import type {
+	EditorFocusPreference,
 	GraphCardSizePreference,
+	IntegrationPreference,
+	SharingModePreference,
 	StoryEditModePreference
 } from '../../store/prefs';
 import {getAppInfo} from '../../util/app-info';
@@ -50,6 +58,12 @@ const modeOptions = [
 	{label: 'Split', value: 'split'}
 ];
 
+const editorFocusOptions = [
+	{label: 'Restore', value: 'restore'},
+	{label: 'Passage start', value: 'passage-start'},
+	{label: 'No auto focus', value: 'none'}
+];
+
 const graphCardSizeOptions = [
 	{label: 'Small', value: 'small'},
 	{label: 'Narrow', value: 'narrow'},
@@ -77,6 +91,52 @@ const fontScaleOptions = [
 	{label: '125%', value: '1.25'}
 ];
 
+const backupCadenceOptions = [
+	{label: '10 minutes', value: '10'},
+	{label: '20 minutes', value: '20'},
+	{label: '30 minutes', value: '30'},
+	{label: '1 hour', value: '60'},
+	{label: '4 hours', value: '240'}
+];
+
+const backupRetentionOptions = [
+	{label: '3 backups', value: '3'},
+	{label: '10 backups', value: '10'},
+	{label: '20 backups', value: '20'},
+	{label: '50 backups', value: '50'}
+];
+
+const backupReminderOptions = [
+	{label: 'Daily', value: '1'},
+	{label: 'Weekly', value: '7'},
+	{label: 'Every 2 weeks', value: '14'},
+	{label: 'Monthly', value: '30'}
+];
+
+const cacheCleanupOptions = [
+	{label: '1 day', value: '1'},
+	{label: '3 days', value: '3'},
+	{label: '7 days', value: '7'},
+	{label: '14 days', value: '14'},
+	{label: '30 days', value: '30'}
+];
+
+const sharingModeOptions = [
+	{label: 'Off', value: 'off'},
+	{label: 'Local file', value: 'local-file'},
+	{label: 'Published URL', value: 'published-url'}
+];
+
+const integrationOptions = [
+	{label: 'Off', value: 'off'},
+	{label: 'Manual', value: 'manual'}
+];
+
+const linkHandlingOptions = [
+	{label: 'System browser', value: 'system'},
+	{label: 'Block external', value: 'block'}
+];
+
 function formatPreferenceValue(format: {name: string; version: string}) {
 	return `${format.name}\u0000${format.version}`;
 }
@@ -85,6 +145,27 @@ function parseFormatPreferenceValue(value: string) {
 	const [name, version] = value.split('\u0000');
 
 	return {name, version};
+}
+
+function compactDateTime(timestamp: number | string | undefined) {
+	if (!timestamp) {
+		return 'Never';
+	}
+
+	return new Date(timestamp).toLocaleDateString();
+}
+
+function backupReviewLabel(settings: NativePlatformSettings) {
+	if (!settings.backupLastReviewedTime) {
+		return 'Review due';
+	}
+
+	const elapsedDays =
+		(Date.now() - settings.backupLastReviewedTime) / (1000 * 60 * 60 * 24);
+
+	return elapsedDays >= settings.backupReminderDays
+		? 'Review due'
+		: compactDateTime(settings.backupLastReviewedTime);
 }
 
 const SettingsStatus: React.FC<{
@@ -103,6 +184,12 @@ export const SettingsRoute: React.FC = () => {
 	const {dispatch, prefs} = usePrefsContext();
 	const {formats} = useStoryFormatsContext();
 	const [storyLibraryFolder, setStoryLibraryFolder] = React.useState('');
+	const [platformSettings, setPlatformSettings] =
+		React.useState<NativePlatformSettings>();
+	const [backupRunning, setBackupRunning] = React.useState(false);
+	const [lastBackupResult, setLastBackupResult] =
+		React.useState<NativeBackupResult>();
+	const [externalEditorCommand, setExternalEditorCommand] = React.useState('');
 	const appInfo = getAppInfo();
 	const formatOptions = formats.map(format => ({
 		label: `${format.name} ${format.version}`,
@@ -112,6 +199,20 @@ export const SettingsRoute: React.FC = () => {
 	const proofingFormatValue = formatPreferenceValue(prefs.proofingFormat);
 	const desktopBridge = (window as TwineElectronWindow).twineElectron;
 	const nativeDesktop = isElectronRenderer() || !!desktopBridge;
+	const platformControlsAvailable = !!desktopBridge?.getPlatformSettings;
+	const platformView: NativePlatformSettings = platformSettings ?? {
+		backupCadenceMinutes: 20,
+		backupFolderPath: 'Native desktop default',
+		backupLastReviewedTime: 0,
+		backupReminderDays: 7,
+		backupRetentionLimit: 10,
+		cacheCleanupDays: 3,
+		externalEditorCommand: '',
+		fullscreenPersistence: true,
+		lastWindowFullscreen: false,
+		linkHandlingMode: 'system',
+		storyLibraryFolderPath: storyLibraryFolder || 'Native desktop default'
+	};
 
 	React.useEffect(() => {
 		let cancelled = false;
@@ -120,6 +221,16 @@ export const SettingsRoute: React.FC = () => {
 			.then(path => {
 				if (!cancelled) {
 					setStoryLibraryFolder(path);
+				}
+			})
+			.catch(() => undefined);
+
+		(window as TwineElectronWindow).twineElectron?.getPlatformSettings?.()
+			.then(settings => {
+				if (!cancelled) {
+					setPlatformSettings(settings);
+					setStoryLibraryFolder(settings.storyLibraryFolderPath);
+					setExternalEditorCommand(settings.externalEditorCommand);
 				}
 			})
 			.catch(() => undefined);
@@ -148,6 +259,47 @@ export const SettingsRoute: React.FC = () => {
 
 	function revealStoryLibraryFolder() {
 		void (window as TwineElectronWindow).twineElectron?.revealStoryLibraryFolder?.();
+	}
+
+	function revealBackupFolder() {
+		void (window as TwineElectronWindow).twineElectron?.revealBackupFolder?.();
+	}
+
+	async function updatePlatformSettings(
+		settings: NativePlatformSettingsUpdate
+	) {
+		const next = await desktopBridge?.updatePlatformSettings?.(settings);
+
+		if (next) {
+			setPlatformSettings(next);
+			setStoryLibraryFolder(next.storyLibraryFolderPath);
+			setExternalEditorCommand(next.externalEditorCommand);
+		}
+	}
+
+	async function runStoryLibraryBackup() {
+		if (!desktopBridge?.runStoryLibraryBackup) {
+			return;
+		}
+
+		setBackupRunning(true);
+
+		try {
+			const result = await desktopBridge.runStoryLibraryBackup();
+			const next = await desktopBridge.getPlatformSettings?.();
+
+			setLastBackupResult(result);
+
+			if (next) {
+				setPlatformSettings(next);
+			}
+		} finally {
+			setBackupRunning(false);
+		}
+	}
+
+	function recordBackupReview() {
+		void updatePlatformSettings({backupLastReviewedTime: Date.now()});
 	}
 
 	function setStoryFormat(value: string) {
@@ -408,6 +560,29 @@ export const SettingsRoute: React.FC = () => {
 							label="High contrast"
 							onChange={value => dispatch(setPref('highContrast', value))}
 						/>
+						<Switch
+							checked={prefs.keyboardOnlyEditing}
+							label="Keyboard-only editing"
+							onChange={value =>
+								dispatch(setPref('keyboardOnlyEditing', value))
+							}
+						/>
+						<div className="settings-route__field">
+							<span>Editor focus</span>
+							<Select
+								ariaLabel="Editor focus"
+								onChange={value =>
+									dispatch(
+										setPref(
+											'editorFocusPreference',
+											value as EditorFocusPreference
+										)
+									)
+								}
+								options={editorFocusOptions}
+								value={prefs.editorFocusPreference}
+							/>
+						</div>
 						<SettingsStatus
 							icon="focus-centered"
 							label="Focus rings"
@@ -435,6 +610,11 @@ export const SettingsRoute: React.FC = () => {
 							/>
 						</div>
 						<SettingsStatus icon="command" label="Command palette" value="On" />
+						<SettingsStatus
+							icon="accessibility"
+							label="Editing access"
+							value={prefs.keyboardOnlyEditing ? 'Keyboard' : 'Pointer'}
+						/>
 					</div>
 				</Panel>
 
@@ -460,30 +640,107 @@ export const SettingsRoute: React.FC = () => {
 							label="Fallback API"
 							value="Filesystem"
 						/>
+						<div className="settings-route__field">
+							<span>Cache cleanup</span>
+							<Select
+								ariaLabel="Cache cleanup"
+								disabled={!platformControlsAvailable}
+								onChange={value =>
+									void updatePlatformSettings({
+										cacheCleanupDays: Number(value)
+									})
+								}
+								options={cacheCleanupOptions}
+								value={String(platformView.cacheCleanupDays)}
+							/>
+						</div>
 					</div>
 				</Panel>
 
 				<Panel icon="archive" pad title="Backups">
 					<div className="settings-route__stack">
-						<SettingsStatus
-							icon="copy-check"
-							label="Dirty-save backup"
-							value="On"
-						/>
+						<div className="settings-route__field">
+							<span>Cadence</span>
+							<Select
+								ariaLabel="Backup cadence"
+								disabled={!platformControlsAvailable}
+								onChange={value =>
+									void updatePlatformSettings({
+										backupCadenceMinutes: Number(value)
+									})
+								}
+								options={backupCadenceOptions}
+								value={String(platformView.backupCadenceMinutes)}
+							/>
+						</div>
+						<div className="settings-route__field">
+							<span>Retention</span>
+							<Select
+								ariaLabel="Backup retention"
+								disabled={!platformControlsAvailable}
+								onChange={value =>
+									void updatePlatformSettings({
+										backupRetentionLimit: Number(value)
+									})
+								}
+								options={backupRetentionOptions}
+								value={String(platformView.backupRetentionLimit)}
+							/>
+						</div>
+						<div className="settings-route__field">
+							<span>Reminder</span>
+							<Select
+								ariaLabel="Backup reminder"
+								disabled={!platformControlsAvailable}
+								onChange={value =>
+									void updatePlatformSettings({
+										backupReminderDays: Number(value)
+									})
+								}
+								options={backupReminderOptions}
+								value={String(platformView.backupReminderDays)}
+							/>
+						</div>
 						<SettingsStatus
 							icon="clock"
-							label="Last update check"
+							label="Backup review"
 							value={
-								prefs.lastUpdateCheckTime
-									? new Date(prefs.lastUpdateCheckTime).toLocaleDateString()
-									: 'Never'
+								platformControlsAvailable
+									? backupReviewLabel(platformView)
+									: 'Native only'
 							}
 						/>
-						<SettingsStatus
-							icon="refresh"
-							label="Last version seen"
-							value={prefs.lastUpdateSeen || 'None'}
-						/>
+						{lastBackupResult && (
+							<SettingsStatus
+								icon="copy-check"
+								label="Last backup"
+								value={compactDateTime(lastBackupResult.createdAt)}
+							/>
+						)}
+						<div className="settings-route__button-row">
+							<Button
+								disabled={!desktopBridge?.runStoryLibraryBackup}
+								icon="copy-check"
+								loading={backupRunning}
+								onClick={runStoryLibraryBackup}
+							>
+								Back Up
+							</Button>
+							<Button
+								disabled={!platformControlsAvailable}
+								icon="checks"
+								onClick={recordBackupReview}
+							>
+								Reviewed
+							</Button>
+							<Button
+								disabled={!desktopBridge?.revealBackupFolder}
+								icon="folder-up"
+								onClick={revealBackupFolder}
+							>
+								Reveal
+							</Button>
+						</div>
 					</div>
 				</Panel>
 
@@ -537,38 +794,150 @@ export const SettingsRoute: React.FC = () => {
 
 				<Panel icon="plug" pad title="Integrations">
 					<div className="settings-route__stack">
-						<div className="settings-route__integration">
-							<TablerIcon icon="puzzle" />
-							<div>
-								<b>Story format extensions</b>
-								<span>
-									{prefs.disabledStoryFormatEditorExtensions.length} disabled
-								</span>
-							</div>
+						<Input
+							block
+							disabled={!platformControlsAvailable}
+							icon="terminal-2"
+							label="External editor"
+							onBlur={() =>
+								void updatePlatformSettings({externalEditorCommand})
+							}
+							onChange={event =>
+								setExternalEditorCommand(event.target.value)
+							}
+							placeholder="Use system default"
+							value={externalEditorCommand}
+						/>
+						<div className="settings-route__field">
+							<span>Cloud save</span>
+							<Select
+								ariaLabel="Cloud save"
+								onChange={value =>
+									dispatch(
+										setPref(
+											'cloudSaveIntegration',
+											value as IntegrationPreference
+										)
+									)
+								}
+								options={integrationOptions}
+								value={prefs.cloudSaveIntegration}
+							/>
 						</div>
-						<div className="settings-route__integration">
-							<TablerIcon icon="database" />
-							<div>
-								<b>Storage mode</b>
-								<span>
-									{prefs.defaultProjectFolder
-										? 'Project folder preferred'
-										: 'App library default'}
-								</span>
-							</div>
+						<div className="settings-route__field">
+							<span>Revision control</span>
+							<Select
+								ariaLabel="Revision control"
+								onChange={value =>
+									dispatch(
+										setPref(
+											'revisionControlIntegration',
+											value as IntegrationPreference
+										)
+									)
+								}
+								options={integrationOptions}
+								value={prefs.revisionControlIntegration}
+							/>
 						</div>
-						<div className="settings-route__integration">
-							<TablerIcon icon="terminal-2" />
-							<div>
-								<b>External editor</b>
-								<span>Not configured</span>
-							</div>
+						<div className="settings-route__field">
+							<span>Hosting publish</span>
+							<Select
+								ariaLabel="Hosting publish"
+								onChange={value =>
+									dispatch(
+										setPref(
+											'hostingPublishIntegration',
+											value as IntegrationPreference
+										)
+									)
+								}
+								options={integrationOptions}
+								value={prefs.hostingPublishIntegration}
+							/>
 						</div>
+						<SettingsStatus
+							icon="puzzle"
+							label="Format extensions"
+							value={`${prefs.disabledStoryFormatEditorExtensions.length} disabled`}
+						/>
+						<SettingsStatus
+							icon="database"
+							label="Storage mode"
+							value={
+								prefs.defaultProjectFolder
+									? 'Project folder'
+									: 'App library'
+							}
+						/>
+					</div>
+				</Panel>
+
+				<Panel icon="share" pad title="Sharing">
+					<div className="settings-route__stack">
+						<div className="settings-route__field">
+							<span>Story links</span>
+							<Select
+								ariaLabel="Story links"
+								onChange={value =>
+									dispatch(
+										setPref('shareLinkMode', value as SharingModePreference)
+									)
+								}
+								options={sharingModeOptions}
+								value={prefs.shareLinkMode}
+							/>
+						</div>
+						<SettingsStatus
+							icon="shield-lock"
+							label="Local-only data"
+							value="Warn"
+						/>
+						<SettingsStatus
+							icon="cloud"
+							label="Cloud hook"
+							value={prefs.cloudSaveIntegration}
+						/>
+						<SettingsStatus
+							icon="git-branch"
+							label="Revision hook"
+							value={prefs.revisionControlIntegration}
+						/>
+						<SettingsStatus
+							icon="server"
+							label="Hosting hook"
+							value={prefs.hostingPublishIntegration}
+						/>
 					</div>
 				</Panel>
 
 				<Panel icon="device-desktop" pad title="Platform">
 					<div className="settings-route__stack">
+						<Switch
+							checked={platformView.fullscreenPersistence}
+							disabled={!platformControlsAvailable}
+							label="Remember fullscreen"
+							onChange={value =>
+								void updatePlatformSettings({
+									fullscreenPersistence: value
+								})
+							}
+						/>
+						<div className="settings-route__field">
+							<span>External links</span>
+							<Select
+								ariaLabel="External links"
+								disabled={!platformControlsAvailable}
+								onChange={value =>
+									void updatePlatformSettings({
+										linkHandlingMode:
+											value === 'block' ? 'block' : 'system'
+									})
+								}
+								options={linkHandlingOptions}
+								value={platformView.linkHandlingMode}
+							/>
+						</div>
 						<SettingsStatus
 							icon="device-desktop"
 							label="Runtime"
@@ -584,6 +953,26 @@ export const SettingsRoute: React.FC = () => {
 							label="Hardware acceleration"
 							value="App"
 						/>
+						<SettingsStatus
+							icon="terminal"
+							label="CLI open/help"
+							value={nativeDesktop ? 'Enabled' : 'Desktop'}
+						/>
+						<SettingsStatus
+							icon="package"
+							label="Installers"
+							value="Documented"
+						/>
+						<SettingsStatus
+							icon="refresh"
+							label="Updates"
+							value={prefs.lastUpdateSeen || 'Manual'}
+						/>
+						<SettingsStatus
+							icon="device-mobile"
+							label="Mobile"
+							value="Constrained"
+						/>
 					</div>
 				</Panel>
 
@@ -592,7 +981,7 @@ export const SettingsRoute: React.FC = () => {
 						<SettingsStatus
 							icon="sparkles"
 							label="App"
-							value={appInfo.name || 'Twine'}
+							value={appInfo.name || 'Twine RS'}
 						/>
 						<SettingsStatus
 							icon="git-branch"

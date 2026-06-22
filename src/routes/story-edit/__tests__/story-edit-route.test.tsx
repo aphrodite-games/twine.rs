@@ -80,7 +80,7 @@ describe('<StoryEditRoute>', () => {
 		const story = fakeStory();
 
 		await renderComponent(story);
-		expect(Helmet.peek().title).toBe(story.name);
+		expect(Helmet.peek().title).toBe(`${story.name} - Twine RS`);
 	});
 
 	it('registers story edit actions in the app shell', async () => {

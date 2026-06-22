@@ -7,6 +7,26 @@ export interface ProjectMetadata {
 	updatedAt: string;
 }
 
+export function projectFolderSlug(value: string) {
+	return (
+		value
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9._-]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 80) || 'untitled-story'
+	);
+}
+
+export function defaultProjectFolderRoot(
+	storyLibraryFolder: string,
+	storyName: string
+) {
+	return `${storyLibraryFolder.replace(/[\\/]+$/, '')}/Projects/${projectFolderSlug(
+		storyName
+	)}.twine.rs`;
+}
+
 function projectMetadataKey(storyId: string) {
 	return `twine-rs-project-metadata-${storyId}`;
 }

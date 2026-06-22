@@ -12,6 +12,7 @@ import type {Passage, Story} from '../store/stories';
 import {parseLinks} from '../util/parse-links';
 
 export interface ContentsViewModelEntry {
+	asset: CoreAssetInventoryEntry | null;
 	core: CoreContentsEntry;
 	group: string;
 	id: string;
@@ -99,6 +100,8 @@ export interface PassageLinkFact {
 	targetName: string;
 }
 
+const storyLinkFactsCache = new WeakMap<Story, PassageLinkFact[]>();
+
 function contentsGroup(kind: CoreContentsEntryKind) {
 	switch (kind) {
 		case 'passage':
@@ -167,7 +170,161 @@ function passageNamesFromIndex(index: CoreStoryIndex) {
 		.map(file => file.name);
 }
 
+export function storyShellIndex(
+	story: Story,
+	knownAssets: CoreAssetInventoryEntry[] = []
+): CoreStoryIndex {
+	const files = story.passages.map(passage => ({
+		characterCount: passage.text.length,
+		id: passage.id,
+		kind: 'passage' as const,
+		lineCount: 1,
+		name: passage.name,
+		passageId: passage.id,
+		tags: passage.tags
+	}));
+	const tagEntries = Array.from(
+		story.passages.reduce((result, passage) => {
+			for (const tag of passage.tags) {
+				const passageIds = result.get(tag) ?? new Set<string>();
+
+				passageIds.add(passage.id);
+				result.set(tag, passageIds);
+			}
+
+			return result;
+		}, new Map<string, Set<string>>())
+	)
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([name, passageIds]) => ({
+			color: story.tagColors[name] ?? null,
+			count: passageIds.size,
+			name,
+			passageIds: Array.from(passageIds).sort()
+		}));
+	const contents: CoreStoryIndex['contents'] = [
+		{
+			count: story.passages.length,
+			detail: story.name,
+			id: `metadata:${story.id}`,
+			kind: 'metadata',
+			label: 'Story metadata',
+			passageId: null,
+			severity: null,
+			sourceId: `${story.id}:metadata`
+		},
+		{
+			count: 1,
+			detail: `${story.storyFormat} ${story.storyFormatVersion}`,
+			id: `format:${story.id}`,
+			kind: 'metadata',
+			label: 'Story format',
+			passageId: null,
+			severity: null,
+			sourceId: `${story.id}:metadata`
+		},
+		...story.passages
+			.filter(passage => passage.id === story.startPassage)
+			.map(passage => ({
+				count: 1,
+				detail: passage.name,
+				id: `entry:${passage.id}`,
+				kind: 'entryPoint' as const,
+				label: 'Start passage',
+				passageId: passage.id,
+				severity: null,
+				sourceId: passage.id
+			})),
+		...files.map(file => ({
+			count: file.lineCount,
+			detail: `${file.characterCount} characters`,
+			id: `source:${file.id}`,
+			kind: 'passage' as const,
+			label: file.name,
+			passageId: file.passageId,
+			severity: null,
+			sourceId: file.id
+		})),
+		...tagEntries.map(tag => ({
+			count: tag.count,
+			detail: tag.color,
+			id: `tag:${tag.name}`,
+			kind: 'tag' as const,
+			label: tag.name,
+			passageId: tag.passageIds[0] ?? null,
+			severity: null,
+			sourceId: tag.passageIds[0] ?? null
+		})),
+		...knownAssets.map(asset => ({
+			count: asset.referenceCount,
+			detail: asset.missing ? 'missing' : asset.unused ? 'unused' : asset.kind,
+			id: `asset:${asset.path}`,
+			kind: 'asset' as const,
+			label: asset.path,
+			passageId: asset.references[0]?.passageId ?? null,
+			severity: asset.missing ? ('error' as const) : null,
+			sourceId: asset.references[0]?.sourceId ?? `${story.id}:assets`
+		}))
+	];
+
+	return {
+		assetInventory: knownAssets,
+		assets: [],
+		contents,
+		diagnostics: [],
+		files: [
+			...files,
+			{
+				characterCount: story.script.length,
+				id: `${story.id}:script`,
+				kind: 'script',
+				lineCount: 1,
+				name: 'Story JavaScript',
+				passageId: null,
+				tags: []
+			},
+			{
+				characterCount: story.stylesheet.length,
+				id: `${story.id}:stylesheet`,
+				kind: 'stylesheet',
+				lineCount: 1,
+				name: 'Story Stylesheet',
+				passageId: null,
+				tags: []
+			}
+		],
+		graph: {
+			brokenLinks: 0,
+			emptyPassages: story.passages.filter(
+				passage => passage.text.trim() === ''
+			).length,
+			links: 0,
+			orphanPassages: 0,
+			passages: story.passages.length,
+			resolvedLinks: 0,
+			selfLinks: 0,
+			taggedPassages: story.passages.filter(passage => passage.tags.length > 0)
+				.length,
+			unreachablePassages: 0
+		},
+		replacePreviews: [],
+		searchHits: [],
+		storyId: story.id,
+		tags: Array.from(
+			new Set(story.passages.flatMap(passage => passage.tags))
+		).sort(),
+		tagEntries,
+		symbols: []
+	};
+}
+
 export function storyLinkFacts(story: Story): PassageLinkFact[] {
+	const cached = storyLinkFactsCache.get(story);
+
+	if (cached) {
+		return cached;
+	}
+
 	const passagesByName = new Map(
 		story.passages.map(passage => [passage.name, passage])
 	);
@@ -188,9 +345,9 @@ export function storyLinkFacts(story: Story): PassageLinkFact[] {
 		}
 	}
 
+	storyLinkFactsCache.set(story, facts);
 	return facts;
 }
-
 
 function diagnosticLocation(story: Story, diagnostic: CoreDiagnostic) {
 	const passage = diagnostic.passageId
@@ -277,6 +434,9 @@ export function contentsViewModel(index: CoreStoryIndex): ContentsViewModel {
 		CoreContentsEntryKind,
 		ContentsViewModelFilter
 	>();
+	const assetsByPath = new Map(
+		index.assetInventory.map(asset => [asset.path, asset])
+	);
 	const entries = index.contents.map(entry => {
 		const existing = filtersByKind.get(entry.kind);
 		const severity = entry.severity ?? null;
@@ -289,6 +449,8 @@ export function contentsViewModel(index: CoreStoryIndex): ContentsViewModel {
 		});
 
 		return {
+			asset:
+				entry.kind === 'asset' ? (assetsByPath.get(entry.label) ?? null) : null,
 			core: entry,
 			group: contentsGroup(entry.kind),
 			id: entry.id,
@@ -392,7 +554,8 @@ export function workbenchSelection(
 			: [],
 		backlinks: passage
 			? allLinkFacts.filter(
-					fact => fact.sourceId !== passage.id && fact.targetName === passage.name
+					fact =>
+						fact.sourceId !== passage.id && fact.targetName === passage.name
 				)
 			: [],
 		brokenLinks: linkFacts.filter(fact => fact.broken),

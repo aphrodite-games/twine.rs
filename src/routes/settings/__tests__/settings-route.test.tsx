@@ -1,9 +1,14 @@
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import * as React from 'react';
+import type {TwineElectronWindow} from '../../../electron/shared';
 import {FakeStateProvider} from '../../../test-util';
 import {SettingsRoute} from '../settings-route';
 
 describe('<SettingsRoute>', () => {
+	afterEach(() => {
+		delete (window as TwineElectronWindow).twineElectron;
+	});
+
 	it('renders DS settings sections backed by preferences', () => {
 		render(
 			<FakeStateProvider
@@ -22,7 +27,7 @@ describe('<SettingsRoute>', () => {
 		expect(screen.getByRole('heading', {name: 'Settings'})).toBeInTheDocument();
 		expect(screen.getByText('General')).toBeInTheDocument();
 		expect(screen.getByText('Accessibility')).toBeInTheDocument();
-		expect(screen.getByText('Keyboard')).toBeInTheDocument();
+		expect(screen.getAllByText('Keyboard').length).toBeGreaterThanOrEqual(1);
 		expect(screen.getByText('Editors')).toBeInTheDocument();
 		expect(screen.getByText('Workspace')).toBeInTheDocument();
 		expect(screen.getByText('Modes')).toBeInTheDocument();
@@ -32,10 +37,13 @@ describe('<SettingsRoute>', () => {
 		expect(screen.getByText('Story Formats')).toBeInTheDocument();
 		expect(screen.getByText('Graph carrier')).toBeInTheDocument();
 		expect(screen.getByText('Integrations')).toBeInTheDocument();
+		expect(screen.getByText('Sharing')).toBeInTheDocument();
 		expect(screen.getByText('Platform')).toBeInTheDocument();
 		expect(screen.getByText('About')).toBeInTheDocument();
 		expect(screen.getByDisplayValue('/tmp/projects')).toBeInTheDocument();
 		expect(screen.getByText('vim')).toBeInTheDocument();
+		expect(screen.getByText('Keyboard-only editing')).toBeInTheDocument();
+		expect(screen.getByText('Local-only data')).toBeInTheDocument();
 	});
 
 	it('updates preferences from settings controls', () => {
@@ -50,5 +58,57 @@ describe('<SettingsRoute>', () => {
 		});
 
 		expect(screen.getByDisplayValue('/Users/test/Stories')).toBeInTheDocument();
+	});
+
+	it('loads and updates native platform settings', async () => {
+		const updatePlatformSettings = jest.fn(async settings => ({
+			backupCadenceMinutes: 20,
+			backupFolderPath: '/native/backups',
+			backupLastReviewedTime: 0,
+			backupReminderDays: settings.backupReminderDays ?? 7,
+			backupRetentionLimit: 10,
+			cacheCleanupDays: 3,
+			externalEditorCommand: '',
+			fullscreenPersistence: true,
+			lastWindowFullscreen: false,
+			linkHandlingMode: 'system',
+			storyLibraryFolderPath: '/native/library'
+		}));
+
+		(window as TwineElectronWindow).twineElectron = {
+			getPlatformSettings: jest.fn(async () => ({
+				backupCadenceMinutes: 20,
+				backupFolderPath: '/native/backups',
+				backupLastReviewedTime: 0,
+				backupReminderDays: 7,
+				backupRetentionLimit: 10,
+				cacheCleanupDays: 3,
+				externalEditorCommand: '',
+				fullscreenPersistence: true,
+				lastWindowFullscreen: false,
+				linkHandlingMode: 'system',
+				storyLibraryFolderPath: '/native/library'
+			})),
+			getStoryLibraryFolder: jest.fn(async () => '/native/library'),
+			updatePlatformSettings
+		} as any;
+
+		render(
+			<FakeStateProvider prefs={{shareLinkMode: 'local-file'}}>
+				<SettingsRoute />
+			</FakeStateProvider>
+		);
+
+		expect(await screen.findByDisplayValue('/native/library')).toBeInTheDocument();
+
+		fireEvent.change(screen.getByLabelText('Backup reminder'), {
+			target: {value: '14'}
+		});
+
+		await waitFor(() =>
+			expect(updatePlatformSettings).toHaveBeenCalledWith({
+				backupReminderDays: 14
+			})
+		);
 	});
 });

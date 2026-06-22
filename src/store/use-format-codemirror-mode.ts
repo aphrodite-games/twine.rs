@@ -39,7 +39,7 @@ export function useFormatCodeMirrorMode(
 		} else if (format.loadState === 'loaded') {
 			const editorExtensions = formatEditorExtensions(
 				format,
-				getAppInfo().version
+				getAppInfo().twineCompatibilityVersion
 			);
 
 			if (editorExtensions?.codeMirror?.mode) {

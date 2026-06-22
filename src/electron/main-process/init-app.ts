@@ -3,6 +3,13 @@ import path from 'path';
 import {initIpc} from './ipc';
 import {initLocales} from './locales';
 import {initMenuBar} from './menu-bar';
+import {setAppPref} from './app-prefs';
+import {
+	backupCadenceMs,
+	fullscreenPersistenceEnabled,
+	lastWindowFullscreen,
+	linkHandlingMode
+} from './platform-settings';
 import {cleanScratchDirectory} from './scratch-file';
 import {
 	backupStoryDirectory,
@@ -17,14 +24,26 @@ async function createWindow() {
 	const screenSize = screen.getPrimaryDisplay().workAreaSize;
 
 	mainWindow = new BrowserWindow({
+		fullscreen: fullscreenPersistenceEnabled() && lastWindowFullscreen(),
 		height: Math.round(screenSize.height * 0.9),
 		width: Math.round(screenSize.width * 0.9),
 		show: false,
+		title: 'Twine RS',
 		webPreferences: {
+			contextIsolation: false,
 			preload: path.resolve(__dirname, './preload.js'),
 			sandbox: true
 		}
 	});
+	if (fullscreenPersistenceEnabled()) {
+		mainWindow.on('enter-full-screen', () => {
+			void setAppPref('lastWindowFullscreen', true);
+		});
+		mainWindow.on('leave-full-screen', () => {
+			void setAppPref('lastWindowFullscreen', false);
+		});
+	}
+
 	mainWindow.loadURL(
 		// Path is relative to this file in the electron-build/ directory that's
 		// created during `npm run build:electron-main`.
@@ -51,11 +70,17 @@ async function createWindow() {
 	// Load external links in the system browser.
 
 	mainWindow.webContents.on('will-navigate', (event, url) => {
-		shell.openExternal(url);
+		if (linkHandlingMode() === 'system') {
+			shell.openExternal(url);
+		}
+
 		event.preventDefault();
 	});
 	mainWindow.webContents.setWindowOpenHandler(({url}) => {
-		shell.openExternal(url);
+		if (linkHandlingMode() === 'system') {
+			shell.openExternal(url);
+		}
+
 		return {action: 'deny'};
 	});
 }
@@ -66,7 +91,7 @@ export async function initApp() {
 		await initStoryDirectory();
 		await createStoryDirectory();
 		await backupStoryDirectory();
-		setInterval(backupStoryDirectory, 1000 * 60 * 20);
+		setInterval(() => void backupStoryDirectory(), backupCadenceMs());
 		initIpc();
 		initMenuBar();
 		app.on('will-quit', async () => {

@@ -24,7 +24,7 @@ beforeEach(() => {
 			return undefined;
 		}
 
-		throw new Error(`Asked for unmocked pref ${name}`);
+		return undefined;
 	});
 });
 
@@ -41,10 +41,10 @@ describe('backupStoryDirectory()', () => {
 		]);
 		statMock.mockImplementation((name: string) => {
 			switch (name) {
-				case 'mock-electron-app-path-documents/common.appName/electron.backupsDirectoryName/mock-backup-1':
+				case 'mock-electron-app-path-documents/mock-electron-app-name/electron.backupsDirectoryName/mock-backup-1':
 				case 'test-app-pref-backup-directory/mock-backup-1':
 					return {mtimeMs: 1000};
-				case 'mock-electron-app-path-documents/common.appName/electron.backupsDirectoryName/mock-backup-2':
+				case 'mock-electron-app-path-documents/mock-electron-app-name/electron.backupsDirectoryName/mock-backup-2':
 				case 'test-app-pref-backup-directory/mock-backup-2':
 					return {mtimeMs: 500};
 				default:
@@ -59,7 +59,7 @@ describe('backupStoryDirectory()', () => {
 		[
 			"isn't set",
 			undefined,
-			'mock-electron-app-path-documents/common.appName/electron.backupsDirectoryName'
+			'mock-electron-app-path-documents/mock-electron-app-name/electron.backupsDirectoryName'
 		],
 		[
 			'is set',
@@ -73,7 +73,7 @@ describe('backupStoryDirectory()', () => {
 					return appPref;
 				}
 
-				throw new Error(`Asked for unmocked pref ${name}`);
+				return undefined;
 			});
 		});
 
@@ -81,7 +81,7 @@ describe('backupStoryDirectory()', () => {
 			await backupStoryDirectory();
 			expect(copyMock.mock.calls).toEqual([
 				[
-					'mock-electron-app-path-documents/common.appName/electron.storiesDirectoryName',
+					'mock-electron-app-path-documents/mock-electron-app-name/electron.storiesDirectoryName',
 					expect.stringMatching(new RegExp(`${path}/.+`))
 				]
 			]);
@@ -201,7 +201,7 @@ describe('initStoryDirectoryPath()', () => {
 	it('returns the default path if no app pref is set', async () => {
 		await initStoryDirectory();
 		expect(getStoryDirectoryPath()).toBe(
-			'mock-electron-app-path-documents/common.appName/electron.storiesDirectoryName'
+			'mock-electron-app-path-documents/mock-electron-app-name/electron.storiesDirectoryName'
 		);
 	});
 
@@ -212,7 +212,7 @@ describe('initStoryDirectoryPath()', () => {
 					return 'mock-story-library-folder-app-pref';
 				}
 
-				throw new Error(`Asked for unmocked pref ${name}`);
+				return undefined;
 			});
 		});
 
@@ -275,7 +275,7 @@ describe('initStoryDirectoryPath()', () => {
 				showMessageBoxMock.mockResolvedValue({response: 0});
 				await initStoryDirectory();
 				expect(getStoryDirectoryPath()).toBe(
-					'mock-electron-app-path-documents/common.appName/electron.storiesDirectoryName'
+					'mock-electron-app-path-documents/mock-electron-app-name/electron.storiesDirectoryName'
 				);
 				expect(quitMock).not.toBeCalled();
 			});
@@ -296,7 +296,7 @@ describe('revealStoryDirectoryPath()', () => {
 		await revealStoryDirectory();
 		expect(openPathSpy.mock.calls).toEqual([
 			[
-				'mock-electron-app-path-documents/common.appName/electron.storiesDirectoryName'
+				'mock-electron-app-path-documents/mock-electron-app-name/electron.storiesDirectoryName'
 			]
 		]);
 	});

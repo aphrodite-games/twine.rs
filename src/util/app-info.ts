@@ -1,5 +1,6 @@
 export interface AppInfo {
 	name: string;
+	twineCompatibilityVersion: string;
 	version: string;
 }
 
@@ -10,6 +11,8 @@ export interface AppInfo {
 export function getAppInfo(): AppInfo {
 	return {
 		name: process.env.VITE_APP_NAME as string,
+		twineCompatibilityVersion: process.env
+			.VITE_TWINE_COMPATIBILITY_VERSION as string,
 		version: process.env.VITE_APP_VERSION as string
 	};
 }

@@ -54,7 +54,7 @@ export function useFormatCodeMirrorToolbar(
 			const namespace = namespaceForFormat(format);
 			const editorExtensions = formatEditorExtensions(
 				format,
-				getAppInfo().version
+				getAppInfo().twineCompatibilityVersion
 			);
 
 			if (editorExtensions?.codeMirror?.commands) {

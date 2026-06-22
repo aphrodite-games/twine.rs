@@ -62,10 +62,18 @@ function renderShell(story: Story, route = `/stories/${story.id}`) {
 	);
 }
 
+function mockPlatform(platform: string) {
+	Object.defineProperty(window.navigator, 'platform', {
+		configurable: true,
+		value: platform
+	});
+}
+
 describe('AppShell', () => {
 	let story: Story;
 
 	beforeEach(() => {
+		mockPlatform('MacIntel');
 		jest.clearAllMocks();
 		window.localStorage.clear();
 		publishStorySaveStatus({kind: 'idle'});
@@ -115,6 +123,23 @@ describe('AppShell', () => {
 
 		await waitFor(() => expect(mockPlayStory).toHaveBeenCalledWith(story.id));
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('opens the global command palette from the visible Command button', async () => {
+		renderShell(story);
+
+		fireEvent.click(screen.getByRole('button', {name: 'Command'}));
+
+		expect(await screen.findByLabelText('Command')).toHaveFocus();
+		expect(screen.getByText('⌘ Enter')).toBeInTheDocument();
+	});
+
+	it('runs accessible keyboard shortcuts for shell commands', async () => {
+		renderShell(story);
+
+		fireEvent.keyDown(window, {key: 'Enter', metaKey: true});
+
+		await waitFor(() => expect(mockPlayStory).toHaveBeenCalledWith(story.id));
 	});
 
 	it('navigates to the first-class Build surface from commands', async () => {

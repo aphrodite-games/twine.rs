@@ -7,6 +7,7 @@ import {
 	StoryBuildTarget
 } from '../util/build-package';
 import {useCoreProjectHost} from '../core/project-host';
+import type {CoreAssetInventoryEntry} from '../core';
 import {usePrefsContext} from './prefs';
 import {
 	formatWithNameAndVersion,
@@ -30,7 +31,10 @@ export interface UsePublishingProps {
 		target: StoryBuildTarget,
 		publishOptions?: PublishOptions
 	) => Promise<StoryBuildPackage>;
-	proofStoryPackage: (storyId: string) => Promise<StoryBuildPackage>;
+	proofStoryPackage: (
+		storyId: string,
+		assetInventory?: CoreAssetInventoryEntry[]
+	) => Promise<StoryBuildPackage>;
 	proofStory: (storyId: string) => Promise<string>;
 	publishArchive: (storyIds?: string[]) => Promise<string>;
 	publishStoryPackage: (
@@ -138,7 +142,7 @@ export function usePublishing(): UsePublishingProps {
 			]
 		),
 		proofStoryPackage: React.useCallback(
-			async storyId => {
+			async (storyId, assetInventory) => {
 				const story = storyWithId(stories, storyId);
 				const format = formatWithNameAndVersion(
 					formats,
@@ -153,7 +157,7 @@ export function usePublishing(): UsePublishingProps {
 				}
 
 				return createStoryBuildPackage(story, getAppInfo(), {
-					assetInventory: assetInventoryForStory(storyId),
+					assetInventory: assetInventory ?? assetInventoryForStory(storyId),
 					formatProperties,
 					target: 'proof'
 				});

@@ -5,6 +5,24 @@ import {usePrefsContext} from './prefs';
 import {useStoriesContext} from './stories';
 import {useStoryFormatsContext} from './story-formats';
 import {useStoriesRepair} from './use-stories-repair';
+import {markPerformance, measurePerformance} from '../util/performance';
+
+async function loadOrDefault<T>(
+	name: string,
+	load: () => Promise<T>,
+	defaultValue: T
+): Promise<T> {
+	try {
+		return await load();
+	} catch (error) {
+		console.warn(
+			`Could not load ${name}; continuing with default state: ${
+				(error as Error).message
+			}`
+		);
+		return defaultValue;
+	}
+}
 
 export const StateLoader: React.FC = ({children}) => {
 	const [initing, setIniting] = React.useState(false);
@@ -28,13 +46,19 @@ export const StateLoader: React.FC = ({children}) => {
 	React.useEffect(() => {
 		async function run() {
 			if (!initing) {
-				const formatsState = await storyFormats.load();
-				const prefsState = await prefs.load();
-				const storiesState = await stories.load();
+				markPerformance('open-start');
+				const formatsState = await loadOrDefault(
+					'story formats',
+					storyFormats.load,
+					[]
+				);
+				const prefsState = await loadOrDefault('preferences', prefs.load, {});
+				const storiesState = await loadOrDefault('stories', stories.load, []);
 
 				formatsDispatch({type: 'init', state: formatsState});
 				prefsDispatch({type: 'init', state: prefsState});
 				storiesDispatch({type: 'init', state: storiesState});
+				markPerformance('all-passages-ready');
 				setInited(true);
 			}
 		}
@@ -85,6 +109,13 @@ export const StateLoader: React.FC = ({children}) => {
 		storiesDispatch,
 		storiesRepaired
 	]);
+
+	React.useEffect(() => {
+		if (inited && formatsRepaired && prefsRepaired && storiesRepaired) {
+			markPerformance('shell-visible');
+			measurePerformance('open-to-shell', 'open-start', 'shell-visible');
+		}
+	}, [formatsRepaired, inited, prefsRepaired, storiesRepaired]);
 
 	return inited && formatsRepaired && prefsRepaired && storiesRepaired ? (
 		<>{children}</>

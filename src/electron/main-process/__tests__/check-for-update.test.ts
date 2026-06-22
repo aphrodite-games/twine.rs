@@ -1,4 +1,4 @@
-import {version as twineVersion} from '../../../../package.json';
+import {version as appVersion} from '../../../../package.json';
 import {dialog, shell} from 'electron';
 import nodeFetch from 'node-fetch';
 import {checkForUpdate} from '../check-for-update';
@@ -7,6 +7,7 @@ jest.mock('electron');
 jest.mock('node-fetch');
 
 describe('checkForUpdate()', () => {
+	const checkUrl = 'mock-check-url';
 	const nodeFetchMock = nodeFetch as unknown as jest.Mock;
 	const openExternalMock = shell.openExternal as jest.Mock;
 	const showErrorBoxMock = dialog.showErrorBox as jest.Mock;
@@ -14,6 +15,21 @@ describe('checkForUpdate()', () => {
 
 	beforeEach(() => {
 		jest.spyOn(console, 'log').mockReturnValue();
+		process.env.TWINE_RS_UPDATE_URL = checkUrl;
+	});
+
+	afterEach(() => delete process.env.TWINE_RS_UPDATE_URL);
+
+	describe('if no update URL is configured', () => {
+		beforeEach(() => delete process.env.TWINE_RS_UPDATE_URL);
+
+		it('shows a dialog saying that the user has the most current version', async () => {
+			await checkForUpdate();
+			expect(nodeFetchMock).not.toHaveBeenCalled();
+			expect(showMessageBoxMock.mock.calls).toEqual([
+				[expect.objectContaining({message: 'electron.updateCheck.upToDate'})]
+			]);
+		});
 	});
 
 	describe('if the newest version is older than the current one', () => {
@@ -34,7 +50,7 @@ describe('checkForUpdate()', () => {
 	describe('if the newest version is the same version as the current one', () => {
 		beforeEach(() => {
 			nodeFetchMock.mockReturnValue({
-				json: () => ({url: 'mock-url', version: twineVersion})
+				json: () => ({url: 'mock-url', version: appVersion})
 			});
 		});
 

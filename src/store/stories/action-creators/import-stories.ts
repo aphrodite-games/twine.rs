@@ -30,12 +30,7 @@ export function importStories(
 
 	return dispatch => {
 		toImport.forEach(importStory => {
-			// Remove the temp ID that was assigned to the new story.
-
 			const props: Partial<Story> = {...importStory};
-
-			delete props.id;
-
 			const existingStory = existingStories.find(
 				s => storyFileName(s) === storyFileName(importStory)
 			);
@@ -45,6 +40,8 @@ export function importStories(
 			// set properly.
 
 			if (existingStory) {
+				delete props.id;
+
 				if (props.passages) {
 					props.passages = props.passages.map(passage => ({
 						...passage,

@@ -1,7 +1,11 @@
 import {FSWatcher, watch} from 'fs';
-import {dialog, nativeImage} from 'electron';
+import {tmpdir} from 'os';
+import {dialog} from 'electron';
+import {v4 as uuid} from '@lukeed/uuid';
+import extractZip from 'extract-zip';
 import {
 	copy,
+	mkdtemp,
 	mkdirp,
 	move,
 	readFile,
@@ -9,10 +13,9 @@ import {
 	readdir,
 	remove,
 	stat,
-	writeFile,
-	writeJson
+	writeFile
 } from 'fs-extra';
-import {basename, dirname, join, relative, resolve} from 'path';
+import {basename, dirname, extname, join, relative, resolve} from 'path';
 import type {CoreAssetInventoryEntry} from '../../core';
 import {
 	assetKindForPath,
@@ -21,10 +24,11 @@ import {
 	localAssetReferencePath,
 	normalizedAssetPath
 } from '../../core/asset-paths';
-import {Story} from '../../store/stories';
+import {Passage, Story} from '../../store/stories';
 import {getStoryDirectoryPath} from './story-directory';
 
 export interface NativeProjectFolderResult {
+	passageTextLoaded?: boolean;
 	rootPath: string;
 	stories: Story[];
 	storyIds: string[];
@@ -33,6 +37,21 @@ export interface NativeProjectFolderResult {
 export interface NativeProjectAssetWriteResult {
 	sourcePath: string;
 	targetPath: string;
+}
+
+export interface NativeProjectImportAsset {
+	originalPath: string;
+	sourcePath: string;
+	targetPath: string;
+}
+
+export interface NativeProjectImportSource {
+	assets: NativeProjectImportAsset[];
+	htmlFilePath: string;
+	htmlSource: string;
+	id: string;
+	sourceKind: 'html' | 'zip';
+	sourcePath: string;
 }
 
 export type NativeProjectFileKind =
@@ -76,9 +95,7 @@ export interface NativeProjectSessionSnapshot extends NativeProjectFolderResult 
 	scannedAt: string;
 }
 
-type ProjectSessionListener = (
-	snapshot: NativeProjectSessionSnapshot
-) => void;
+type ProjectSessionListener = (snapshot: NativeProjectSessionSnapshot) => void;
 
 interface ProjectSessionState {
 	baseline?: NativeProjectSessionSnapshot;
@@ -91,6 +108,18 @@ interface ProjectSessionState {
 	scanning?: boolean;
 	watcher?: FSWatcher;
 }
+
+interface ProjectSessionSnapshotHints {
+	assets?: CoreAssetInventoryEntry[];
+	stories?: Story[];
+	storyIds?: string[];
+}
+
+interface ProjectStoryReadOptions {
+	loadPassageText?: boolean;
+}
+
+export interface NativeProjectOpenOptions extends ProjectStoryReadOptions {}
 
 interface ParsedProjectPassage {
 	file?: string;
@@ -115,9 +144,81 @@ interface ParsedProjectStory {
 	zoom?: number;
 }
 
+type RendererProjectMetadataPassage = Partial<
+	Pick<
+		Passage,
+		| 'height'
+		| 'highlighted'
+		| 'id'
+		| 'left'
+		| 'name'
+		| 'selected'
+		| 'story'
+		| 'tags'
+		| 'text'
+		| 'top'
+		| 'width'
+	>
+> & {id?: string};
+
+type RendererProjectMetadataStory = Partial<
+	Omit<Story, 'lastUpdate' | 'passages'>
+> & {
+	lastUpdate?: Date | string;
+	passages?: RendererProjectMetadataPassage[];
+};
+
 const projectSessions = new Map<string, ProjectSessionState>();
+const preparedProjectImports = new Map<
+	string,
+	{assets: NativeProjectImportAsset[]; cleanupPath?: string}
+>();
 const projectSessionPollMs = 1250;
 const projectSessionWatchDebounceMs = 150;
+const maxProjectMetadataSidecarBytes = 2 * 1024 * 1024;
+const importAssetExtensions = new Set([
+	'.apng',
+	'.avif',
+	'.css',
+	'.gif',
+	'.jpeg',
+	'.jpg',
+	'.js',
+	'.m4a',
+	'.mp3',
+	'.mp4',
+	'.oga',
+	'.ogg',
+	'.otf',
+	'.png',
+	'.svg',
+	'.ttf',
+	'.wav',
+	'.webm',
+	'.webp',
+	'.woff',
+	'.woff2'
+]);
+const importAssetReferenceRegex =
+	/([A-Za-z0-9_./~%:@?&=+-]+\.(?:apng|avif|css|gif|jpe?g|js|m4a|mp3|mp4|oga|ogg|otf|png|svg|ttf|wav|webm|webp|woff2?))/gi;
+const obviousImportAssetDirectoryNames = new Set([
+	'asset',
+	'assets',
+	'audio',
+	'font',
+	'fonts',
+	'image',
+	'images',
+	'img',
+	'media',
+	'music',
+	'picture',
+	'pictures',
+	'sound',
+	'sounds',
+	'video',
+	'videos'
+]);
 
 function pathSlug(value: string) {
 	return (
@@ -266,7 +367,10 @@ async function readTextIfPresent(path: string) {
 	}
 }
 
-async function readJsonIfPresent<T>(path: string): Promise<T | undefined> {
+async function readJsonIfPresent<T>(
+	path: string,
+	options: {ignoreInvalidJson?: boolean} = {}
+): Promise<T | undefined> {
 	try {
 		return (await readJson(path)) as T;
 	} catch (error) {
@@ -274,8 +378,356 @@ async function readJsonIfPresent<T>(path: string): Promise<T | undefined> {
 			return undefined;
 		}
 
+		if (
+			options.ignoreInvalidJson &&
+			(error instanceof SyntaxError || (error as Error).name === 'SyntaxError')
+		) {
+			console.warn(`Ignoring invalid project sidecar JSON at ${path}:`, error);
+			return undefined;
+		}
+
 		throw error;
 	}
+}
+
+async function writeJsonAtomic(path: string, data: unknown) {
+	const tempPath = `${path}.${uuid()}.tmp`;
+
+	try {
+		await writeFile(tempPath, `${JSON.stringify(data)}\n`, 'utf8');
+		await move(tempPath, path, {overwrite: true});
+	} catch (error) {
+		await remove(tempPath).catch(() => undefined);
+		throw error;
+	}
+}
+
+function escapeRegExp(value: string) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function pathLooksLikeUrl(path: string) {
+	return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(path) || path.startsWith('//');
+}
+
+function isPathInside(rootPath: string, candidatePath: string) {
+	const relativePath = relative(rootPath, candidatePath);
+
+	return relativePath === '' || !relativePath.startsWith('..');
+}
+
+function normalizedRelativePath(rootPath: string, candidatePath: string) {
+	return relative(rootPath, candidatePath).replace(/\\/g, '/');
+}
+
+function isImportAssetFile(path: string) {
+	return importAssetExtensions.has(extname(path).toLowerCase());
+}
+
+function isObviousImportAssetDirectory(name: string, htmlBaseName: string) {
+	const lower = name.toLowerCase();
+	const compact = lower.replace(/[\s._-]+/g, '-');
+	const htmlCompact = htmlBaseName.toLowerCase().replace(/[\s._-]+/g, '-');
+
+	if (lower.startsWith('.') || lower === '__macosx') {
+		return false;
+	}
+
+	return (
+		obviousImportAssetDirectoryNames.has(lower) ||
+		compact.endsWith('-assets') ||
+		compact.endsWith('-media') ||
+		compact === `${htmlCompact}-files`
+	);
+}
+
+function importAssetTargetPath(relativeSourcePath: string) {
+	const normalized = relativeSourcePath
+		.replace(/\\/g, '/')
+		.replace(/^(\.\/)+/, '')
+		.split('/')
+		.filter(segment => segment.length > 0)
+		.join('/');
+
+	if (normalized.toLowerCase().startsWith('assets/')) {
+		return normalized;
+	}
+
+	return `assets/${normalized}`;
+}
+
+async function addImportAsset(
+	assets: Map<string, NativeProjectImportAsset>,
+	sourceRoot: string,
+	sourcePath: string
+) {
+	const relativeSourcePath = normalizedRelativePath(sourceRoot, sourcePath);
+
+	if (
+		relativeSourcePath === '' ||
+		relativeSourcePath.startsWith('..') ||
+		!isImportAssetFile(relativeSourcePath)
+	) {
+		return;
+	}
+
+	const targetPath = importAssetTargetPath(relativeSourcePath);
+
+	assets.set(targetPath.toLowerCase(), {
+		originalPath: relativeSourcePath,
+		sourcePath,
+		targetPath
+	});
+}
+
+async function scanImportAssetDirectory(
+	assets: Map<string, NativeProjectImportAsset>,
+	sourceRoot: string,
+	directory: string
+) {
+	let names: string[];
+
+	try {
+		names = await readdir(directory);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			return;
+		}
+
+		throw error;
+	}
+
+	for (const name of names) {
+		const absolutePath = join(directory, name);
+		const fileStats = await stat(absolutePath);
+
+		if (fileStats.isDirectory()) {
+			await scanImportAssetDirectory(assets, sourceRoot, absolutePath);
+			continue;
+		}
+
+		if (fileStats.isFile()) {
+			await addImportAsset(assets, sourceRoot, absolutePath);
+		}
+	}
+}
+
+function importAssetReferencePath(reference: string) {
+	const normalized = reference.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+
+	if (
+		normalized.startsWith('/') ||
+		pathLooksLikeUrl(normalized) ||
+		normalized.split('/').some(segment => segment === '..')
+	) {
+		return undefined;
+	}
+
+	try {
+		return decodeURIComponent(normalized);
+	} catch {
+		return normalized;
+	}
+}
+
+async function addReferencedImportAssets(
+	assets: Map<string, NativeProjectImportAsset>,
+	sourceRoot: string,
+	htmlSource: string
+) {
+	for (
+		let match = importAssetReferenceRegex.exec(htmlSource);
+		match;
+		match = importAssetReferenceRegex.exec(htmlSource)
+	) {
+		const referencePath = importAssetReferencePath(match[1]);
+
+		if (!referencePath) {
+			continue;
+		}
+
+		const absolutePath = resolve(sourceRoot, referencePath);
+
+		if (!isPathInside(sourceRoot, absolutePath)) {
+			continue;
+		}
+
+		try {
+			const fileStats = await stat(absolutePath);
+
+			if (fileStats.isFile()) {
+				await addImportAsset(assets, sourceRoot, absolutePath);
+			}
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+				throw error;
+			}
+		}
+	}
+}
+
+async function discoverProjectImportAssets(
+	sourceRoot: string,
+	htmlFilePath: string,
+	htmlSource: string
+) {
+	const assets = new Map<string, NativeProjectImportAsset>();
+	const htmlBaseName = basename(htmlFilePath, extname(htmlFilePath));
+	let names: string[];
+
+	try {
+		names = await readdir(sourceRoot);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			return [];
+		}
+
+		throw error;
+	}
+
+	for (const name of names) {
+		const absolutePath = join(sourceRoot, name);
+		const fileStats = await stat(absolutePath);
+
+		if (
+			fileStats.isDirectory() &&
+			isObviousImportAssetDirectory(name, htmlBaseName)
+		) {
+			await scanImportAssetDirectory(assets, sourceRoot, absolutePath);
+		}
+	}
+
+	await addReferencedImportAssets(assets, sourceRoot, htmlSource);
+
+	return [...assets.values()].sort((left, right) =>
+		left.targetPath.localeCompare(right.targetPath)
+	);
+}
+
+function importAssetRewriteRoots(assets: NativeProjectImportAsset[]) {
+	const roots = new Map<string, {originalRoot: string; targetRoot: string}>();
+
+	for (const asset of assets) {
+		const originalRoot = asset.originalPath.split('/')[0];
+		const targetSegments = asset.targetPath.split('/');
+
+		if (
+			!originalRoot ||
+			originalRoot.toLowerCase() === 'assets' ||
+			targetSegments.length < 2
+		) {
+			continue;
+		}
+
+		roots.set(originalRoot.toLowerCase(), {
+			originalRoot,
+			targetRoot: `${targetSegments[0]}/${targetSegments[1]}`
+		});
+	}
+
+	return [...roots.values()].sort(
+		(left, right) => right.originalRoot.length - left.originalRoot.length
+	);
+}
+
+function rewriteProjectImportAssetReferences(
+	htmlSource: string,
+	assets: NativeProjectImportAsset[]
+) {
+	return importAssetRewriteRoots(assets).reduce(
+		(source, {originalRoot, targetRoot}) =>
+			source.replace(
+				new RegExp(
+					`(^|[^A-Za-z0-9_./~%:-])(\\./)?${escapeRegExp(originalRoot)}/`,
+					'gi'
+				),
+				(_match, prefix: string) => `${prefix}${targetRoot}/`
+			),
+		htmlSource
+	);
+}
+
+async function findTwineHtmlFiles(rootPath: string) {
+	const results: string[] = [];
+
+	async function scan(directory: string) {
+		let names: string[];
+
+		try {
+			names = await readdir(directory);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+				return;
+			}
+
+			throw error;
+		}
+
+		for (const name of names) {
+			if (name.toLowerCase() === '__macosx') {
+				continue;
+			}
+
+			const absolutePath = join(directory, name);
+			const fileStats = await stat(absolutePath);
+
+			if (fileStats.isDirectory()) {
+				await scan(absolutePath);
+				continue;
+			}
+
+			if (!fileStats.isFile() || !/\.html?$/i.test(name)) {
+				continue;
+			}
+
+			const source = await readFile(absolutePath, 'utf8');
+
+			if (/<tw-storydata[\s>]/i.test(source)) {
+				results.push(absolutePath);
+			}
+		}
+	}
+
+	await scan(rootPath);
+
+	return results;
+}
+
+function bestTwineHtmlFile(
+	rootPath: string,
+	sourcePath: string,
+	htmlFiles: string[]
+) {
+	const sourceBaseName = basename(sourcePath, extname(sourcePath))
+		.toLowerCase()
+		.replace(/\.zip$/, '');
+
+	return [...htmlFiles].sort((left, right) => {
+		const leftBase = basename(left, extname(left)).toLowerCase();
+		const rightBase = basename(right, extname(right)).toLowerCase();
+		const leftRelative = normalizedRelativePath(rootPath, left);
+		const rightRelative = normalizedRelativePath(rootPath, right);
+		const leftScore = [
+			leftBase === sourceBaseName ? 0 : 1,
+			leftBase.includes(sourceBaseName) ? 0 : 1,
+			leftRelative.split('/').length,
+			leftRelative.length
+		];
+		const rightScore = [
+			rightBase === sourceBaseName ? 0 : 1,
+			rightBase.includes(sourceBaseName) ? 0 : 1,
+			rightRelative.split('/').length,
+			rightRelative.length
+		];
+
+		for (let index = 0; index < leftScore.length; index++) {
+			if (leftScore[index] !== rightScore[index]) {
+				return leftScore[index] - rightScore[index];
+			}
+		}
+
+		return leftRelative.localeCompare(rightRelative);
+	})[0];
 }
 
 function safeProjectFilePath(rootPath: string, projectPath?: string) {
@@ -390,11 +842,139 @@ function graphLayout(story: Story) {
 	};
 }
 
-function reviveStory(story: Story): Story {
+function rendererProjectMetadata(story: Story): RendererProjectMetadataStory {
+	return {
+		ifid: story.ifid,
+		id: story.id,
+		lastUpdate: story.lastUpdate,
+		name: story.name,
+		passages: story.passages.map(passage => ({
+			height: passage.height,
+			highlighted: passage.highlighted,
+			id: passage.id,
+			left: passage.left,
+			name: passage.name,
+			selected: passage.selected,
+			story: passage.story,
+			tags: passage.tags,
+			top: passage.top,
+			width: passage.width
+		})),
+		script: story.script,
+		selected: story.selected,
+		snapToGrid: story.snapToGrid,
+		startPassage: story.startPassage,
+		storyFormat: story.storyFormat,
+		storyFormatVersion: story.storyFormatVersion,
+		stylesheet: story.stylesheet,
+		tagColors: story.tagColors,
+		tags: story.tags,
+		zoom: story.zoom
+	};
+}
+
+function reviveMetadataStory(
+	story: RendererProjectMetadataStory
+): RendererProjectMetadataStory {
 	return {
 		...story,
-		lastUpdate: new Date(story.lastUpdate)
+		lastUpdate: story.lastUpdate ? new Date(story.lastUpdate) : undefined
 	};
+}
+
+function dateOrFallback(value: Date | string | undefined, fallback: Date) {
+	const date =
+		value instanceof Date ? value : value ? new Date(value) : fallback;
+
+	return Number.isNaN(date.getTime()) ? fallback : date;
+}
+
+function stringArrayOrFallback(value: unknown, fallback: string[]) {
+	if (!Array.isArray(value)) {
+		return fallback;
+	}
+
+	return value.filter((item): item is string => typeof item === 'string');
+}
+
+function passageFromMetadata(
+	passage: RendererProjectMetadataPassage,
+	storyId: string,
+	passageIndex: number
+): Passage {
+	const passageId = passage.id ?? `${storyId}-passage-${passageIndex + 1}`;
+
+	return {
+		height: numberOrFallback(passage.height, 100),
+		highlighted: booleanOrFallback(passage.highlighted, false),
+		id: passageId,
+		left: numberOrFallback(passage.left, 0),
+		name: stringOrFallback(passage.name, `Passage ${passageIndex + 1}`),
+		selected: booleanOrFallback(passage.selected, false),
+		story: storyId,
+		tags: stringArrayOrFallback(passage.tags, []),
+		text: stringOrFallback(passage.text, ''),
+		top: numberOrFallback(passage.top, 0),
+		width: numberOrFallback(passage.width, 100)
+	};
+}
+
+function storyFromMetadata(
+	story: RendererProjectMetadataStory,
+	storyIndex: number
+): Story {
+	const storyId = stringOrFallback(
+		story.id,
+		`story-${storyIndex + 1}-${pathSlug(story.name ?? '')}`
+	);
+	const passages = (story.passages ?? []).map((passage, passageIndex) =>
+		passageFromMetadata(passage, storyId, passageIndex)
+	);
+
+	return {
+		ifid: stringOrFallback(story.ifid, storyId.toUpperCase()),
+		id: storyId,
+		lastUpdate: dateOrFallback(story.lastUpdate, new Date()),
+		name: stringOrFallback(story.name, `Untitled Story ${storyIndex + 1}`),
+		passages,
+		script: stringOrFallback(story.script, ''),
+		selected: booleanOrFallback(story.selected, false),
+		snapToGrid: booleanOrFallback(story.snapToGrid, true),
+		startPassage: stringOrFallback(story.startPassage, passages[0]?.id ?? ''),
+		storyFormat: stringOrFallback(story.storyFormat, ''),
+		storyFormatVersion: stringOrFallback(story.storyFormatVersion, ''),
+		stylesheet: stringOrFallback(story.stylesheet, ''),
+		tagColors: story.tagColors ?? {},
+		tags: stringArrayOrFallback(story.tags, []),
+		zoom: numberOrFallback(story.zoom, 1)
+	};
+}
+
+async function metadataSidecarStories(
+	path: string,
+	options: {maxBytes?: number} = {}
+) {
+	if (options.maxBytes !== undefined) {
+		try {
+			const fileStats = await stat(path);
+
+			if (fileStats.size > options.maxBytes) {
+				return [];
+			}
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+				return [];
+			}
+
+			throw error;
+		}
+	}
+
+	const data = await readJsonIfPresent<{
+		stories?: RendererProjectMetadataStory[];
+	}>(path, {ignoreInvalidJson: true});
+
+	return (data?.stories ?? []).map(reviveMetadataStory);
 }
 
 function safeProjectAssetPath(rootPath: string, assetPath: string) {
@@ -422,15 +1002,11 @@ function projectAssetInventoryEntry(
 ): CoreAssetInventoryEntry {
 	const kind = assetKindForPath(projectPath);
 	const previewUrl = fileUrlForPath(absolutePath);
-	const imageSize =
-		kind === 'image' ? nativeImage.createFromPath(absolutePath).getSize() : null;
-	const width = imageSize?.width || null;
-	const height = imageSize?.height || null;
 
 	return {
 		durationMs: null,
 		exists: true,
-		height,
+		height: null,
 		kind,
 		missing: false,
 		modifiedAt: fileStats.mtime.toISOString(),
@@ -448,7 +1024,7 @@ function projectAssetInventoryEntry(
 		snippet: assetSnippet(projectPath, kind),
 		thumbnailUrl: kind === 'image' ? previewUrl : null,
 		unused: true,
-		width
+		width: null
 	};
 }
 
@@ -487,9 +1063,7 @@ async function scanAssetDirectory(
 			absolutePath
 		).replace(/\\/g, '/')}`;
 
-		assets.push(
-			projectAssetInventoryEntry(assetPath, absolutePath, fileStats)
-		);
+		assets.push(projectAssetInventoryEntry(assetPath, absolutePath, fileStats));
 	}
 }
 
@@ -550,18 +1124,53 @@ async function scanProjectFiles(
 	});
 }
 
-async function projectFileManifest(rootPath: string) {
-	const files: NativeProjectFileEntry[] = [];
+function assetProjectFileEntry(
+	asset: CoreAssetInventoryEntry
+): NativeProjectFileEntry | undefined {
+	if (asset.sizeBytes === null || !asset.modifiedAt) {
+		return undefined;
+	}
 
-	await Promise.all([
+	const parsedMtimeMs = Date.parse(asset.modifiedAt);
+	const mtimeMs = Number.isFinite(parsedMtimeMs) ? parsedMtimeMs : 0;
+
+	return {
+		fingerprint: `${mtimeMs}:${asset.sizeBytes}`,
+		kind: 'asset',
+		modifiedAt: asset.modifiedAt,
+		mtimeMs,
+		path: asset.path,
+		sizeBytes: asset.sizeBytes
+	};
+}
+
+async function projectFileManifest(
+	rootPath: string,
+	assets?: CoreAssetInventoryEntry[]
+) {
+	const files: NativeProjectFileEntry[] = [];
+	const scans = [
 		scanProjectFiles(rootPath, 'twine.toml', 'manifest', files),
 		scanProjectFiles(rootPath, '.twine/project.json', 'metadata', files),
 		scanProjectFiles(rootPath, '.twine/graph.json', 'graph', files),
 		scanProjectFiles(rootPath, 'passages', 'passage', files),
 		scanProjectFiles(rootPath, 'scripts', 'script', files),
-		scanProjectFiles(rootPath, 'styles', 'stylesheet', files),
-		scanProjectFiles(rootPath, 'assets', 'asset', files)
-	]);
+		scanProjectFiles(rootPath, 'styles', 'stylesheet', files)
+	];
+
+	if (assets) {
+		files.push(
+			...assets.flatMap(asset => {
+				const entry = assetProjectFileEntry(asset);
+
+				return entry ? [entry] : [];
+			})
+		);
+	} else {
+		scans.push(scanProjectFiles(rootPath, 'assets', 'asset', files));
+	}
+
+	await Promise.all(scans);
 
 	return files.sort((left, right) => left.path.localeCompare(right.path));
 }
@@ -619,7 +1228,9 @@ function projectSessionConflicts(
 }
 
 function graphLayoutForPassage(
-	graph: {passages?: Record<string, Partial<Record<string, number>>>} | undefined,
+	graph:
+		| {passages?: Record<string, Partial<Record<string, number>>>}
+		| undefined,
 	passageId: string
 ) {
 	return graph?.passages?.[passageId] ?? {};
@@ -627,24 +1238,31 @@ function graphLayoutForPassage(
 
 async function storiesFromProjectManifest(
 	rootPath: string,
-	metadataStories: Story[]
-) {
-	const source = await readTextIfPresent(join(rootPath, 'twine.toml'));
+	metadataStories: RendererProjectMetadataStory[],
+	source?: string,
+	options: ProjectStoryReadOptions = {}
+): Promise<Story[]> {
+	const manifestSource =
+		source ?? (await readTextIfPresent(join(rootPath, 'twine.toml')));
 
-	if (!source) {
-		return metadataStories;
+	if (!manifestSource) {
+		return metadataStories.map(storyFromMetadata);
 	}
 
-	const parsedStories = parseProjectToml(source);
+	const parsedStories = parseProjectToml(manifestSource);
 
 	if (parsedStories.length === 0) {
-		return metadataStories;
+		return metadataStories.map(storyFromMetadata);
 	}
 
 	const graph = await readJsonIfPresent<{
 		passages?: Record<string, Partial<Record<string, number>>>;
-	}>(join(rootPath, '.twine', 'graph.json'));
-	const metadataById = new Map(metadataStories.map(story => [story.id, story]));
+	}>(join(rootPath, '.twine', 'graph.json'), {ignoreInvalidJson: true});
+	const metadataById = new Map(
+		metadataStories.flatMap(story =>
+			story.id ? [[story.id, story] as const] : []
+		)
+	);
 	const stories: Story[] = [];
 
 	for (const [storyIndex, parsed] of parsedStories.entries()) {
@@ -666,7 +1284,12 @@ async function storiesFromProjectManifest(
 			metadataStory?.stylesheet ??
 			'';
 		const metadataPassages = new Map(
-			(metadataStory?.passages ?? []).map(passage => [passage.id, passage])
+			(metadataStory?.passages ?? [])
+				.filter(
+					(passage): passage is RendererProjectMetadataPassage & {id: string} =>
+						typeof passage.id === 'string'
+				)
+				.map(passage => [passage.id, passage])
 		);
 		const passages = await Promise.all(
 			parsed.passages.map(async (passage, passageIndex) => {
@@ -676,9 +1299,13 @@ async function storiesFromProjectManifest(
 				const passagePath = safeProjectFilePath(rootPath, passage.file);
 				const layout = graphLayoutForPassage(graph, passageId);
 				const text =
-					(passagePath ? await readTextIfPresent(passagePath) : undefined) ??
-					metadataPassage?.text ??
-					'';
+					options.loadPassageText === false
+						? ''
+						: (passagePath
+								? await readTextIfPresent(passagePath)
+								: undefined) ??
+							metadataPassage?.text ??
+							'';
 
 				return {
 					height: numberOrFallback(
@@ -717,7 +1344,10 @@ async function storiesFromProjectManifest(
 				metadataStory?.snapToGrid ?? true
 			),
 			startPassage:
-				parsed.start_passage ?? metadataStory?.startPassage ?? passages[0]?.id ?? '',
+				parsed.start_passage ??
+				metadataStory?.startPassage ??
+				passages[0]?.id ??
+				'',
 			storyFormat: stringOrFallback(
 				parsed.story_format,
 				metadataStory?.storyFormat ?? ''
@@ -736,25 +1366,45 @@ async function storiesFromProjectManifest(
 	return stories;
 }
 
-async function readProjectStories(rootPath: string) {
-	const data = await readJsonIfPresent<{stories?: Story[]}>(
-		join(rootPath, '.twine', 'project.json')
+async function readProjectStories(
+	rootPath: string,
+	options: ProjectStoryReadOptions = {}
+) {
+	const manifestSource = await readTextIfPresent(join(rootPath, 'twine.toml'));
+	const metadataStories = await metadataSidecarStories(
+		join(rootPath, '.twine', 'project.json'),
+		manifestSource ? {maxBytes: maxProjectMetadataSidecarBytes} : {}
 	);
-	const metadataStories = ((data?.stories ?? []) as Story[]).map(reviveStory);
 
-	return storiesFromProjectManifest(rootPath, metadataStories);
+	return storiesFromProjectManifest(
+		rootPath,
+		metadataStories,
+		manifestSource,
+		options
+	);
 }
 
 async function readProjectSessionSnapshot(
 	rootPath: string,
-	baseline?: NativeProjectSessionSnapshot
+	baseline?: NativeProjectSessionSnapshot,
+	hints: ProjectSessionSnapshotHints = {}
 ): Promise<NativeProjectSessionSnapshot> {
-	const [stories, assets, files] = await Promise.all([
-		readProjectStories(rootPath),
-		listProjectAssets(rootPath),
-		projectFileManifest(rootPath)
+	const hintedStoryIds =
+		hints.storyIds ??
+		hints.stories?.map(story => story.id) ??
+		baseline?.storyIds;
+	const [stories, assets] = await Promise.all([
+		hints.stories
+			? Promise.resolve(hints.stories)
+			: hintedStoryIds
+				? Promise.resolve([])
+				: readProjectStories(rootPath),
+		hints.assets ? Promise.resolve(hints.assets) : listProjectAssets(rootPath)
 	]);
-	const conflicts = baseline ? projectSessionConflicts(baseline.files, files) : [];
+	const files = await projectFileManifest(rootPath, assets);
+	const conflicts = baseline
+		? projectSessionConflicts(baseline.files, files)
+		: [];
 
 	return {
 		assets,
@@ -764,7 +1414,7 @@ async function readProjectSessionSnapshot(
 		rootPath,
 		scannedAt: new Date().toISOString(),
 		stories,
-		storyIds: stories.map(story => story.id)
+		storyIds: hintedStoryIds ?? stories.map(story => story.id)
 	};
 }
 
@@ -791,7 +1441,8 @@ async function pollProjectSession(session: ProjectSessionState) {
 	try {
 		const snapshot = await readProjectSessionSnapshot(
 			session.rootPath,
-			session.baseline
+			session.baseline,
+			{storyIds: session.baseline?.storyIds}
 		);
 		const previousConflictIds = (session.pending?.conflicts ?? [])
 			.map(conflict => conflict.id)
@@ -846,14 +1497,19 @@ function ensureProjectSession(rootPath: string) {
 	return session;
 }
 
-async function refreshProjectSessionBaseline(rootPath: string) {
+async function refreshProjectSessionBaseline(
+	rootPath: string,
+	storyIds?: string[]
+) {
 	const session = projectSessions.get(projectSessionKey(rootPath));
 
 	if (!session) {
 		return;
 	}
 
-	session.baseline = await readProjectSessionSnapshot(rootPath);
+	session.baseline = await readProjectSessionSnapshot(rootPath, undefined, {
+		storyIds: storyIds ?? session.baseline?.storyIds
+	});
 	session.pending = undefined;
 }
 
@@ -864,9 +1520,10 @@ export async function createProjectFolder(
 	const rootPath = projectRootForStory(story, preferredParent);
 
 	await writeProjectFolder(rootPath, story);
-	await refreshProjectSessionBaseline(rootPath);
+	await refreshProjectSessionBaseline(rootPath, [story.id]);
 
 	return {
+		passageTextLoaded: true,
 		rootPath,
 		stories: [story],
 		storyIds: [story.id]
@@ -878,13 +1535,84 @@ export async function saveProjectFolder(
 	story: Story
 ): Promise<NativeProjectFolderResult> {
 	await writeProjectFolder(rootPath, story);
-	await refreshProjectSessionBaseline(rootPath);
+	await refreshProjectSessionBaseline(rootPath, [story.id]);
 
 	return {
+		passageTextLoaded: true,
 		rootPath,
 		stories: [story],
 		storyIds: [story.id]
 	};
+}
+
+export async function prepareProjectImport(
+	sourcePath: string
+): Promise<NativeProjectImportSource> {
+	const absoluteSourcePath = resolve(sourcePath);
+	const sourceKind = /\.zip$/i.test(absoluteSourcePath) ? 'zip' : 'html';
+	let cleanupPath: string | undefined;
+	let htmlFilePath = absoluteSourcePath;
+
+	if (
+		!/\.zip$/i.test(absoluteSourcePath) &&
+		!/\.html?$/i.test(absoluteSourcePath)
+	) {
+		throw new Error(
+			'Project import must be a Twine HTML file or a zip archive.'
+		);
+	}
+
+	try {
+		if (sourceKind === 'zip') {
+			cleanupPath = await mkdtemp(join(tmpdir(), 'twine-import-'));
+			await extractZip(absoluteSourcePath, {dir: cleanupPath});
+
+			const htmlFiles = await findTwineHtmlFiles(cleanupPath);
+
+			if (htmlFiles.length === 0) {
+				throw new Error('No Twine HTML story was found in the zip archive.');
+			}
+
+			htmlFilePath = bestTwineHtmlFile(
+				cleanupPath,
+				absoluteSourcePath,
+				htmlFiles
+			);
+		}
+
+		const rawHtmlSource = await readFile(htmlFilePath, 'utf8');
+		const sourceRoot = dirname(htmlFilePath);
+		const assets = await discoverProjectImportAssets(
+			sourceRoot,
+			htmlFilePath,
+			rawHtmlSource
+		);
+		const htmlSource = rewriteProjectImportAssetReferences(
+			rawHtmlSource,
+			assets
+		);
+		const preparedImport: NativeProjectImportSource = {
+			assets,
+			htmlFilePath,
+			htmlSource,
+			id: uuid(),
+			sourceKind,
+			sourcePath: absoluteSourcePath
+		};
+
+		preparedProjectImports.set(preparedImport.id, {
+			assets,
+			cleanupPath
+		});
+
+		return preparedImport;
+	} catch (error) {
+		if (cleanupPath) {
+			await remove(cleanupPath).catch(() => undefined);
+		}
+
+		throw error;
+	}
 }
 
 async function writeProjectFolder(rootPath: string, story: Story) {
@@ -921,10 +1649,10 @@ async function writeProjectFolder(rootPath: string, story: Story) {
 		JSON.stringify(graphLayout(story), null, 2),
 		'utf8'
 	);
-	await writeJson(join(rootPath, '.twine', 'project.json'), {
+	await writeJsonAtomic(join(rootPath, '.twine', 'project.json'), {
 		schema: 'twine.rs/renderer-project',
 		version: 1,
-		stories: [story]
+		stories: [rendererProjectMetadata(story)]
 	});
 	await writeFile(
 		join(rootPath, 'twine.toml'),
@@ -933,27 +1661,103 @@ async function writeProjectFolder(rootPath: string, story: Story) {
 	);
 }
 
-export async function openProjectFolder(): Promise<
-	NativeProjectFolderResult | undefined
-> {
-	const {canceled, filePaths} = await dialog.showOpenDialog({
-		properties: ['openDirectory'],
-		title: 'Open Project Folder'
-	});
+export async function openProjectFolder(
+	rootPath?: string,
+	options: NativeProjectOpenOptions = {}
+): Promise<NativeProjectFolderResult | undefined> {
+	if (!rootPath) {
+		const {canceled, filePaths} = await dialog.showOpenDialog({
+			properties: ['openDirectory'],
+			title: 'Open Project Folder'
+		});
 
-	if (canceled || !filePaths[0]) {
-		return undefined;
+		if (canceled || !filePaths[0]) {
+			return undefined;
+		}
+
+		rootPath = filePaths[0];
 	}
 
-	const rootPath = filePaths[0];
-	const stories = await readProjectStories(rootPath);
-	await refreshProjectSessionBaseline(rootPath);
+	const rootStats = await stat(rootPath);
+
+	if (!rootStats.isDirectory()) {
+		throw Object.assign(
+			new Error(`${rootPath} is not a project folder directory.`),
+			{code: 'ENOTDIR'}
+		);
+	}
+
+	const stories = await readProjectStories(rootPath, options);
+	await refreshProjectSessionBaseline(
+		rootPath,
+		stories.map(story => story.id)
+	);
 
 	return {
+		passageTextLoaded: options.loadPassageText !== false,
 		rootPath,
 		stories,
 		storyIds: stories.map(story => story.id)
 	};
+}
+
+export async function hydrateProjectFolder(
+	rootPath: string,
+	storyIds?: string[]
+): Promise<NativeProjectFolderResult> {
+	const stories = await readProjectStories(rootPath, {loadPassageText: true});
+	const filteredStories = storyIds?.length
+		? stories.filter(story => storyIds.includes(story.id))
+		: stories;
+
+	return {
+		passageTextLoaded: true,
+		rootPath,
+		stories: filteredStories,
+		storyIds: filteredStories.map(story => story.id)
+	};
+}
+
+export async function copyProjectImportAssets(
+	importId: string,
+	rootPath: string
+): Promise<NativeProjectAssetWriteResult[]> {
+	const preparedImport = preparedProjectImports.get(importId);
+
+	if (!preparedImport) {
+		throw new Error(`No prepared project import exists with ID "${importId}".`);
+	}
+
+	const results: NativeProjectAssetWriteResult[] = [];
+
+	for (const asset of preparedImport.assets) {
+		const target = safeProjectAssetPath(rootPath, asset.targetPath);
+
+		await mkdirp(dirname(target.absolutePath));
+		await copy(asset.sourcePath, target.absolutePath, {overwrite: true});
+		results.push({
+			sourcePath: target.absolutePath,
+			targetPath: target.projectPath
+		});
+	}
+
+	await refreshProjectSessionBaseline(rootPath);
+
+	return results;
+}
+
+export async function discardProjectImport(importId: string) {
+	const preparedImport = preparedProjectImports.get(importId);
+
+	if (!preparedImport) {
+		return;
+	}
+
+	preparedProjectImports.delete(importId);
+
+	if (preparedImport.cleanupPath) {
+		await remove(preparedImport.cleanupPath).catch(() => undefined);
+	}
 }
 
 export async function chooseAssetFile(defaultPath?: string) {
@@ -1034,19 +1838,28 @@ export async function deleteProjectAsset(rootPath: string, path: string) {
 	await refreshProjectSessionBaseline(rootPath);
 }
 
-export async function projectSessionSnapshot(rootPath: string) {
+export async function projectSessionSnapshot(
+	rootPath: string,
+	storyIds?: string[]
+) {
 	const session = ensureProjectSession(rootPath);
 
 	if (!session.baseline) {
-		session.baseline = await readProjectSessionSnapshot(rootPath);
+		session.baseline = await readProjectSessionSnapshot(rootPath, undefined, {
+			storyIds
+		});
+		return session.baseline;
 	}
 
-	return readProjectSessionSnapshot(rootPath, session.baseline);
+	return readProjectSessionSnapshot(rootPath, session.baseline, {
+		storyIds: storyIds ?? session.baseline.storyIds
+	});
 }
 
 export async function startProjectSession(
 	rootPath: string,
-	listener?: ProjectSessionListener
+	listener?: ProjectSessionListener,
+	storyIds?: string[]
 ) {
 	const session = ensureProjectSession(rootPath);
 
@@ -1054,8 +1867,12 @@ export async function startProjectSession(
 		session.listeners.add(listener);
 	}
 
+	const baselineWasMissing = !session.baseline;
+
 	if (!session.baseline) {
-		session.baseline = await readProjectSessionSnapshot(rootPath);
+		session.baseline = await readProjectSessionSnapshot(rootPath, undefined, {
+			storyIds
+		});
 	}
 
 	if (!session.interval) {
@@ -1067,17 +1884,25 @@ export async function startProjectSession(
 
 	if (!session.watcher) {
 		try {
-			session.watcher = watch(
-				rootPath,
-				{recursive: true},
-				() => scheduleProjectSessionPoll(session)
+			session.watcher = watch(rootPath, {recursive: true}, () =>
+				scheduleProjectSessionPoll(session)
 			);
 		} catch {
 			// Polling above remains active when recursive watching is unavailable.
 		}
 	}
 
-	return session.pending ?? projectSessionSnapshot(rootPath);
+	if (session.pending) {
+		return session.pending;
+	}
+
+	if (baselineWasMissing) {
+		return session.baseline;
+	}
+
+	return readProjectSessionSnapshot(rootPath, session.baseline, {
+		storyIds: storyIds ?? session.baseline.storyIds
+	});
 }
 
 export function unsubscribeProjectSession(

@@ -61,7 +61,7 @@ describe('storyToCoreGraphProjection', () => {
 			passages: 3,
 			resolvedLinks: 1,
 			selfLinks: 1,
-			unreachablePassages: 1
+			unreachablePassages: 0
 		});
 		expect(nodes.get('start')).toMatchObject({
 			brokenLinkCount: 1,

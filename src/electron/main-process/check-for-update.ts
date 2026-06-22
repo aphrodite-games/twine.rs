@@ -1,10 +1,10 @@
 import {dialog, shell} from 'electron';
-import {version as twineVersion} from '../../../package.json';
+import {version as appVersion} from '../../../package.json';
 import {gt} from 'semver';
 import fetch from 'node-fetch';
 import {i18n} from './locales';
 
-const checkUrl = 'https://twinery.org/latestversion/2.json';
+const updateUrlEnvVar = 'TWINE_RS_UPDATE_URL';
 
 interface VersionResponse {
 	/**
@@ -16,12 +16,25 @@ interface VersionResponse {
 	 */
 	url: string;
 	/**
-	 * Latest version number, eg. '2.4.3'.
+	 * Latest Twine RS version number, eg. '0.1.1'.
 	 */
 	version: string;
 }
 
 export async function checkForUpdate() {
+	const checkUrl = process.env[updateUrlEnvVar];
+
+	if (!checkUrl) {
+		console.log(
+			`${updateUrlEnvVar} is not set, skipping application update check`
+		);
+		dialog.showMessageBox({
+			message: i18n.t('electron.updateCheck.upToDate'),
+			type: 'info'
+		});
+		return;
+	}
+
 	console.log(`Checking for application update at ${checkUrl}`);
 
 	try {
@@ -31,7 +44,7 @@ export async function checkForUpdate() {
 
 		console.log(`Received version ${version}, url ${url}`);
 
-		if (gt(version, twineVersion)) {
+		if (gt(version, appVersion)) {
 			const {response} = await dialog.showMessageBox({
 				buttons: [
 					i18n.t('electron.updateCheck.download'),

@@ -26,6 +26,7 @@ import {
 import type {CoreAssetInventoryEntry, PatchBatch} from '../../core';
 import type {CoreAssetReference} from '../../core/bindings/CoreAssetReference';
 import type {AssetManagerViewModelEntry} from '../../core/view-models';
+import {fileUrlForPath, projectAssetPath} from '../../core/asset-paths';
 import {
 	Passage,
 	selectPassage,
@@ -34,12 +35,32 @@ import {
 } from '../../store/stories';
 import {useStoryLaunch} from '../../store/use-story-launch';
 import {usePrefsContext} from '../../store/prefs';
-import {loadProjectMetadata} from '../../store/project-metadata';
+import {
+	defaultProjectFolderRoot,
+	loadProjectMetadata,
+	saveProjectMetadata
+} from '../../store/project-metadata';
+import {markPerformance} from '../../util/performance';
 import './assets-route.css';
 
 type AssetSort = 'Name' | 'References' | 'Size' | 'Type';
 type AssetView = 'grid' | 'table';
 type AssetInventoryState = 'fallback' | 'loading' | 'live' | 'error';
+type AssetScope = 'All Assets' | 'Missing' | 'Unused' | string;
+
+interface AssetDirectoryNode {
+	assets: AssetManagerViewModelEntry[];
+	children: AssetDirectoryNode[];
+	count: number;
+	depth: number;
+	name: string;
+	path: string;
+}
+
+interface AssetDirectoryIndex {
+	nodesByPath: Map<string, AssetDirectoryNode>;
+	root: AssetDirectoryNode;
+}
 
 function storyForId(stories: Story[], storyId: string | undefined) {
 	return stories.find(story => story.id === storyId);
@@ -54,6 +75,18 @@ function copyText(text: string) {
 	}
 
 	void navigator.clipboard?.writeText(text);
+}
+
+function importTargetPathForSource(sourcePath: string) {
+	const normalized = sourcePath.replace(/\\/g, '/');
+
+	if (/^assets\//i.test(normalized)) {
+		return projectAssetPath(sourcePath);
+	}
+
+	const filename = normalized.split('/').filter(Boolean).pop();
+
+	return filename ? `assets/${filename}` : projectAssetPath(sourcePath);
 }
 
 function revealPath(path: string) {
@@ -90,15 +123,39 @@ function bytesLabel(bytes: number | null) {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function durationLabel(milliseconds: number | null) {
+	if (milliseconds === null) {
+		return 'n/a';
+	}
+
+	if (milliseconds < 1000) {
+		return `${milliseconds} ms`;
+	}
+
+	const seconds = Math.round(milliseconds / 1000);
+	const minutes = Math.floor(seconds / 60);
+	const remainder = seconds % 60;
+
+	return minutes > 0
+		? `${minutes}:${remainder.toString().padStart(2, '0')}`
+		: `${seconds} sec`;
+}
+
 function modifiedLabel(value: string | null) {
 	if (!value) {
+		return 'Unknown';
+	}
+
+	const date = /^\d+$/.test(value) ? new Date(Number(value)) : new Date(value);
+
+	if (Number.isNaN(date.getTime())) {
 		return 'Unknown';
 	}
 
 	return new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
 		timeStyle: 'short'
-	}).format(new Date(value));
+	}).format(date);
 }
 
 function dimensionLabel(asset: AssetManagerViewModelEntry) {
@@ -106,9 +163,7 @@ function dimensionLabel(asset: AssetManagerViewModelEntry) {
 		return `${asset.width}x${asset.height}`;
 	}
 
-	return asset.inventory.durationMs
-		? `${asset.inventory.durationMs} ms`
-		: 'n/a';
+	return durationLabel(asset.inventory.durationMs);
 }
 
 function assetIcon(asset: AssetManagerViewModelEntry) {
@@ -128,43 +183,156 @@ function assetIcon(asset: AssetManagerViewModelEntry) {
 		return 'photo';
 	}
 
+	if (asset.kind === 'stylesheet') {
+		return 'file-code';
+	}
+
+	if (asset.kind === 'script') {
+		return 'braces';
+	}
+
 	return 'file';
 }
 
-function folderForPath(path: string) {
-	const parts = path.split('/').filter(Boolean);
-
-	return parts.length > 1 ? parts.slice(0, -1).join('/') : 'assets';
+function assetKindLabel(asset: AssetManagerViewModelEntry) {
+	switch (asset.kind) {
+		case 'audio':
+			return 'Audio';
+		case 'image':
+			return 'Image';
+		case 'script':
+			return 'Script';
+		case 'stylesheet':
+			return 'Stylesheet';
+		case 'video':
+			return 'Video';
+		default:
+			return 'File';
+	}
 }
 
-function folderEntries(assets: AssetManagerViewModelEntry[]) {
-	const counts = new Map<string, number>();
+function pathParts(path: string) {
+	return path.split('/').filter(Boolean);
+}
 
-	for (const asset of assets) {
-		const folder = folderForPath(asset.path);
+function fileNameForPath(path: string) {
+	return pathParts(path).pop() ?? path;
+}
 
-		counts.set(folder, (counts.get(folder) ?? 0) + 1);
+function parentPathForPath(path: string) {
+	const parts = pathParts(path);
+
+	return parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+}
+
+function createDirectoryNode(
+	path: string,
+	name: string,
+	depth: number
+): AssetDirectoryNode {
+	return {
+		assets: [],
+		children: [],
+		count: 0,
+		depth,
+		name,
+		path
+	};
+}
+
+function buildAssetDirectoryIndex(
+	entries: AssetManagerViewModelEntry[]
+): AssetDirectoryIndex {
+	const root = createDirectoryNode('', 'Assets', -1);
+	const nodesByPath = new Map<string, AssetDirectoryNode>([['', root]]);
+
+	for (const asset of entries) {
+		const parts = pathParts(asset.path);
+		const directoryParts = parts.slice(0, -1);
+		let parent = root;
+		let currentPath = '';
+
+		for (const [index, part] of directoryParts.entries()) {
+			currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+			let node = nodesByPath.get(currentPath);
+
+			if (!node) {
+				node = createDirectoryNode(currentPath, part, index);
+				nodesByPath.set(currentPath, node);
+				parent.children.push(node);
+			}
+
+			parent = node;
+		}
+
+		parent.assets.push(asset);
 	}
 
-	return Array.from(counts.entries()).sort(([left], [right]) =>
-		left.localeCompare(right)
-	);
+	function finalize(node: AssetDirectoryNode) {
+		node.children.sort((left, right) => left.name.localeCompare(right.name));
+		node.assets.sort((left, right) => left.path.localeCompare(right.path));
+		node.count =
+			node.assets.length +
+			node.children.reduce((total, child) => total + finalize(child), 0);
+
+		return node.count;
+	}
+
+	finalize(root);
+	return {nodesByPath, root};
 }
 
-function matchesFolder(asset: AssetManagerViewModelEntry, folder: string) {
-	if (folder === 'All Assets') {
+function assetIsInDirectory(
+	asset: AssetManagerViewModelEntry,
+	directory: string
+) {
+	if (!directory) {
 		return true;
 	}
 
-	if (folder === 'Missing') {
+	return asset.path.startsWith(`${directory}/`);
+}
+
+function issueCount(
+	assets: AssetManagerViewModelEntry[],
+	issue: 'Missing' | 'Unused'
+) {
+	return assets.filter(asset =>
+		issue === 'Missing' ? asset.missing : asset.unused
+	).length;
+}
+
+function folderAncestors(path: string) {
+	const parts = pathParts(path);
+
+	return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
+}
+
+function expandedWithAncestors(expanded: Set<string>, path: string) {
+	const next = new Set(expanded);
+
+	for (const ancestor of folderAncestors(path).slice(0, -1)) {
+		next.add(ancestor);
+	}
+
+	return next;
+}
+
+function matchesScope(asset: AssetManagerViewModelEntry, scope: AssetScope) {
+	if (scope === 'All Assets') {
+		return true;
+	}
+
+	if (scope === 'Missing') {
 		return asset.missing;
 	}
 
-	if (folder === 'Unused') {
+	if (scope === 'Unused') {
 		return asset.unused;
 	}
 
-	return folderForPath(asset.path) === folder;
+	return assetIsInDirectory(asset, scope);
 }
 
 function matchesQuery(asset: AssetManagerViewModelEntry, query: string) {
@@ -218,17 +386,203 @@ function assetSourceLabel(asset: AssetManagerViewModelEntry) {
 	return 'Reference only';
 }
 
-function assetStatusLabel(asset: AssetManagerViewModelEntry) {
-	if (asset.missing) {
-		return 'Missing';
+function previewUrlForAsset(
+	asset: AssetManagerViewModelEntry,
+	projectRoot?: string
+) {
+	const previewUrl = asset.thumbnailUrl ?? asset.inventory.previewUrl;
+
+	if (previewUrl) {
+		return previewUrl;
 	}
 
-	if (asset.unused) {
-		return 'Unused';
+	if (!projectRoot || asset.missing || asset.exists === false) {
+		return null;
 	}
 
-	return 'Referenced';
+	if (!/^assets\//i.test(asset.path)) {
+		return null;
+	}
+
+	return fileUrlForPath(`${projectRoot.replace(/[\\/]+$/, '')}/${asset.path}`);
 }
+
+function isPreviewableAsset(
+	asset: AssetManagerViewModelEntry,
+	projectRoot?: string
+) {
+	return (
+		!asset.missing &&
+		!!previewUrlForAsset(asset, projectRoot) &&
+		['audio', 'image', 'video'].includes(asset.kind)
+	);
+}
+
+const AssetThumbnail: React.FC<{
+	asset: AssetManagerViewModelEntry;
+	projectRoot?: string;
+}> = ({asset, projectRoot}) => {
+	const previewUrl = previewUrlForAsset(asset, projectRoot);
+	const [failed, setFailed] = React.useState(false);
+
+	React.useEffect(() => setFailed(false), [asset.path, previewUrl]);
+
+	if (asset.missing) {
+		return <TablerIcon icon={assetIcon(asset)} />;
+	}
+
+	if (previewUrl && asset.kind === 'image' && !failed) {
+		return (
+			<img
+				alt=""
+				loading="lazy"
+				onError={() => setFailed(true)}
+				src={previewUrl}
+			/>
+		);
+	}
+
+	return <TablerIcon icon={assetIcon(asset)} />;
+};
+
+const AssetPreviewMedia: React.FC<{
+	asset: AssetManagerViewModelEntry;
+	projectRoot?: string;
+}> = ({asset, projectRoot}) => {
+	const previewUrl = previewUrlForAsset(asset, projectRoot);
+	const [failed, setFailed] = React.useState(false);
+
+	React.useEffect(() => setFailed(false), [asset.path, previewUrl]);
+
+	if (asset.missing || failed) {
+		return <TablerIcon icon={assetIcon(asset)} />;
+	}
+
+	if (previewUrl && asset.kind === 'image') {
+		return <img alt="" onError={() => setFailed(true)} src={previewUrl} />;
+	}
+
+	if (previewUrl && asset.kind === 'audio') {
+		return (
+			<div className="assets-route__preview-player">
+				<TablerIcon icon="music" />
+				<audio controls src={previewUrl} />
+			</div>
+		);
+	}
+
+	if (previewUrl && asset.kind === 'video') {
+		return <video controls src={previewUrl} />;
+	}
+
+	return <TablerIcon icon={assetIcon(asset)} />;
+};
+
+const AssetLightbox: React.FC<{
+	asset: AssetManagerViewModelEntry;
+	onClose: () => void;
+	projectRoot?: string;
+}> = ({asset, onClose, projectRoot}) => {
+	const previewUrl = previewUrlForAsset(asset, projectRoot);
+
+	React.useEffect(() => {
+		function handleKeyDown(event: KeyboardEvent) {
+			if (event.key === 'Escape') {
+				onClose();
+			}
+		}
+
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [onClose]);
+
+	if (!previewUrl) {
+		return null;
+	}
+
+	return (
+		<div
+			aria-label={`Preview ${fileNameForPath(asset.path)}`}
+			aria-modal="true"
+			className="assets-route__lightbox"
+			role="dialog"
+		>
+			<div className="assets-route__lightbox-bar">
+				<div className="assets-route__lightbox-title">
+					<b>{fileNameForPath(asset.path)}</b>
+					<span>{asset.path}</span>
+				</div>
+				<IconButton icon="x" label="Close preview" onClick={onClose} solid />
+			</div>
+			<div className="assets-route__lightbox-stage">
+				{asset.kind === 'image' && <img alt="" src={previewUrl} />}
+				{asset.kind === 'audio' && (
+					<div className="assets-route__lightbox-audio">
+						<TablerIcon icon="music" />
+						<audio autoPlay controls src={previewUrl} />
+					</div>
+				)}
+				{asset.kind === 'video' && <video autoPlay controls src={previewUrl} />}
+			</div>
+		</div>
+	);
+};
+
+const AssetFolderTreeNode: React.FC<{
+	expandedFolders: Set<string>;
+	node: AssetDirectoryNode;
+	onSelect: (path: string) => void;
+	onToggle: (path: string) => void;
+	selectedScope: AssetScope;
+}> = ({expandedFolders, node, onSelect, onToggle, selectedScope}) => {
+	const expanded = expandedFolders.has(node.path);
+	const hasChildren = node.children.length > 0;
+
+	return (
+		<>
+			<div
+				className="assets-route__folder-row"
+				style={{'--depth': node.depth} as React.CSSProperties}
+			>
+				{hasChildren ? (
+					<button
+						aria-expanded={expanded}
+						aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.path}`}
+						className="assets-route__folder-toggle"
+						onClick={() => onToggle(node.path)}
+						type="button"
+					>
+						<TablerIcon icon="chevron-right" />
+					</button>
+				) : (
+					<span className="assets-route__folder-toggle-spacer" />
+				)}
+				<button
+					aria-current={selectedScope === node.path}
+					className="assets-route__folder assets-route__folder--tree"
+					onClick={() => onSelect(node.path)}
+					title={node.path}
+					type="button"
+				>
+					<TablerIcon icon={expanded ? 'folder-open' : 'folder'} />
+					<span>{node.name}</span>
+					<span className="assets-route__count">{node.count}</span>
+				</button>
+			</div>
+			{expanded &&
+				node.children.map(child => (
+					<AssetFolderTreeNode
+						expandedFolders={expandedFolders}
+						key={child.path}
+						node={child}
+						onSelect={onSelect}
+						onToggle={onToggle}
+						selectedScope={selectedScope}
+					/>
+				))}
+		</>
+	);
+};
 
 export const AssetsRoute: React.FC = () => {
 	const {storyId} = useParams<{storyId: string}>();
@@ -238,11 +592,16 @@ export const AssetsRoute: React.FC = () => {
 	const history = useHistory();
 	const coreProjectHost = useCoreProjectHost();
 	const story = storyForId(stories, storyId);
-	const [folder, setFolder] = React.useState('All Assets');
+	const [folder, setFolder] = React.useState<AssetScope>('All Assets');
+	const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(
+		() => new Set()
+	);
 	const [query, setQuery] = React.useState('');
 	const [sort, setSort] = React.useState<AssetSort>('Name');
 	const [view, setView] = React.useState<AssetView>('grid');
 	const [selectedPath, setSelectedPath] = React.useState<string>();
+	const [previewAsset, setPreviewAsset] =
+		React.useState<AssetManagerViewModelEntry>();
 	const [importPath, setImportPath] = React.useState('');
 	const [importingAsset, setImportingAsset] = React.useState(false);
 	const [assetError, setAssetError] = React.useState<string>();
@@ -260,11 +619,13 @@ export const AssetsRoute: React.FC = () => {
 	const [inventoryState, setInventoryState] =
 		React.useState<AssetInventoryState>('fallback');
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [inferredProjectRoot, setInferredProjectRoot] =
+		React.useState<string>();
 	const projectMetadata = React.useMemo(
 		() => (story ? loadProjectMetadata(story.id) : undefined),
 		[story]
 	);
-	const projectRoot = projectMetadata?.rootPath;
+	const projectRoot = projectMetadata?.rootPath ?? inferredProjectRoot;
 	const twineElectron = (window as TwineElectronWindow).twineElectron;
 
 	React.useEffect(
@@ -291,16 +652,21 @@ export const AssetsRoute: React.FC = () => {
 
 		try {
 			const snapshot = twineElectron.projectSessionSnapshot
-				? await twineElectron.projectSessionSnapshot(projectRoot)
+				? await twineElectron.projectSessionSnapshot(
+						projectRoot,
+						story ? [story.id] : undefined
+					)
 				: undefined;
 			const inventory =
-				snapshot?.assets ?? (await twineElectron.listProjectAssets(projectRoot));
+				snapshot?.assets ??
+				(await twineElectron.listProjectAssets(projectRoot));
 
 			if (story) {
 				replaceKnownAssetInventoryForStory(story.id, inventory);
 			}
 			setProjectAssets(inventory);
 			setInventoryState('live');
+			markPerformance('asset-inventory-ready');
 			setAssetError(undefined);
 		} catch (error) {
 			setProjectAssets([]);
@@ -313,6 +679,72 @@ export const AssetsRoute: React.FC = () => {
 		void refreshProjectAssets();
 	}, [refreshProjectAssets]);
 
+	React.useEffect(() => {
+		if (projectMetadata?.rootPath) {
+			setInferredProjectRoot(undefined);
+			return;
+		}
+
+		if (
+			!story ||
+			!twineElectron?.getStoryLibraryFolder ||
+			(!twineElectron.projectSessionSnapshot &&
+				!twineElectron.listProjectAssets)
+		) {
+			setInferredProjectRoot(undefined);
+			return;
+		}
+
+		let canceled = false;
+
+		async function inferProjectRoot() {
+			if (!story || !twineElectron?.getStoryLibraryFolder) {
+				return;
+			}
+
+			try {
+				const storyLibraryFolder = await twineElectron.getStoryLibraryFolder();
+				const rootPath = defaultProjectFolderRoot(
+					storyLibraryFolder,
+					story.name
+				);
+				const snapshot = twineElectron.projectSessionSnapshot
+					? await twineElectron.projectSessionSnapshot(rootPath, [story.id])
+					: undefined;
+				const inventory =
+					snapshot?.assets ??
+					(twineElectron.listProjectAssets
+						? await twineElectron.listProjectAssets(rootPath)
+						: []);
+
+				if (canceled || inventory.length === 0) {
+					return;
+				}
+
+				saveProjectMetadata(story.id, {
+					rootPath,
+					status: 'file-backed',
+					storageKind: 'electron-project-folder'
+				});
+				replaceKnownAssetInventoryForStory(story.id, inventory);
+				setProjectAssets(inventory);
+				setInventoryState('live');
+				setInferredProjectRoot(rootPath);
+				setAssetError(undefined);
+			} catch {
+				if (!canceled) {
+					setInferredProjectRoot(undefined);
+				}
+			}
+		}
+
+		void inferProjectRoot();
+
+		return () => {
+			canceled = true;
+		};
+	}, [projectMetadata?.rootPath, story, twineElectron]);
+
 	const index = React.useMemo(
 		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
 		[coreProjectHost, patchVersion, projectAssets, story]
@@ -321,15 +753,31 @@ export const AssetsRoute: React.FC = () => {
 		() => (index ? assetManagerViewModel(index) : undefined),
 		[index]
 	);
-	const folderList = React.useMemo(
-		() => (assets ? folderEntries(assets.entries) : []),
+	const directoryIndex = React.useMemo(
+		() => buildAssetDirectoryIndex(assets?.entries ?? []),
 		[assets]
+	);
+	const selectedDirectory =
+		folder === 'All Assets'
+			? directoryIndex.root
+			: folder === 'Missing' || folder === 'Unused'
+				? undefined
+				: directoryIndex.nodesByPath.get(folder);
+	const queryActive = query.trim() !== '';
+	const visibleDirectories = React.useMemo(
+		() =>
+			queryActive || folder === 'Missing' || folder === 'Unused'
+				? []
+				: (selectedDirectory?.children ?? []),
+		[folder, queryActive, selectedDirectory]
 	);
 	const visibleAssets = React.useMemo(() => {
 		const entries = assets?.entries ?? [];
-		const filtered = entries.filter(
-			asset => matchesFolder(asset, folder) && matchesQuery(asset, query)
-		);
+		const scoped = entries.filter(asset => matchesScope(asset, folder));
+		const filtered =
+			queryActive || folder === 'Missing' || folder === 'Unused'
+				? scoped.filter(asset => matchesQuery(asset, query))
+				: (selectedDirectory?.assets ?? []);
 
 		return [...filtered].sort((left, right) => {
 			switch (sort) {
@@ -346,10 +794,12 @@ export const AssetsRoute: React.FC = () => {
 					return left.path.localeCompare(right.path);
 			}
 		});
-	}, [assets, folder, query, sort]);
+	}, [assets, folder, query, queryActive, selectedDirectory, sort]);
 	const selectedAsset =
 		visibleAssets.find(asset => asset.path === selectedPath) ??
-		visibleAssets[0];
+		(folder === 'All Assets' || queryActive || visibleDirectories.length === 0
+			? visibleAssets[0]
+			: undefined);
 	const firstUsage =
 		story && selectedAsset
 			? firstUsagePassage(story, selectedAsset)
@@ -359,7 +809,48 @@ export const AssetsRoute: React.FC = () => {
 		if (selectedAsset && selectedAsset.path !== selectedPath) {
 			setSelectedPath(selectedAsset.path);
 		}
+
+		if (!selectedAsset && selectedPath) {
+			setSelectedPath(undefined);
+		}
 	}, [selectedAsset, selectedPath]);
+
+	function selectFolder(nextFolder: AssetScope) {
+		setFolder(nextFolder);
+		setSelectedPath(undefined);
+
+		if (
+			nextFolder !== 'All Assets' &&
+			nextFolder !== 'Missing' &&
+			nextFolder !== 'Unused'
+		) {
+			setExpandedFolders(current => expandedWithAncestors(current, nextFolder));
+		}
+	}
+
+	function toggleFolder(path: string) {
+		setExpandedFolders(current => {
+			const next = new Set(current);
+
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
+			}
+
+			return next;
+		});
+	}
+
+	function focusAsset(path: string) {
+		const parentPath = parentPathForPath(path);
+
+		selectFolder(parentPath || 'All Assets');
+		setExpandedFolders(current =>
+			parentPath ? expandedWithAncestors(current, parentPath) : current
+		);
+		setSelectedPath(path);
+	}
 
 	async function importAsset() {
 		if (!story) {
@@ -377,13 +868,16 @@ export const AssetsRoute: React.FC = () => {
 					projectRoot && twineElectron?.copyAssetToProject
 						? await twineElectron.copyAssetToProject(projectRoot, sourcePath)
 						: undefined;
+				const targetPath =
+					copied?.targetPath ?? importTargetPathForSource(sourcePath);
 
 				coreProjectHost.applyStoryCommand(
 					importAssetCommand(story.id, copied?.sourcePath ?? sourcePath, {
-						targetPath: copied?.targetPath
+						targetPath
 					})
 				);
 				setImportPath('');
+				focusAsset(targetPath);
 				await refreshProjectAssets();
 			} catch (error) {
 				setAssetError((error as Error).message);
@@ -421,13 +915,16 @@ export const AssetsRoute: React.FC = () => {
 								sourcePath
 							)
 						: undefined;
+				const targetPath =
+					copied?.targetPath ?? importTargetPathForSource(sourcePath);
 
 				coreProjectHost.applyStoryCommand(
 					importAssetCommand(story.id, copied?.sourcePath ?? sourcePath, {
-						targetPath: copied?.targetPath
+						targetPath
 					})
 				);
 				setImportPath('');
+				focusAsset(targetPath);
 				await refreshProjectAssets();
 			}
 		} catch (error) {
@@ -546,7 +1043,7 @@ export const AssetsRoute: React.FC = () => {
 						renamed?.targetPath ?? value
 					)
 				);
-				setSelectedPath(renamed?.targetPath ?? value);
+				focusAsset(renamed?.targetPath ?? value);
 			}
 
 			if (assetEdit.mode === 'replace') {
@@ -566,6 +1063,7 @@ export const AssetsRoute: React.FC = () => {
 						replaced?.sourcePath ?? value
 					)
 				);
+				focusAsset(assetEdit.path);
 			}
 
 			setAssetEdit(undefined);
@@ -591,6 +1089,7 @@ export const AssetsRoute: React.FC = () => {
 				deleteAssetCommand(story.id, asset.path, true)
 			);
 			setSelectedPath(undefined);
+			selectFolder(parentPathForPath(asset.path) || 'All Assets');
 			await refreshProjectAssets();
 		} catch (error) {
 			setAssetError((error as Error).message);
@@ -637,49 +1136,46 @@ export const AssetsRoute: React.FC = () => {
 				<button
 					aria-current={folder === 'All Assets'}
 					className="assets-route__folder"
-					onClick={() => setFolder('All Assets')}
+					onClick={() => selectFolder('All Assets')}
 					type="button"
 				>
 					<TablerIcon icon="folder-open" />
 					<span>All Assets</span>
 					<span className="assets-route__count">{assets.entries.length}</span>
 				</button>
-				{folderList.map(([candidate, count]) => (
-					<button
-						aria-current={folder === candidate}
-						className="assets-route__folder assets-route__folder--nested"
-						key={candidate}
-						onClick={() => setFolder(candidate)}
-						type="button"
-					>
-						<TablerIcon icon="folder" />
-						<span>{candidate}</span>
-						<span className="assets-route__count">{count}</span>
-					</button>
+				{directoryIndex.root.children.map(child => (
+					<AssetFolderTreeNode
+						expandedFolders={expandedFolders}
+						key={child.path}
+						node={child}
+						onSelect={selectFolder}
+						onToggle={toggleFolder}
+						selectedScope={folder}
+					/>
 				))}
 				<div className="assets-route__filter-label">Issues</div>
 				<button
 					aria-current={folder === 'Missing'}
 					className="assets-route__folder assets-route__folder--issue"
-					onClick={() => setFolder('Missing')}
+					onClick={() => selectFolder('Missing')}
 					type="button"
 				>
 					<TablerIcon icon="photo-off" />
 					<span>Missing</span>
 					<span className="assets-route__count">
-						{assets.entries.filter(asset => asset.missing).length}
+						{issueCount(assets.entries, 'Missing')}
 					</span>
 				</button>
 				<button
 					aria-current={folder === 'Unused'}
 					className="assets-route__folder assets-route__folder--issue"
-					onClick={() => setFolder('Unused')}
+					onClick={() => selectFolder('Unused')}
 					type="button"
 				>
 					<TablerIcon icon="circle-off" />
 					<span>Unused</span>
 					<span className="assets-route__count">
-						{assets.entries.filter(asset => asset.unused).length}
+						{issueCount(assets.entries, 'Unused')}
 					</span>
 				</button>
 			</aside>
@@ -712,7 +1208,7 @@ export const AssetsRoute: React.FC = () => {
 					</Button>
 					<Button
 						icon="search-off"
-						onClick={() => setFolder('Unused')}
+						onClick={() => selectFolder('Unused')}
 						size="sm"
 						variant="ghost"
 					>
@@ -787,41 +1283,61 @@ export const AssetsRoute: React.FC = () => {
 						'assets-route__items--table': view === 'table'
 					})}
 				>
-					{visibleAssets.length === 0 ? (
+					{visibleDirectories.length === 0 && visibleAssets.length === 0 ? (
 						<div className="assets-route__list-empty">
 							No assets match this filter.
 						</div>
 					) : (
-						visibleAssets.map(asset => (
-							<button
-								aria-current={asset.path === selectedAsset?.path}
-								className={classNames('assets-route__card', {
-									'assets-route__card--missing': asset.missing,
-									'assets-route__card--unused': asset.unused
-								})}
-								key={asset.path}
-								onClick={() => setSelectedPath(asset.path)}
-								type="button"
-							>
-								<span className="assets-route__thumb">
-									{asset.thumbnailUrl ? (
-										<img alt="" src={asset.thumbnailUrl} />
-									) : (
-										<TablerIcon icon={assetIcon(asset)} />
-									)}
-								</span>
-								<span className="assets-route__card-caption">
-									<b>{asset.path}</b>
-									<span>
-										{asset.kind} · {bytesLabel(asset.sizeBytes)}
+						<>
+							{visibleDirectories.map(directory => (
+								<button
+									aria-label={`Open folder ${directory.path}`}
+									className="assets-route__card assets-route__card--folder"
+									key={directory.path}
+									onClick={() => selectFolder(directory.path)}
+									type="button"
+								>
+									<span className="assets-route__thumb">
+										<TablerIcon icon="folder" />
 									</span>
-								</span>
-								<span className="assets-route__card-meta">
-									<span>{assetStatusLabel(asset)}</span>
-									<span>{asset.referenceCount} refs</span>
-								</span>
-							</button>
-						))
+									<span className="assets-route__card-caption">
+										<b>{directory.name}</b>
+										<span>{directory.path}</span>
+									</span>
+									<span className="assets-route__card-meta">
+										<span>Folder</span>
+										<span>{directory.count} items</span>
+									</span>
+								</button>
+							))}
+							{visibleAssets.map(asset => (
+								<button
+									aria-current={asset.path === selectedAsset?.path}
+									aria-label={`Select asset ${asset.path}`}
+									className={classNames('assets-route__card', {
+										'assets-route__card--code':
+											asset.kind === 'script' || asset.kind === 'stylesheet',
+										'assets-route__card--missing': asset.missing,
+										'assets-route__card--unused': asset.unused
+									})}
+									key={asset.path}
+									onClick={() => setSelectedPath(asset.path)}
+									type="button"
+								>
+									<span className="assets-route__thumb">
+										<AssetThumbnail asset={asset} projectRoot={projectRoot} />
+									</span>
+									<span className="assets-route__card-caption">
+										<b>{fileNameForPath(asset.path)}</b>
+										<span>{parentPathForPath(asset.path) || asset.path}</span>
+									</span>
+									<span className="assets-route__card-meta">
+										<span>{assetKindLabel(asset)}</span>
+										<span>{asset.referenceCount} refs</span>
+									</span>
+								</button>
+							))}
+						</>
 					)}
 				</div>
 			</main>
@@ -833,18 +1349,17 @@ export const AssetsRoute: React.FC = () => {
 								'assets-route__preview-media--missing': selectedAsset.missing
 							})}
 						>
-							{selectedAsset.thumbnailUrl ? (
-								<img alt="" src={selectedAsset.thumbnailUrl} />
-							) : (
-								<TablerIcon icon={assetIcon(selectedAsset)} />
-							)}
+							<AssetPreviewMedia
+								asset={selectedAsset}
+								projectRoot={projectRoot}
+							/>
 						</div>
 						<div className="assets-route__preview-body">
 							<div className="assets-route__preview-name">
-								{selectedAsset.path}
+								{fileNameForPath(selectedAsset.path)}
 							</div>
 							<div className="assets-route__preview-path">
-								{selectedAsset.inventory.normalizedPath}
+								Path: {selectedAsset.path}
 							</div>
 							<div className="assets-route__badges">
 								{selectedAsset.missing && (
@@ -876,7 +1391,7 @@ export const AssetsRoute: React.FC = () => {
 							<div className="assets-route__section-title">Details</div>
 							<div className="assets-route__field">
 								<span>Type</span>
-								<b>{selectedAsset.kind}</b>
+								<b>{assetKindLabel(selectedAsset)}</b>
 							</div>
 							<div className="assets-route__field">
 								<span>Dimensions</span>
@@ -928,10 +1443,19 @@ export const AssetsRoute: React.FC = () => {
 							<div className="assets-route__actions">
 								<Button
 									block
+									disabled={!isPreviewableAsset(selectedAsset, projectRoot)}
+									icon="arrows-diagonal"
+									onClick={() => setPreviewAsset(selectedAsset)}
+									size="sm"
+									variant="primary"
+								>
+									Preview
+								</Button>
+								<Button
+									block
 									icon="clipboard"
 									onClick={() => copySnippet(selectedAsset)}
 									size="sm"
-									variant="primary"
 								>
 									Copy Snippet
 								</Button>
@@ -1074,6 +1598,13 @@ export const AssetsRoute: React.FC = () => {
 					<div className="assets-route__empty-detail">Select an asset.</div>
 				)}
 			</aside>
+			{previewAsset && (
+				<AssetLightbox
+					asset={previewAsset}
+					onClose={() => setPreviewAsset(undefined)}
+					projectRoot={projectRoot}
+				/>
+			)}
 		</div>
 	);
 };

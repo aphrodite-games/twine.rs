@@ -1,9 +1,14 @@
 @import '../../../styles/colors.css';
 
 .passage-map {
-	background-color: var(--faint-blue);
-	background-image: url('graph-paper-light.svg');
-	background-size: 100px;
+	background:
+		radial-gradient(
+			circle,
+			color-mix(in oklab, var(--tx-4) 22%, transparent) 0 1px,
+			transparent 1.5px
+		);
+	background-color: var(--ink-void);
+	background-size: 26px 26px;
 
 	/*
 	These minimums are to guarantee that the passage map fills the viewport
@@ -24,10 +29,6 @@
 	will-change: transform;
 }
 
-[data-app-theme='dark'] .passage-map {
-	background-image: url('graph-paper-dark.svg');
-}
-
 .passage-map .passage-card {
 	will-change: transform;
 }
@@ -38,8 +39,8 @@
 
 .passage-map-link-layers {
 	align-items: center;
-	background: var(--white);
-	border: 1px solid var(--light-gray);
+	background: var(--ink-2);
+	border: 1px solid var(--line-2);
 	border-radius: var(--corner-round);
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 	display: inline-flex;
@@ -55,7 +56,7 @@
 
 .passage-map-link-layers label {
 	align-items: center;
-	color: var(--dark-gray);
+	color: var(--tx-2);
 	display: inline-flex;
 	font: 90% var(--font-system);
 	gap: 4px;

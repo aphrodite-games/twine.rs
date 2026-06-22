@@ -43,7 +43,13 @@ interface GraphIndex {
 interface LayoutSnapshot {
 	bounds: CoreRect | null;
 	entries: Map<string, LayoutEntry>;
+	spatialCells: Map<string, string[]>;
 	state: CoreGraphLayoutState;
+}
+
+interface GraphProjectionData {
+	index: GraphIndex;
+	layout: LayoutSnapshot;
 }
 
 const defaultLayers: CoreLinkLayerOptions = {
@@ -68,7 +74,9 @@ const generatedLayout = {
 	rowGap: 160
 };
 
+const spatialCellSize = 512;
 const viewportOverscan = 256;
+const graphProjectionCache = new WeakMap<Story, GraphProjectionData>();
 
 function normalizeOptions(
 	options: GraphProjectionQuery = {}
@@ -114,6 +122,64 @@ function expandRect(rect: CoreRect, amount: number): CoreRect {
 
 function graphBounds(bounds: CoreRect[]) {
 	return bounds.length > 0 ? boundingRect(bounds) : null;
+}
+
+function spatialCellKey(x: number, y: number) {
+	return `${x}:${y}`;
+}
+
+function spatialCellRange(start: number, size: number) {
+	return {
+		first: Math.floor(start / spatialCellSize),
+		last: Math.floor((start + size) / spatialCellSize)
+	};
+}
+
+function addSpatialEntry(
+	cells: Map<string, string[]>,
+	id: string,
+	bounds: CoreRect
+) {
+	const xRange = spatialCellRange(bounds.left, bounds.width);
+	const yRange = spatialCellRange(bounds.top, bounds.height);
+
+	for (let x = xRange.first; x <= xRange.last; x++) {
+		for (let y = yRange.first; y <= yRange.last; y++) {
+			const key = spatialCellKey(x, y);
+
+			cells.set(key, [...(cells.get(key) ?? []), id]);
+		}
+	}
+}
+
+function buildSpatialCells(entries: Map<string, LayoutEntry>) {
+	const cells = new Map<string, string[]>();
+
+	for (const [id, entry] of entries) {
+		addSpatialEntry(cells, id, entry.bounds);
+	}
+
+	return cells;
+}
+
+function visibleLayoutIds(layout: LayoutSnapshot, viewport: CoreRect) {
+	const xRange = spatialCellRange(viewport.left, viewport.width);
+	const yRange = spatialCellRange(viewport.top, viewport.height);
+	const result = new Set<string>();
+
+	for (let x = xRange.first; x <= xRange.last; x++) {
+		for (let y = yRange.first; y <= yRange.last; y++) {
+			for (const id of layout.spatialCells.get(spatialCellKey(x, y)) ?? []) {
+				const entry = layout.entries.get(id);
+
+				if (entry && rectsIntersect(viewport, entry.bounds)) {
+					result.add(id);
+				}
+			}
+		}
+	}
+
+	return result;
 }
 
 function neighbors(
@@ -272,54 +338,16 @@ function buildGraphIndex(story: Story): GraphIndex {
 		}
 	}
 
-	const reachable = reachableIds(story, {
-		backlinks,
-		nodes,
-		outgoing,
-		stats,
-		storyOrder,
-		storyRank
-	});
-
 	for (const node of nodes.values()) {
 		node.isOrphan = node.id !== story.startPassage && node.incomingCount === 0;
-		node.isUnreachable = !reachable.has(node.id);
+		node.isUnreachable = false;
 
 		if (node.isOrphan) {
 			stats.orphanPassages++;
 		}
-
-		if (node.isUnreachable) {
-			stats.unreachablePassages++;
-		}
 	}
 
 	return {backlinks, nodes, outgoing, stats, storyOrder, storyRank};
-}
-
-function reachableIds(story: Story, index: GraphIndex) {
-	const reachable = new Set<string>();
-	const firstId = story.passages[0]?.id;
-	const startId = index.nodes.has(story.startPassage)
-		? story.startPassage
-		: firstId;
-	const queue = startId ? [startId] : [];
-
-	while (queue.length > 0) {
-		const id = queue.shift()!;
-
-		if (reachable.has(id)) {
-			continue;
-		}
-
-		reachable.add(id);
-
-		for (const neighbor of neighbors(index, id, 'outgoing')) {
-			queue.push(neighbor);
-		}
-	}
-
-	return reachable;
 }
 
 function layoutComponents(index: GraphIndex) {
@@ -443,8 +471,24 @@ function layoutSnapshot(story: Story, index: GraphIndex): LayoutSnapshot {
 	return {
 		bounds: graphBounds(Array.from(entries.values()).map(entry => entry.bounds)),
 		entries,
+		spatialCells: buildSpatialCells(entries),
 		state
 	};
+}
+
+function graphProjectionData(story: Story): GraphProjectionData {
+	const cached = graphProjectionCache.get(story);
+
+	if (cached) {
+		return cached;
+	}
+
+	const index = buildGraphIndex(story);
+	const layout = layoutSnapshot(story, index);
+	const data = {index, layout};
+
+	graphProjectionCache.set(story, data);
+	return data;
 }
 
 function projectEdges(
@@ -527,8 +571,7 @@ export function storyToCoreGraphProjection(
 	query: GraphProjectionQuery = {}
 ): CoreGraphProjection {
 	const options = normalizeOptions(query);
-	const index = buildGraphIndex(story);
-	const layout = layoutSnapshot(story, index);
+	const {index, layout} = graphProjectionData(story);
 	const focusedIds =
 		options.focus && options.focus.passageIds.length > 0
 			? neighborhood(index, options.focus)
@@ -538,8 +581,15 @@ export function storyToCoreGraphProjection(
 		: undefined;
 	const visibleIds = new Set<string>();
 	const nodes: CoreGraphNode[] = [];
+	const candidateIds = viewport
+		? Array.from(visibleLayoutIds(layout, viewport)).sort(
+				(left, right) =>
+					(index.storyRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+					(index.storyRank.get(right) ?? Number.MAX_SAFE_INTEGER)
+			)
+		: index.storyOrder;
 
-	for (const id of index.storyOrder) {
+	for (const id of candidateIds) {
 		const entry = layout.entries.get(id);
 
 		if (!entry) {

@@ -49,11 +49,13 @@ function graphStory(generatedLayout = false) {
 
 function renderComponent(
 	generatedLayout = false,
-	configure?: (context: ReturnType<typeof graphStory>) => void
+	configure?: (context: ReturnType<typeof graphStory>) => void,
+	options: {visibleZoom?: number; zoom?: number} = {}
 ) {
 	const {next, start, story} = graphStory(generatedLayout);
 
 	configure?.({next, start, story});
+	story.zoom = options.zoom ?? story.zoom;
 
 	const onCreate = jest.fn();
 	const onDeselect = jest.fn();
@@ -96,8 +98,8 @@ function renderComponent(
 				onTestPassage={onTestPassage}
 				selectedPassageId={start.id}
 				story={story}
-				visibleZoom={1}
-				zoom={1}
+				visibleZoom={options.visibleZoom ?? story.zoom}
+				zoom={story.zoom}
 			/>
 		</TestProviders>
 	);
@@ -233,6 +235,49 @@ describe('<StoryGraphPanel>', () => {
 
 		widthSpy.mockRestore();
 		heightSpy.mockRestore();
+	});
+
+	it('keeps the edge canvas backing store bounded at low zoom', async () => {
+		const widthSpy = jest
+			.spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+			.mockReturnValue(1200);
+		const heightSpy = jest
+			.spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+			.mockReturnValue(800);
+		const devicePixelRatio = Object.getOwnPropertyDescriptor(
+			window,
+			'devicePixelRatio'
+		);
+
+		Object.defineProperty(window, 'devicePixelRatio', {
+			configurable: true,
+			value: 1
+		});
+
+		try {
+			renderComponent(false, undefined, {visibleZoom: 0.3, zoom: 0.3});
+
+			const canvas = screen.getByTestId(
+				'story-graph-edges-canvas'
+			) as HTMLCanvasElement;
+
+			await waitFor(() =>
+				expect(parseFloat(canvas.style.width)).toBeGreaterThan(10000)
+			);
+
+			const cssWidth = parseFloat(canvas.style.width);
+
+			expect(cssWidth).toBeCloseTo(12000, 0);
+			expect(canvas.width).toBe(Math.ceil(cssWidth * 0.3));
+			expect(canvas.width).toBeLessThan(cssWidth);
+		} finally {
+			if (devicePixelRatio) {
+				Object.defineProperty(window, 'devicePixelRatio', devicePixelRatio);
+			}
+
+			widthSpy.mockRestore();
+			heightSpy.mockRestore();
+		}
 	});
 
 	it('focuses every selected passage when graph focus is enabled', async () => {
@@ -403,6 +448,46 @@ describe('<StoryGraphPanel>', () => {
 		expect(onCreate).toHaveBeenCalledWith(
 			{left: 220, top: 180},
 			expect.objectContaining({height: 110, width: 184})
+		);
+	});
+
+	it('snaps dragged graph passages to the visible graph grid', async () => {
+		const {result, story, undoableDispatch} = renderComponent(
+			false,
+			({start, story}) => {
+				start.left = 0;
+				start.top = 0;
+				story.snapToGrid = true;
+			}
+		);
+		const startNode = result.container.querySelector(
+			'[data-passage-id="start"]'
+		) as HTMLElement;
+
+		fireEvent.mouseDown(startNode, {button: 0, clientX: 0, clientY: 0});
+		fireEvent.mouseMove(document, {clientX: 17, clientY: 18});
+
+		await waitFor(() => {
+			expect(startNode.style.left).toBe('26px');
+			expect(startNode.style.top).toBe('26px');
+		});
+
+		fireEvent.mouseUp(document, {clientX: 17, clientY: 18});
+
+		await waitFor(() =>
+			expect(undoableDispatch).toHaveBeenCalledWith(
+				{
+					passageUpdates: {
+						start: expect.objectContaining({
+							left: 26,
+							top: 26
+						})
+					},
+					storyId: story.id,
+					type: 'updatePassages'
+				},
+				'undoChange.movePassage'
+			)
 		);
 	});
 

@@ -1,6 +1,7 @@
-import {dialog, nativeImage} from 'electron';
+import {dialog} from 'electron';
 import {
 	copy,
+	mkdtemp,
 	mkdirp,
 	move,
 	readFile,
@@ -8,17 +9,21 @@ import {
 	readdir,
 	remove,
 	stat,
-	writeFile,
-	writeJson
+	writeFile
 } from 'fs-extra';
+import extractZip from 'extract-zip';
 import {fakeStory} from '../../../test-util';
 import {
 	chooseAssetFile,
+	copyProjectImportAssets,
 	copyAssetToProject,
 	createProjectFolder,
 	deleteProjectAsset,
+	discardProjectImport,
+	hydrateProjectFolder,
 	listProjectAssets,
 	openProjectFolder,
+	prepareProjectImport,
 	projectSessionSnapshot,
 	renameProjectAsset,
 	replaceProjectAsset,
@@ -27,6 +32,7 @@ import {
 } from '../project-folder';
 
 jest.mock('electron');
+jest.mock('extract-zip', () => jest.fn());
 jest.mock('fs-extra');
 jest.mock('../story-directory', () => ({
 	getStoryDirectoryPath: () => 'mock-story-library'
@@ -34,30 +40,35 @@ jest.mock('../story-directory', () => ({
 
 describe('project-folder native bridge', () => {
 	const mkdirpMock = mkdirp as jest.Mock;
+	const mkdtempMock = mkdtemp as jest.Mock;
 	const copyMock = copy as jest.Mock;
+	const extractZipMock = extractZip as jest.Mock;
 	const moveMock = move as jest.Mock;
 	const readFileMock = readFile as jest.Mock;
 	const readJsonMock = readJson as jest.Mock;
 	const readdirMock = readdir as jest.Mock;
 	const removeMock = remove as jest.Mock;
-	const createFromPathMock = nativeImage.createFromPath as jest.Mock;
 	const showOpenDialogMock = dialog.showOpenDialog as jest.Mock;
 	const statMock = stat as jest.Mock;
 	const writeFileMock = writeFile as jest.Mock;
-	const writeJsonMock = writeJson as jest.Mock;
 
 	beforeEach(() => {
 		jest.clearAllMocks();
 		writeFileMock.mockResolvedValue(undefined);
-		writeJsonMock.mockResolvedValue(undefined);
 		copyMock.mockResolvedValue(undefined);
+		extractZipMock.mockResolvedValue(undefined);
+		mkdtempMock.mockResolvedValue('/tmp/twine-import-abc');
 		moveMock.mockResolvedValue(undefined);
 		removeMock.mockResolvedValue(undefined);
 		mkdirpMock.mockResolvedValue(undefined);
 		readFileMock.mockResolvedValue('');
-		createFromPathMock.mockReturnValue({
-			getSize: () => ({height: 480, width: 640})
-		});
+		statMock.mockImplementation(async path => ({
+			isDirectory: () => String(path).endsWith('.twine.rs'),
+			isFile: () => !String(path).endsWith('.twine.rs'),
+			mtime: new Date('2026-06-21T16:00:00.000Z'),
+			mtimeMs: 1,
+			size: 0
+		}));
 	});
 
 	afterEach(() => {
@@ -74,7 +85,9 @@ describe('project-folder native bridge', () => {
 
 		const result = await createProjectFolder(story);
 
-		expect(result.rootPath).toBe('mock-story-library/Projects/moon-castle.twine.rs');
+		expect(result.rootPath).toBe(
+			'mock-story-library/Projects/moon-castle.twine.rs'
+		);
 		expect(mkdirpMock).toHaveBeenCalledWith(
 			'mock-story-library/Projects/moon-castle.twine.rs/assets'
 		);
@@ -83,12 +96,24 @@ describe('project-folder native bridge', () => {
 			expect.stringContaining('Native twine.rs desktop project folder'),
 			'utf8'
 		);
-		expect(writeJsonMock).toHaveBeenCalledWith(
+		const projectJsonTempPath = expect.stringMatching(
+			/^mock-story-library\/Projects\/moon-castle\.twine\.rs\/\.twine\/project\.json\..+\.tmp$/
+		);
+
+		expect(writeFileMock).toHaveBeenCalledWith(
+			projectJsonTempPath,
+			expect.stringContaining('"schema":"twine.rs/renderer-project"'),
+			'utf8'
+		);
+		expect(writeFileMock).toHaveBeenCalledWith(
+			projectJsonTempPath,
+			expect.stringContaining(`"id":"${story.id}"`),
+			'utf8'
+		);
+		expect(moveMock).toHaveBeenCalledWith(
+			projectJsonTempPath,
 			'mock-story-library/Projects/moon-castle.twine.rs/.twine/project.json',
-			expect.objectContaining({
-				schema: 'twine.rs/renderer-project',
-				stories: [story]
-			})
+			{overwrite: true}
 		);
 	});
 
@@ -99,15 +124,30 @@ describe('project-folder native bridge', () => {
 			name: 'Moon Castle'
 		};
 
-		const result = await saveProjectFolder('/native/moon-castle.twine.rs', story);
+		const result = await saveProjectFolder(
+			'/native/moon-castle.twine.rs',
+			story
+		);
 
 		expect(result.rootPath).toBe('/native/moon-castle.twine.rs');
-		expect(writeJsonMock).toHaveBeenCalledWith(
+		const projectJsonTempPath = expect.stringMatching(
+			/^\/native\/moon-castle\.twine\.rs\/\.twine\/project\.json\..+\.tmp$/
+		);
+
+		expect(writeFileMock).toHaveBeenCalledWith(
+			projectJsonTempPath,
+			expect.stringContaining('"schema":"twine.rs/renderer-project"'),
+			'utf8'
+		);
+		expect(writeFileMock).toHaveBeenCalledWith(
+			projectJsonTempPath,
+			expect.stringContaining(`"id":"${story.id}"`),
+			'utf8'
+		);
+		expect(moveMock).toHaveBeenCalledWith(
+			projectJsonTempPath,
 			'/native/moon-castle.twine.rs/.twine/project.json',
-			expect.objectContaining({
-				schema: 'twine.rs/renderer-project',
-				stories: [story]
-			})
+			{overwrite: true}
 		);
 		expect(writeFileMock).toHaveBeenCalledWith(
 			'/native/moon-castle.twine.rs/twine.toml',
@@ -168,7 +208,9 @@ describe('project-folder native bridge', () => {
 			}
 
 			if (path.endsWith('.twine/graph.json')) {
-				return {passages: {start: {height: 144, left: 22, top: 33, width: 155}}};
+				return {
+					passages: {start: {height: 144, left: 22, top: 33, width: 155}}
+				};
 			}
 
 			return {};
@@ -235,6 +277,190 @@ describe('project-folder native bridge', () => {
 		);
 	});
 
+	it('can open a project folder shell without reading passage body files', async () => {
+		const story = {
+			...fakeStory(1),
+			id: 'story-id',
+			name: 'Moon Castle',
+					passages: [
+						{
+							...fakeStory(1).passages[0],
+							id: 'start',
+							name: 'Start',
+							story: 'story-id',
+							text: 'stale metadata body'
+						}
+					]
+				};
+
+		readJsonMock.mockImplementation(async path => {
+			if (path.endsWith('.twine/project.json')) {
+				return {
+					stories: [{...story, lastUpdate: story.lastUpdate.toISOString()}]
+				};
+			}
+
+			if (path.endsWith('.twine/graph.json')) {
+				return {
+					passages: {start: {height: 144, left: 22, top: 33, width: 155}}
+				};
+			}
+
+			return {};
+		});
+		readFileMock.mockImplementation(async path => {
+			if (path.endsWith('twine.toml')) {
+				return [
+					'[[stories]]',
+					'id = "story-id"',
+					'ifid = "ifid-1"',
+					'last_update = "2026-06-21T16:00:00.000Z"',
+					'name = "Moon Castle"',
+					'start_passage = "start"',
+					'story_format = "Chapbook"',
+					'story_format_version = "2.1.0"',
+					'[[stories.passages]]',
+					'id = "start"',
+					'name = "Start"',
+					'file = "passages/moon-castle/001-start.twee"'
+				].join('\n');
+			}
+
+			if (path.endsWith('001-start.twee')) {
+				return 'body should not be read';
+			}
+
+			return '';
+		});
+
+		const result = await openProjectFolder('/native/moon-castle.twine.rs', {
+			loadPassageText: false
+		});
+
+		expect(result?.passageTextLoaded).toBe(false);
+		expect(result?.stories[0].passages[0]).toEqual(
+			expect.objectContaining({
+				height: 144,
+				left: 22,
+				text: '',
+				top: 33,
+				width: 155
+			})
+		);
+		expect(readFileMock).not.toHaveBeenCalledWith(
+			expect.stringContaining('001-start.twee'),
+			'utf8'
+		);
+	});
+
+	it('hydrates project folder passage body files on demand', async () => {
+		readJsonMock.mockImplementation(async path => {
+			if (path.endsWith('.twine/project.json')) {
+				return {stories: []};
+			}
+
+			return {};
+		});
+		readFileMock.mockImplementation(async path => {
+			if (path.endsWith('twine.toml')) {
+				return [
+					'[[stories]]',
+					'id = "story-id"',
+					'ifid = "ifid-1"',
+					'name = "Moon Castle"',
+					'start_passage = "start"',
+					'[[stories.passages]]',
+					'id = "start"',
+					'name = "Start"',
+					'file = "passages/moon-castle/001-start.twee"'
+				].join('\n');
+			}
+
+			if (path.endsWith('001-start.twee')) {
+				return 'hydrated passage text';
+			}
+
+			return '';
+		});
+
+		const result = await hydrateProjectFolder('/native/moon-castle.twine.rs', [
+			'story-id'
+		]);
+
+		expect(result.passageTextLoaded).toBe(true);
+		expect(result.stories[0].passages[0].text).toBe('hydrated passage text');
+	});
+
+	it('falls back to manifest source files when renderer metadata JSON is mid-write', async () => {
+		const warnSpy = jest.spyOn(console, 'warn').mockReturnValue();
+		showOpenDialogMock.mockResolvedValue({
+			canceled: false,
+			filePaths: ['/native/moon-castle.twine.rs']
+		});
+		readJsonMock.mockImplementation(async path => {
+			if (path.endsWith('.twine/project.json')) {
+				throw new SyntaxError('Unterminated string in JSON');
+			}
+
+			if (path.endsWith('.twine/graph.json')) {
+				return {
+					passages: {start: {height: 144, left: 22, top: 33, width: 155}}
+				};
+			}
+
+			return {};
+		});
+		readFileMock.mockImplementation(async path => {
+			if (path.endsWith('twine.toml')) {
+				return [
+					'[[stories]]',
+					'id = "story-id"',
+					'ifid = "ifid-1"',
+					'last_update = "2026-06-21T16:00:00.000Z"',
+					'name = "Moon Castle"',
+					'script = "scripts/moon-castle.js"',
+					'start_passage = "start"',
+					'story_format = "Chapbook"',
+					'story_format_version = "2.1.0"',
+					'stylesheet = "styles/moon-castle.css"',
+					'tags = ["night"]',
+					'zoom = 1',
+					'[[stories.passages]]',
+					'id = "start"',
+					'name = "Start"',
+					'file = "passages/moon-castle/001-start.twee"',
+					'tags = ["entry"]'
+				].join('\n');
+			}
+
+			if (path.endsWith('001-start.twee')) {
+				return 'edited passage text';
+			}
+
+			return '';
+		});
+
+		const result = await openProjectFolder();
+
+		expect(result?.stories[0]).toEqual(
+			expect.objectContaining({
+				id: 'story-id',
+				name: 'Moon Castle',
+				storyFormat: 'Chapbook'
+			})
+		);
+		expect(result?.stories[0].passages[0]).toEqual(
+			expect.objectContaining({
+				height: 144,
+				left: 22,
+				text: 'edited passage text',
+				top: 33,
+				width: 155
+			})
+		);
+		warnSpy.mockRestore();
+	});
+
 	it('returns undefined when opening a project folder is canceled', async () => {
 		showOpenDialogMock.mockResolvedValue({canceled: true, filePaths: []});
 
@@ -294,7 +520,9 @@ describe('project-folder native bridge', () => {
 			size: path.endsWith('.mp3') ? 4096 : 2048
 		}));
 
-		await expect(listProjectAssets('/native/project.twine.rs')).resolves.toEqual([
+		await expect(
+			listProjectAssets('/native/project.twine.rs')
+		).resolves.toEqual([
 			expect.objectContaining({
 				height: null,
 				kind: 'audio',
@@ -304,25 +532,156 @@ describe('project-folder native bridge', () => {
 				width: null
 			}),
 			expect.objectContaining({
-				height: 480,
+				height: null,
 				kind: 'image',
 				modifiedAt: '2026-06-21T16:00:00.000Z',
 				path: 'assets/cover.png',
 				sizeBytes: 2048,
 				thumbnailUrl: 'file:///native/project.twine.rs/assets/cover.png',
-				width: 640
+				width: null
 			})
 		]);
 	});
 
 	it('returns an empty asset inventory when the project assets folder is absent', async () => {
-		readdirMock.mockRejectedValue(Object.assign(new Error('missing'), {
-			code: 'ENOENT'
+		readdirMock.mockRejectedValue(
+			Object.assign(new Error('missing'), {
+				code: 'ENOENT'
+			})
+		);
+
+		await expect(
+			listProjectAssets('/native/project.twine.rs')
+		).resolves.toEqual([]);
+	});
+
+	it('prepares an HTML import by rewriting sibling media paths and copying assets', async () => {
+		readFileMock.mockResolvedValue(`
+			<tw-storydata name="Transylvania" hidden>
+				<style role="stylesheet">body { background-image: url("images/cover.png"); }</style>
+				<tw-passagedata pid="1" name="Start">Play audio/theme.mp3</tw-passagedata>
+			</tw-storydata>
+		`);
+		readdirMock.mockImplementation(async path => {
+			if (path === '/imports') {
+				return ['Transylvania.html', 'images', 'audio'];
+			}
+
+			if (path === '/imports/images') {
+				return ['cover.png'];
+			}
+
+			if (path === '/imports/audio') {
+				return ['theme.mp3'];
+			}
+
+			return [];
+		});
+		statMock.mockImplementation(async path => ({
+			isDirectory: () =>
+				path === '/imports/images' || path === '/imports/audio',
+			isFile: () =>
+				path.endsWith('.html') ||
+				path.endsWith('.png') ||
+				path.endsWith('.mp3'),
+			mtime: new Date('2026-06-21T16:00:00.000Z'),
+			mtimeMs: 1,
+			size: 2048
 		}));
 
-		await expect(listProjectAssets('/native/project.twine.rs')).resolves.toEqual(
-			[]
+		const preparedImport = await prepareProjectImport(
+			'/imports/Transylvania.html'
 		);
+
+		expect(preparedImport.sourceKind).toBe('html');
+		expect(preparedImport.assets).toEqual([
+			{
+				originalPath: 'audio/theme.mp3',
+				sourcePath: '/imports/audio/theme.mp3',
+				targetPath: 'assets/audio/theme.mp3'
+			},
+			{
+				originalPath: 'images/cover.png',
+				sourcePath: '/imports/images/cover.png',
+				targetPath: 'assets/images/cover.png'
+			}
+		]);
+		expect(preparedImport.htmlSource).toContain('assets/images/cover.png');
+		expect(preparedImport.htmlSource).toContain('assets/audio/theme.mp3');
+
+		await expect(
+			copyProjectImportAssets(preparedImport.id, '/native/project.twine.rs')
+		).resolves.toEqual([
+			{
+				sourcePath: '/native/project.twine.rs/assets/audio/theme.mp3',
+				targetPath: 'assets/audio/theme.mp3'
+			},
+			{
+				sourcePath: '/native/project.twine.rs/assets/images/cover.png',
+				targetPath: 'assets/images/cover.png'
+			}
+		]);
+		expect(copyMock).toHaveBeenCalledWith(
+			'/imports/audio/theme.mp3',
+			'/native/project.twine.rs/assets/audio/theme.mp3',
+			{overwrite: true}
+		);
+		expect(copyMock).toHaveBeenCalledWith(
+			'/imports/images/cover.png',
+			'/native/project.twine.rs/assets/images/cover.png',
+			{overwrite: true}
+		);
+	});
+
+	it('prepares a zip import by extracting it and cleaning up when discarded', async () => {
+		readFileMock.mockResolvedValue(`
+			<tw-storydata name="Archive Story" hidden>
+				<tw-passagedata pid="1" name="Start">images/cover.png</tw-passagedata>
+			</tw-storydata>
+		`);
+		readdirMock.mockImplementation(async path => {
+			if (path === '/tmp/twine-import-abc') {
+				return ['Archive Story.html', 'images'];
+			}
+
+			if (path === '/tmp/twine-import-abc/images') {
+				return ['cover.png'];
+			}
+
+			return [];
+		});
+		statMock.mockImplementation(async path => ({
+			isDirectory: () => path === '/tmp/twine-import-abc/images',
+			isFile: () => path.endsWith('.html') || path.endsWith('.png'),
+			mtime: new Date('2026-06-21T16:00:00.000Z'),
+			mtimeMs: 1,
+			size: 2048
+		}));
+
+		const preparedImport = await prepareProjectImport(
+			'/downloads/Archive Story.zip'
+		);
+
+		expect(extractZipMock).toHaveBeenCalledWith(
+			'/downloads/Archive Story.zip',
+			{
+				dir: '/tmp/twine-import-abc'
+			}
+		);
+		expect(preparedImport.sourceKind).toBe('zip');
+		expect(preparedImport.htmlFilePath).toBe(
+			'/tmp/twine-import-abc/Archive Story.html'
+		);
+		expect(preparedImport.assets).toEqual([
+			{
+				originalPath: 'images/cover.png',
+				sourcePath: '/tmp/twine-import-abc/images/cover.png',
+				targetPath: 'assets/images/cover.png'
+			}
+		]);
+
+		await discardProjectImport(preparedImport.id);
+		expect(removeMock).toHaveBeenCalledWith('/tmp/twine-import-abc');
 	});
 
 	it('reports project session conflicts when watched files change', async () => {
@@ -336,9 +695,11 @@ describe('project-folder native bridge', () => {
 
 			throw Object.assign(new Error('missing'), {code: 'ENOENT'});
 		});
-		readdirMock.mockRejectedValue(Object.assign(new Error('missing'), {
-			code: 'ENOENT'
-		}));
+		readdirMock.mockRejectedValue(
+			Object.assign(new Error('missing'), {
+				code: 'ENOENT'
+			})
+		);
 		statMock.mockImplementation(async path => {
 			if (path.endsWith('twine.toml')) {
 				return {

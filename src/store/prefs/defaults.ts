@@ -8,6 +8,7 @@ export const defaults = (): PrefsState => ({
 	disabledStoryFormatEditorExtensions: [],
 	donateShown: false,
 	editorCursorBlinks: true,
+	editorFocusPreference: 'restore',
 	defaultAssetFolder: '',
 	defaultProjectFolder: '',
 	firstRunTime: new Date().getTime(),
@@ -15,6 +16,7 @@ export const defaults = (): PrefsState => ({
 	graphGeneratedLayoutSavePrompt: true,
 	highContrast: false,
 	keybindingPreset: 'default',
+	keyboardOnlyEditing: true,
 	lastUpdateSeen: '',
 	lastUpdateCheckTime: new Date().getTime(),
 	locale:
@@ -28,6 +30,7 @@ export const defaults = (): PrefsState => ({
 	passageTagDisplay: 'color',
 	preferredStoryEditMode: 'auto',
 	reducedMotion: false,
+	cloudSaveIntegration: 'off',
 	proofingFormat: {
 		name: 'Paperthin',
 		version: '1.0.0'
@@ -36,6 +39,9 @@ export const defaults = (): PrefsState => ({
 		name: 'Harlowe',
 		version: '3.3.9'
 	},
+	revisionControlIntegration: 'manual',
+	shareLinkMode: 'local-file',
+	hostingPublishIntegration: 'manual',
 	storyFormatListFilter: 'current',
 	storyListSort: 'name',
 	storyListTagFilter: [],

@@ -11,19 +11,34 @@ import {
 } from '../../components/design-system';
 import {
 	contentsViewModel,
+	replaceKnownAssetInventoryForStory,
 	setStartPassageCommand,
+	storyShellIndex,
+	useKnownAssetInventoryForStory,
 	useCoreProjectHost,
 	workbenchSelection
 } from '../../core';
 import type {ContentsViewModelEntry} from '../../core/view-models';
 import type {CoreContentsEntryKind} from '../../core/bindings/CoreContentsEntryKind';
+import {fileUrlForPath} from '../../core/asset-paths';
+import type {TwineElectronWindow} from '../../electron/shared';
 import {
 	Passage,
 	selectPassage,
 	Story,
 	useStoriesContext
 } from '../../store/stories';
+import {
+	defaultProjectFolderRoot,
+	loadProjectMetadata,
+	saveProjectMetadata
+} from '../../store/project-metadata';
+import {useProjectStoryHydration} from '../../store/project-hydration';
 import {useStoryLaunch} from '../../store/use-story-launch';
+import {
+	markPerformanceAfterPaint,
+	scheduleIdleWork
+} from '../../util/performance';
 import './contents-route.css';
 
 type ContentsFilter =
@@ -41,6 +56,15 @@ type ContentsFilter =
 	| 'variable';
 
 type ContentsSort = 'Group' | 'Issues' | 'Name';
+type ContentsRenderItem =
+	| {entry: ContentsViewModelEntry; id: string; kind: 'entry'}
+	| {group: string; id: string; kind: 'group'};
+
+const virtualGroupHeight = 34;
+const virtualRowHeight = 47;
+const virtualOverscan = 8;
+const deferIndexPassageThreshold = 500;
+const virtualFallbackHeight = 800;
 
 const typeFilters: Array<{
 	id: ContentsFilter;
@@ -110,6 +134,128 @@ function kindLabel(kind: CoreContentsEntryKind) {
 		default:
 			return kind;
 	}
+}
+
+function assetPreviewUrl(entry: ContentsViewModelEntry, projectRoot?: string) {
+	const previewUrl = entry.asset?.thumbnailUrl ?? entry.asset?.previewUrl;
+
+	if (previewUrl) {
+		return previewUrl;
+	}
+
+	if (
+		!projectRoot ||
+		entry.asset?.missing ||
+		entry.asset?.exists === false ||
+		!entry.asset?.path ||
+		!/^assets\//i.test(entry.asset.path)
+	) {
+		return null;
+	}
+
+	return fileUrlForPath(
+		`${projectRoot.replace(/[\\/]+$/, '')}/${entry.asset.path}`
+	);
+}
+
+function EntryVisual({
+	entry,
+	projectRoot
+}: {
+	entry: ContentsViewModelEntry;
+	projectRoot?: string;
+}) {
+	const previewUrl = assetPreviewUrl(entry, projectRoot);
+	const [failed, setFailed] = React.useState(false);
+
+	React.useEffect(() => setFailed(false), [entry.id, previewUrl]);
+
+	if (
+		entry.core.kind === 'asset' &&
+		previewUrl &&
+		entry.asset?.kind === 'image' &&
+		!failed
+	) {
+		return (
+			<span className="contents-route__row-thumb">
+				<img
+					alt=""
+					loading="lazy"
+					onError={() => setFailed(true)}
+					src={previewUrl}
+				/>
+			</span>
+		);
+	}
+
+	return (
+		<TablerIcon
+			className="contents-route__row-icon"
+			icon={kindIcon(entry.core.kind)}
+		/>
+	);
+}
+
+function AssetPreview({
+	entry,
+	projectRoot
+}: {
+	entry: ContentsViewModelEntry;
+	projectRoot?: string;
+}) {
+	const previewUrl = assetPreviewUrl(entry, projectRoot);
+	const [failed, setFailed] = React.useState(false);
+
+	React.useEffect(() => setFailed(false), [entry.id, previewUrl]);
+
+	if (entry.core.kind !== 'asset') {
+		return null;
+	}
+
+	if (entry.asset?.missing || failed) {
+		return (
+			<div className="contents-route__asset-preview contents-route__asset-preview--missing">
+				<TablerIcon icon="photo-off" />
+			</div>
+		);
+	}
+
+	if (previewUrl && entry.asset?.kind === 'image') {
+		return (
+			<div className="contents-route__asset-preview">
+				<img
+					alt=""
+					loading="lazy"
+					onError={() => setFailed(true)}
+					src={previewUrl}
+				/>
+			</div>
+		);
+	}
+
+	if (previewUrl && entry.asset?.kind === 'audio') {
+		return (
+			<div className="contents-route__asset-preview contents-route__asset-preview--media">
+				<TablerIcon icon="music" />
+				<audio controls src={previewUrl} />
+			</div>
+		);
+	}
+
+	if (previewUrl && entry.asset?.kind === 'video') {
+		return (
+			<div className="contents-route__asset-preview">
+				<video controls preload="metadata" src={previewUrl} />
+			</div>
+		);
+	}
+
+	return (
+		<div className="contents-route__asset-preview contents-route__asset-preview--media">
+			<TablerIcon icon={kindIcon(entry.core.kind)} />
+			<span>{entry.asset?.kind ?? 'asset'}</span>
+		</div>
+	);
 }
 
 function entryMatchesFilter(
@@ -208,6 +354,28 @@ export const ContentsRoute: React.FC = () => {
 	const [sort, setSort] = React.useState<ContentsSort>('Group');
 	const [selectedId, setSelectedId] = React.useState<string>();
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [inferredProjectRoot, setInferredProjectRoot] =
+		React.useState<string>();
+	const knownAssets = useKnownAssetInventoryForStory(story?.id);
+	const hydration = useProjectStoryHydration(story?.id);
+	const projectMetadata = React.useMemo(
+		() => (story ? loadProjectMetadata(story.id) : undefined),
+		[story]
+	);
+	const projectRoot = projectMetadata?.rootPath ?? inferredProjectRoot;
+	const twineElectron = (window as TwineElectronWindow).twineElectron;
+	const isFileBackedStory =
+		(projectMetadata?.storageKind === 'electron-project-folder' &&
+			projectMetadata.status === 'file-backed') ||
+		!!inferredProjectRoot;
+	const passageTextLoaded =
+		!isFileBackedStory || hydration?.passageTextLoaded !== false;
+	const shellIndex = React.useMemo(
+		() => (story ? storyShellIndex(story, knownAssets) : undefined),
+		[knownAssets, story]
+	);
+	const [fullIndex, setFullIndex] =
+		React.useState<typeof shellIndex>(undefined);
 
 	React.useEffect(
 		() =>
@@ -217,10 +385,88 @@ export const ContentsRoute: React.FC = () => {
 		[coreProjectHost]
 	);
 
-	const index = React.useMemo(
-		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
-		[coreProjectHost, patchVersion, story]
-	);
+	React.useEffect(() => {
+		if (projectMetadata?.rootPath) {
+			setInferredProjectRoot(undefined);
+			return;
+		}
+
+		if (
+			!story ||
+			!twineElectron?.getStoryLibraryFolder ||
+			(!twineElectron.projectSessionSnapshot &&
+				!twineElectron.listProjectAssets)
+		) {
+			setInferredProjectRoot(undefined);
+			return;
+		}
+
+		let canceled = false;
+
+		async function inferProjectRoot() {
+			if (!story || !twineElectron?.getStoryLibraryFolder) {
+				return;
+			}
+
+			try {
+				const storyLibraryFolder = await twineElectron.getStoryLibraryFolder();
+				const rootPath = defaultProjectFolderRoot(
+					storyLibraryFolder,
+					story.name
+				);
+				const snapshot = twineElectron.projectSessionSnapshot
+					? await twineElectron.projectSessionSnapshot(rootPath, [story.id])
+					: undefined;
+				const inventory =
+					snapshot?.assets ??
+					(twineElectron.listProjectAssets
+						? await twineElectron.listProjectAssets(rootPath)
+						: []);
+
+				if (canceled || inventory.length === 0) {
+					return;
+				}
+
+				saveProjectMetadata(story.id, {
+					rootPath,
+					status: 'file-backed',
+					storageKind: 'electron-project-folder'
+				});
+				replaceKnownAssetInventoryForStory(story.id, inventory);
+				setInferredProjectRoot(rootPath);
+			} catch {
+				if (!canceled) {
+					setInferredProjectRoot(undefined);
+				}
+			}
+		}
+
+		void inferProjectRoot();
+
+		return () => {
+			canceled = true;
+		};
+	}, [projectMetadata?.rootPath, story, twineElectron]);
+
+	React.useEffect(() => {
+		if (!story || !passageTextLoaded) {
+			setFullIndex(undefined);
+			return;
+		}
+
+		setFullIndex(undefined);
+
+		if (story.passages.length <= deferIndexPassageThreshold) {
+			setFullIndex(coreProjectHost.queryStoryIndex(story.id));
+			return;
+		}
+
+		return scheduleIdleWork(() => {
+			setFullIndex(coreProjectHost.queryStoryIndex(story.id));
+		});
+	}, [coreProjectHost, knownAssets, passageTextLoaded, patchVersion, story]);
+
+	const index = fullIndex ?? shellIndex;
 	const contents = React.useMemo(
 		() => (index ? contentsViewModel(index) : undefined),
 		[index]
@@ -251,8 +497,18 @@ export const ContentsRoute: React.FC = () => {
 			);
 		});
 	}, [contents, filter, query, sort]);
+	const items = React.useMemo(
+		() => renderItems(visibleEntries),
+		[visibleEntries]
+	);
+	const virtualContents = useVirtualContents(items);
 	const selectedEntry =
-		visibleEntries.find(entry => entry.id === selectedId) ?? visibleEntries[0];
+		visibleEntries.find(entry => entry.id === selectedId) ??
+		visibleEntries.find(
+			entry =>
+				entry.core.passageId && entry.core.passageId === story?.startPassage
+		) ??
+		visibleEntries[0];
 	const selectedPassage =
 		story && selectedEntry ? passageForEntry(story, selectedEntry) : undefined;
 	const selectedFacts =
@@ -265,6 +521,12 @@ export const ContentsRoute: React.FC = () => {
 			setSelectedId(selectedEntry.id);
 		}
 	}, [selectedEntry, selectedId]);
+
+	React.useEffect(() => {
+		if (contents) {
+			markPerformanceAfterPaint('contents-visible');
+		}
+	}, [contents]);
 
 	function openEntry(
 		entry: ContentsViewModelEntry | undefined,
@@ -305,8 +567,6 @@ export const ContentsRoute: React.FC = () => {
 			</div>
 		);
 	}
-
-	let lastGroup: string | undefined;
 
 	return (
 		<div className="contents-route">
@@ -366,37 +626,51 @@ export const ContentsRoute: React.FC = () => {
 						{visibleEntries.length} of {contents.totalCount}
 					</span>
 				</div>
-				<div className="contents-route__list">
+				<div className="contents-route__list" ref={virtualContents.listRef}>
 					{visibleEntries.length === 0 ? (
 						<div className="contents-route__list-empty">
 							No contents match this filter.
 						</div>
 					) : (
-						visibleEntries.map(entry => {
-							const showGroup = entry.group !== lastGroup;
+						<div
+							className="contents-route__virtual-space"
+							style={{height: virtualContents.totalHeight}}
+						>
+							{virtualContents.visibleItems.map((item, index) => {
+								const absoluteIndex = virtualContents.visibleStart + index;
+								const position = virtualContents.positions[absoluteIndex];
 
-							lastGroup = entry.group;
-
-							return (
-								<React.Fragment key={entry.id}>
-									{showGroup && (
-										<div className="contents-route__group">
+								if (item.kind === 'group') {
+									return (
+										<div
+											className="contents-route__group contents-route__virtual-item"
+											key={item.id}
+											style={{top: position.top}}
+										>
 											<TablerIcon icon="folder" />
-											{entry.group}
+											{item.group}
 										</div>
-									)}
+									);
+								}
+
+								const {entry} = item;
+
+								return (
 									<button
 										aria-current={entry.id === selectedEntry?.id}
-										className={classNames('contents-route__row', {
-											'contents-route__row--problem': !!entry.severity
-										})}
+										className={classNames(
+											'contents-route__row',
+											'contents-route__virtual-item',
+											{
+												'contents-route__row--problem': !!entry.severity
+											}
+										)}
+										key={entry.id}
 										onClick={() => setSelectedId(entry.id)}
+										style={{top: position.top}}
 										type="button"
 									>
-										<TablerIcon
-											className="contents-route__row-icon"
-											icon={kindIcon(entry.core.kind)}
-										/>
+										<EntryVisual entry={entry} projectRoot={projectRoot} />
 										<span className="contents-route__row-name">
 											<b>{entry.label}</b>
 											<span>{kindLabel(entry.core.kind)}</span>
@@ -414,9 +688,9 @@ export const ContentsRoute: React.FC = () => {
 										</span>
 										<TablerIcon icon="chevron-right" />
 									</button>
-								</React.Fragment>
-							);
-						})
+								);
+							})}
+						</div>
 					)}
 				</div>
 			</main>
@@ -453,6 +727,7 @@ export const ContentsRoute: React.FC = () => {
 								)}
 							</div>
 						</header>
+						<AssetPreview entry={selectedEntry} projectRoot={projectRoot} />
 						<section className="contents-route__section">
 							<div className="contents-route__section-title">Metadata</div>
 							<DetailField label="Group" value={selectedEntry.group} />
@@ -469,6 +744,22 @@ export const ContentsRoute: React.FC = () => {
 								label="Source"
 								value={selectedEntry.core.sourceId ?? 'Project index'}
 							/>
+							{selectedEntry.asset && (
+								<>
+									<DetailField
+										label="Size"
+										value={
+											selectedEntry.asset.sizeBytes === null
+												? 'Unknown'
+												: `${selectedEntry.asset.sizeBytes} B`
+										}
+									/>
+									<DetailField
+										label="References"
+										value={selectedEntry.asset.referenceCount}
+									/>
+								</>
+							)}
 						</section>
 						{selectedPassage && selectedFacts && (
 							<section className="contents-route__section">
@@ -550,3 +841,111 @@ export const ContentsRoute: React.FC = () => {
 		</div>
 	);
 };
+
+function renderItems(entries: ContentsViewModelEntry[]) {
+	const items: ContentsRenderItem[] = [];
+	let lastGroup: string | undefined;
+
+	for (const entry of entries) {
+		if (entry.group !== lastGroup) {
+			lastGroup = entry.group;
+			items.push({
+				group: entry.group,
+				id: `group:${items.length}:${entry.group}`,
+				kind: 'group'
+			});
+		}
+
+		items.push({entry, id: entry.id, kind: 'entry'});
+	}
+
+	return items;
+}
+
+function itemHeight(item: ContentsRenderItem) {
+	return item.kind === 'group' ? virtualGroupHeight : virtualRowHeight;
+}
+
+function useVirtualContents(items: ContentsRenderItem[]) {
+	const listRef = React.useRef<HTMLDivElement>(null);
+	const [viewport, setViewport] = React.useState({
+		height: virtualFallbackHeight,
+		top: 0
+	});
+	const positions = React.useMemo(() => {
+		const result: Array<{height: number; top: number}> = [];
+		let top = 0;
+
+		for (const item of items) {
+			const height = itemHeight(item);
+
+			result.push({height, top});
+			top += height;
+		}
+
+		return {items: result, totalHeight: top};
+	}, [items]);
+
+	React.useEffect(() => {
+		const element = listRef.current;
+
+		if (!element) {
+			return;
+		}
+
+		const current = element;
+
+		function update() {
+			setViewport({
+				height: current.clientHeight || virtualFallbackHeight,
+				top: current.scrollTop
+			});
+		}
+
+		update();
+		current.addEventListener('scroll', update, {passive: true});
+		window.addEventListener('resize', update);
+
+		return () => {
+			current.removeEventListener('scroll', update);
+			window.removeEventListener('resize', update);
+		};
+	}, []);
+
+	const visibleRange = React.useMemo(() => {
+		const startY = Math.max(
+			viewport.top - virtualRowHeight * virtualOverscan,
+			0
+		);
+		const endY =
+			viewport.top + viewport.height + virtualRowHeight * virtualOverscan;
+		let start = 0;
+		let end = items.length;
+
+		for (let index = 0; index < positions.items.length; index++) {
+			const position = positions.items[index];
+
+			if (position.top + position.height >= startY) {
+				start = index;
+				break;
+			}
+		}
+
+		for (let index = start; index < positions.items.length; index++) {
+			if (positions.items[index].top > endY) {
+				end = index + 1;
+				break;
+			}
+		}
+
+		return {end, start};
+	}, [items.length, positions.items, viewport.height, viewport.top]);
+
+	return {
+		listRef,
+		positions: positions.items,
+		totalHeight: positions.totalHeight,
+		visibleItems: items.slice(visibleRange.start, visibleRange.end),
+		visibleStart: visibleRange.start
+	};
+}

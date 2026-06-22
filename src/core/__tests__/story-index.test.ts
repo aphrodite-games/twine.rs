@@ -78,21 +78,13 @@ describe('storyToCoreIndex', () => {
 			orphanPassages: 1,
 			passages: 3,
 			resolvedLinks: 1,
-			unreachablePassages: 1
+			unreachablePassages: 0
 		});
 		expect(index.diagnostics.map(diagnostic => diagnostic.code)).toEqual(
-			expect.arrayContaining(['broken-link', 'unreachable-passage'])
+			expect.arrayContaining(['broken-link'])
 		);
-		expect(index.diagnostics).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					code: 'unreachable-passage',
-					message: expect.stringContaining(
-						'It may still be used by story-format macros'
-					),
-					severity: 'warning'
-				})
-			])
+		expect(index.diagnostics.map(diagnostic => diagnostic.code)).not.toContain(
+			'unreachable-passage'
 		);
 		expect(index.searchHits).toEqual([
 			expect.objectContaining({

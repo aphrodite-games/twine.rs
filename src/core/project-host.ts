@@ -37,6 +37,11 @@ export type StoryIndexQuery = string | Partial<CoreStoryIndexOptions>;
 
 export type CoreProjectPatchListener = (patches: PatchBatch) => void;
 
+interface StoryIndexCacheEntry {
+	index: CoreStoryIndex;
+	knownAssets: CoreAssetInventoryEntry[];
+}
+
 export interface CoreProjectHost {
 	applyStoryCommand(command: StoryCommand, annotation?: string): void;
 	isDirty(): boolean;
@@ -48,10 +53,16 @@ export interface CoreProjectHost {
 	subscribeToPatches(listener: CoreProjectPatchListener): () => void;
 }
 
-const sharedAssetInventoryByStory = new Map<string, CoreAssetInventoryEntry[]>();
+const sharedAssetInventoryByStory = new Map<
+	string,
+	CoreAssetInventoryEntry[]
+>();
+const emptyAssetInventory: CoreAssetInventoryEntry[] = [];
+const assetInventoryListeners = new Set<() => void>();
+let assetInventoryVersion = 0;
 
 export function knownAssetInventoryForStory(storyId: string) {
-	return sharedAssetInventoryByStory.get(storyId) ?? [];
+	return sharedAssetInventoryByStory.get(storyId) ?? emptyAssetInventory;
 }
 
 export function replaceKnownAssetInventoryForStory(
@@ -59,6 +70,42 @@ export function replaceKnownAssetInventoryForStory(
 	assets: CoreAssetInventoryEntry[]
 ) {
 	sharedAssetInventoryByStory.set(storyId, assets);
+	assetInventoryVersion++;
+
+	for (const listener of assetInventoryListeners) {
+		listener();
+	}
+}
+
+export function subscribeKnownAssetInventory(listener: () => void) {
+	assetInventoryListeners.add(listener);
+
+	return () => {
+		assetInventoryListeners.delete(listener);
+	};
+}
+
+export function useKnownAssetInventoryVersion() {
+	const [version, setVersion] = React.useState(assetInventoryVersion);
+
+	React.useEffect(
+		() =>
+			subscribeKnownAssetInventory(() =>
+				setVersion(assetInventoryVersion)
+			),
+		[]
+	);
+
+	return version;
+}
+
+export function useKnownAssetInventoryForStory(storyId: string | undefined) {
+	const version = useKnownAssetInventoryVersion();
+
+	return React.useMemo(
+		() => (storyId ? knownAssetInventoryForStory(storyId) : emptyAssetInventory),
+		[storyId, version]
+	);
 }
 
 type UndoableDispatch = (
@@ -105,6 +152,18 @@ function storyCommandAnnotation(command: StoryCommand) {
 
 function storyForId(stories: Story[], storyId: string) {
 	return storyWithId(stories, storyId);
+}
+
+function storyIndexCacheKey(options: StoryIndexQuery) {
+	if (typeof options === 'string') {
+		return JSON.stringify({query: options});
+	}
+
+	const cacheableOptions = {...options};
+
+	delete cacheableOptions.knownAssets;
+
+	return JSON.stringify(cacheableOptions);
 }
 
 function passageForId(story: Story, passageId: string) {
@@ -223,6 +282,10 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 	private listeners = new Set<CoreProjectPatchListener>();
 	private publishedStories = new Map<string, Story>();
 	private savedStoryFingerprints: Map<string, string>;
+	private storyIndexCache = new WeakMap<
+		Story,
+		Map<string, StoryIndexCacheEntry>
+	>();
 	private stories: StoriesState;
 	private transactionId = BigInt(0);
 
@@ -423,9 +486,9 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 					return;
 				}
 
-					const asset = assetInventoryEntry(path, {
-						previewUrl: fileUrlForPath(command.source_path)
-					});
+				const asset = assetInventoryEntry(path, {
+					previewUrl: fileUrlForPath(command.source_path)
+				});
 
 				this.upsertAsset(command.story_id, asset);
 				this.publishAssetInventory(command.story_id, 'Import Asset', {
@@ -489,15 +552,15 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 
 			case 'replaceAsset': {
 				const asset = {
-						...(this.assetForPath(command.story_id, command.path) ??
-							assetInventoryEntry(projectAssetPath(command.path))),
-						modifiedAt: new Date().toISOString(),
-						previewUrl: fileUrlForPath(command.source_path),
-						thumbnailUrl:
-							assetKindForPath(command.path) === 'image'
-								? fileUrlForPath(command.source_path)
-								: null
-					};
+					...(this.assetForPath(command.story_id, command.path) ??
+						assetInventoryEntry(projectAssetPath(command.path))),
+					modifiedAt: new Date().toISOString(),
+					previewUrl: fileUrlForPath(command.source_path),
+					thumbnailUrl:
+						assetKindForPath(command.path) === 'image'
+							? fileUrlForPath(command.source_path)
+							: null
+				};
 
 				this.upsertAsset(command.story_id, asset);
 				this.publishAssetInventory(command.story_id, 'Replace Asset', {
@@ -741,7 +804,11 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 			}
 		}
 
-		const script = replaceAssetReferencesInSource(story.script, oldPath, newPath);
+		const script = replaceAssetReferencesInSource(
+			story.script,
+			oldPath,
+			newPath
+		);
 
 		if (script !== story.script) {
 			dispatch(updateStory(this.stories, story, {script}));
@@ -767,20 +834,12 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 		this.assetInventoryByStory.set(storyId, [...withoutAsset, asset]);
 	}
 
-	publishStoryIndexPatches() {
-		const storyIndexPatches = this.stories
-			.filter(story => this.publishedStories.get(story.id) !== story)
-			.map(story => ({
-				index: this.queryStoryIndex(story.id),
-				story_id: story.id,
-				type: 'storyIndexUpdated' as const
-			}));
+	publishStoreStatePatches() {
 		const dirty = this.currentDirtyState();
 		const patches: Patch[] = [
 			...(dirty !== this.dirty
 				? [{dirty, type: 'dirtyStateChanged' as const}]
-				: []),
-			...storyIndexPatches
+				: [])
 		];
 
 		this.publishedStories = new Map(
@@ -801,23 +860,47 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 	}
 
 	queryGraphProjection(storyId: string, options: GraphProjectionQuery = {}) {
-		return storyToCoreGraphProjection(storyForId(this.stories, storyId), options);
+		return storyToCoreGraphProjection(
+			storyForId(this.stories, storyId),
+			options
+		);
 	}
 
 	queryStoryIndex(storyId: string, options: StoryIndexQuery = {}) {
-		const knownAssets = this.assetInventoryByStory.get(storyId) ?? [];
+		const story = storyForId(this.stories, storyId);
+		const knownAssets =
+			this.assetInventoryByStory.get(storyId) ?? emptyAssetInventory;
+		const explicitKnownAssets =
+			typeof options === 'string' ? [] : (options.knownAssets ?? []);
+		const canCache = explicitKnownAssets.length === 0;
+		const cacheKey = storyIndexCacheKey(options);
+		const storyCache = this.storyIndexCache.get(story);
+		const cached = canCache ? storyCache?.get(cacheKey) : undefined;
 
-		if (typeof options === 'string') {
-			return storyToCoreIndex(storyForId(this.stories, storyId), {
-				knownAssets,
-				query: options
-			});
+		if (cached?.knownAssets === knownAssets) {
+			return cached.index;
 		}
 
-		return storyToCoreIndex(storyForId(this.stories, storyId), {
-			...options,
-			knownAssets: [...(options.knownAssets ?? []), ...knownAssets]
-		});
+		const index =
+			typeof options === 'string'
+				? storyToCoreIndex(story, {
+						knownAssets,
+						query: options
+					})
+				: storyToCoreIndex(story, {
+						...options,
+						knownAssets: [...explicitKnownAssets, ...knownAssets]
+					});
+
+		if (canCache) {
+			const nextStoryCache =
+				storyCache ?? new Map<string, StoryIndexCacheEntry>();
+
+			nextStoryCache.set(cacheKey, {index, knownAssets});
+			this.storyIndexCache.set(story, nextStoryCache);
+		}
+
+		return index;
 	}
 
 	subscribeToPatches(listener: CoreProjectPatchListener) {
@@ -836,7 +919,8 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 
 export function useCoreProjectHost() {
 	const undoableStories = useUndoableStoriesContext();
-	const {dispatch: storiesDispatch, stories: plainStories} = useStoriesContext();
+	const {dispatch: storiesDispatch, stories: plainStories} =
+		useStoriesContext();
 	const dispatch: UndoableDispatch = undoableStories.isUndoable
 		? undoableStories.dispatch
 		: action => storiesDispatch(action);
@@ -852,7 +936,7 @@ export function useCoreProjectHost() {
 	hostRef.current.update(stories, dispatch);
 
 	React.useEffect(() => {
-		hostRef.current?.publishStoryIndexPatches();
+		hostRef.current?.publishStoreStatePatches();
 	}, [stories]);
 
 	return hostRef.current;

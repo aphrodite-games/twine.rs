@@ -8,7 +8,9 @@ export const app = {
 	},
 	on: jest.fn(),
 	quit: jest.fn(),
-	relaunch: jest.fn()
+	relaunch: jest.fn(),
+	setName: jest.fn(),
+	setPath: jest.fn()
 };
 
 export class BrowserWindow {
@@ -45,6 +47,10 @@ export const nativeImage = {
 	createFromPath: jest.fn(() => ({
 		getSize: jest.fn(() => ({height: 480, width: 640}))
 	}))
+};
+
+export const webUtils = {
+	getPathForFile: jest.fn()
 };
 
 export const screen = {

@@ -154,6 +154,10 @@ test('opens the D6 Contents, Diagnostics, and Assets surfaces', async ({
 	await expect(page).toHaveURL(/#\/stories\/[^/]+\/assets$/);
 	await expect(page.getByLabel('Assets', {exact: true})).toBeVisible();
 	await expect(page.getByLabel('Search assets')).toBeVisible();
+	await page.getByRole('button', {name: 'Open folder assets'}).click();
+	await page
+		.getByRole('button', {name: 'Select asset assets/cover.png'})
+		.click();
 	await expect(page.getByText('assets/cover.png').first()).toBeVisible();
 	await expect(
 		page.getByText('<img src="assets/cover.png" alt="">').first()

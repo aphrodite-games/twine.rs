@@ -20,7 +20,7 @@ export function scratchDirectoryPath() {
 		? folderPref
 		: join(
 				app.getPath('documents'),
-				i18n.t('common.appName'),
+				app.getName(),
 				i18n.t('electron.scratchDirectoryName')
 			);
 }

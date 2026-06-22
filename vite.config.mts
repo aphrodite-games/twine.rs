@@ -18,8 +18,11 @@ export default defineConfig({
 		// Make app name and version available to code.
 		// https://stackoverflow.com/a/74860417/7569568
 		'process.env.BASE_URL': JSON.stringify(base),
-		'process.env.VITE_APP_NAME': JSON.stringify(packageJson.name),
-		'process.env.VITE_APP_VERSION': JSON.stringify(packageJson.version)
+		'process.env.VITE_APP_NAME': JSON.stringify(packageJson.productName),
+		'process.env.VITE_APP_VERSION': JSON.stringify(packageJson.version),
+		'process.env.VITE_TWINE_COMPATIBILITY_VERSION': JSON.stringify(
+			packageJson.twineCompatibilityVersion
+		)
 	},
 	plugins: [
 		checker({
@@ -36,6 +39,8 @@ export default defineConfig({
 		react(),
 		VitePWA({
 			manifest: {
+				name: packageJson.productName,
+				short_name: packageJson.productName,
 				icons: [
 					{
 						src: './icons/pwa.png',

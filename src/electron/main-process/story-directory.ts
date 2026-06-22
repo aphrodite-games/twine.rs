@@ -4,6 +4,8 @@ import {join} from 'path';
 import {i18n} from './locales';
 import {getAppPref, setAppPref} from './app-prefs';
 import {showRelaunchDialog} from './relaunch-dialog';
+import type {NativeBackupResult} from '../shared';
+import {backupRetentionLimit} from './platform-settings';
 
 // We can't initialize this because the i18n module needs to set itself up
 // first.
@@ -71,7 +73,7 @@ export async function initStoryDirectory() {
 
 	storyDirectoryPath = join(
 		app.getPath('documents'),
-		i18n.t('common.appName'),
+		app.getName(),
 		i18n.t('electron.storiesDirectoryName')
 	);
 	console.log(`Story library path initialized as ${storyDirectoryPath}`);
@@ -127,21 +129,38 @@ export async function revealStoryDirectory() {
 }
 
 /**
+ * Returns the path where story-directory backups are stored.
+ */
+export function getBackupDirectoryPath() {
+	const prefPath = getAppPref('backupFolderPath');
+
+	return typeof prefPath === 'string'
+		? prefPath
+		: join(
+				app.getPath('documents'),
+				app.getName(),
+				i18n.t('electron.backupsDirectoryName')
+			);
+}
+
+/**
+ * Shows the backup directory in the user's file browser.
+ */
+export async function revealBackupDirectory() {
+	return await shell.openPath(getBackupDirectoryPath());
+}
+
+/**
  * Creates a backup of the entire story directory.
  */
-export async function backupStoryDirectory(maxBackups = 10) {
-	const prefPath = getAppPref('backupFolderPath');
-	const backupPath =
-		typeof prefPath === 'string'
-			? prefPath
-			: join(
-					app.getPath('documents'),
-					i18n.t('common.appName'),
-					i18n.t('electron.backupsDirectoryName')
-			  );
+export async function backupStoryDirectory(
+	maxBackups = backupRetentionLimit()
+): Promise<NativeBackupResult> {
+	const backupPath = getBackupDirectoryPath();
 
 	console.log(`Backing up story library to ${backupPath}`);
-	
+	await mkdirp(backupPath);
+
 	const now = new Date();
 	const backupDirectoryName = join(
 		backupPath,
@@ -173,6 +192,7 @@ export async function backupStoryDirectory(maxBackups = 10) {
 		backups.sort((a, b) => a.stats.mtimeMs - b.stats.mtimeMs);
 
 		const toDelete = backups.slice(0, backups.length - maxBackups);
+		const prunedBackupNames = toDelete.map(file => file.name);
 
 		await Promise.allSettled(
 			toDelete.map(file => {
@@ -182,5 +202,19 @@ export async function backupStoryDirectory(maxBackups = 10) {
 				return remove(directoryName);
 			})
 		);
+
+		return {
+			backupDirectoryName,
+			backupPath,
+			createdAt: now.toISOString(),
+			prunedBackupNames
+		};
 	}
+
+	return {
+		backupDirectoryName,
+		backupPath,
+		createdAt: now.toISOString(),
+		prunedBackupNames: []
+	};
 }

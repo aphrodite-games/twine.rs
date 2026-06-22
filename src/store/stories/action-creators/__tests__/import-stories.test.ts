@@ -29,10 +29,10 @@ describe('importStories action creator', () => {
 			]);
 		});
 
-		it('strips any ID property off the story to import', () => {
+		it('preserves story IDs for new imports', () => {
 			importStories(toImport, state)(dispatch, () => state);
-			expect(dispatch.mock.calls[0][0].props.id).not.toBeDefined();
-			expect(dispatch.mock.calls[1][0].props.id).not.toBeDefined();
+			expect(dispatch.mock.calls[0][0].props.id).toBe(toImport[0].id);
+			expect(dispatch.mock.calls[1][0].props.id).toBe(toImport[1].id);
 		});
 	});
 

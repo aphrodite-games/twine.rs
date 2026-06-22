@@ -44,28 +44,102 @@ export type NativeProjectSessionResolution =
 	| 'dismiss'
 	| 'keepApp';
 
+export type NativeLinkHandlingMode = 'block' | 'system';
+
+export interface NativeBackupResult {
+	backupDirectoryName: string;
+	backupPath: string;
+	createdAt: string;
+	prunedBackupNames: string[];
+}
+
+export interface NativePlatformSettings {
+	backupCadenceMinutes: number;
+	backupFolderPath: string;
+	backupLastReviewedTime: number;
+	backupReminderDays: number;
+	backupRetentionLimit: number;
+	cacheCleanupDays: number;
+	externalEditorCommand: string;
+	fullscreenPersistence: boolean;
+	lastWindowFullscreen: boolean;
+	linkHandlingMode: NativeLinkHandlingMode;
+	storyLibraryFolderPath: string;
+}
+
+export interface NativePlatformSettingsUpdate {
+	backupCadenceMinutes?: number;
+	backupLastReviewedTime?: number;
+	backupReminderDays?: number;
+	backupRetentionLimit?: number;
+	cacheCleanupDays?: number;
+	externalEditorCommand?: string;
+	fullscreenPersistence?: boolean;
+	lastWindowFullscreen?: boolean;
+	linkHandlingMode?: NativeLinkHandlingMode;
+}
+
+export interface NativeCommandLineOpenResult {
+	errors: Array<{message: string; path: string}>;
+	openedProjects: NativeProjectFolderResult[];
+	unsupportedPaths: string[];
+}
+
 export interface NativeProjectFolderResult {
+	passageTextLoaded?: boolean;
 	rootPath: string;
 	stories: Story[];
 	storyIds: string[];
+}
+
+export interface NativeProjectAssetWriteResult {
+	sourcePath: string;
+	targetPath: string;
+}
+
+export interface NativeProjectImportAsset {
+	originalPath: string;
+	sourcePath: string;
+	targetPath: string;
+}
+
+export interface NativeProjectImportSource {
+	assets: NativeProjectImportAsset[];
+	htmlFilePath: string;
+	htmlSource: string;
+	id: string;
+	sourceKind: 'html' | 'zip';
+	sourcePath: string;
 }
 
 export interface TwineElectronWindow extends Window {
 	twineElectron?: {
 		chooseAssetFile(defaultPath?: string): Promise<string | undefined>;
 		chooseStoryLibraryFolder(): Promise<string | undefined>;
+		consumeCommandLineOpenRequests(): Promise<NativeCommandLineOpenResult>;
 		copyText(text: string): void;
 		copyAssetToProject(
 			rootPath: string,
 			sourcePath: string
-		): Promise<{sourcePath: string; targetPath: string}>;
+		): Promise<NativeProjectAssetWriteResult>;
+		copyProjectImportAssets(
+			importId: string,
+			rootPath: string
+		): Promise<NativeProjectAssetWriteResult[]>;
 		createProjectFolder(
 			story: Story,
 			preferredParent?: string
 		): Promise<NativeProjectFolderResult>;
 		deleteProjectAsset(rootPath: string, path: string): Promise<void>;
+		discardProjectImport(importId: string): Promise<void>;
 		deleteStory(story: Story): void;
+		filePathForFile(file: File): string;
 		getStoryLibraryFolder(): Promise<string>;
+		getPlatformSettings(): Promise<NativePlatformSettings>;
+		hydrateProjectFolder(
+			rootPath: string,
+			storyIds?: string[]
+		): Promise<NativeProjectFolderResult>;
 		loadPrefs(): Promise<any>;
 		loadStories(): Promise<any>;
 		loadStoryFormats(): Promise<any>;
@@ -85,23 +159,30 @@ export interface TwineElectronWindow extends Window {
 		onProjectSessionChanged(
 			callback: (snapshot: NativeProjectSessionSnapshot) => void
 		): () => void;
-		openProjectFolder(): Promise<NativeProjectFolderResult | undefined>;
+		openProjectFolder(options?: {
+			loadPassageText?: boolean;
+		}): Promise<NativeProjectFolderResult | undefined>;
+		prepareProjectImport(
+			sourcePath: string
+		): Promise<NativeProjectImportSource>;
 		projectSessionSnapshot(
-			rootPath: string
+			rootPath: string,
+			storyIds?: string[]
 		): Promise<NativeProjectSessionSnapshot>;
 		revealStoryLibraryFolder(): Promise<void>;
+		revealBackupFolder(): Promise<void>;
 		revealPath(path: string): void;
 		renameProjectAsset(
 			rootPath: string,
 			oldPath: string,
 			newPath: string
-		): Promise<{sourcePath: string; targetPath: string}>;
+		): Promise<NativeProjectAssetWriteResult>;
 		renameStory(oldStory: Story, newStory: Story): void;
 		replaceProjectAsset(
 			rootPath: string,
 			path: string,
 			sourcePath: string
-		): Promise<{sourcePath: string; targetPath: string}>;
+		): Promise<NativeProjectAssetWriteResult>;
 		resolveProjectSessionConflicts(
 			rootPath: string,
 			resolution: NativeProjectSessionResolution,
@@ -113,9 +194,14 @@ export interface TwineElectronWindow extends Window {
 		): Promise<NativeProjectFolderResult>;
 		saveStoryHtml(story: Story, data: string): void;
 		saveJson(filename: string, data: any): void;
+		runStoryLibraryBackup(): Promise<NativeBackupResult>;
 		startProjectSession(
-			rootPath: string
+			rootPath: string,
+			storyIds?: string[]
 		): Promise<NativeProjectSessionSnapshot>;
 		stopProjectSession(rootPath: string): Promise<void>;
+		updatePlatformSettings(
+			settings: NativePlatformSettingsUpdate
+		): Promise<NativePlatformSettings>;
 	};
 }

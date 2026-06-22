@@ -175,6 +175,11 @@
 	padding: 22px;
 }
 
+.new-project-route__dropzone--dragging {
+	background: var(--acc-blue-soft);
+	border-color: var(--acc-blue);
+}
+
 .new-project-route__dropzone input {
 	height: 1px;
 	opacity: 0;

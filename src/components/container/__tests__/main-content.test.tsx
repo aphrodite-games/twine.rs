@@ -28,7 +28,7 @@ describe('<MainContent>', () => {
 	it('sets the page title to its title prop', async () => {
 		renderComponent({title: 'mock-title'});
 		await waitFor(() => expect(document.title).not.toBe(''));
-		expect(document.title).toBe('mock-title');
+		expect(document.title).toBe('mock-title - Twine RS');
 	});
 
 	// Can't find a way to simulate this properly in jsdom.

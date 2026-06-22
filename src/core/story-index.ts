@@ -323,8 +323,6 @@ function graphStats(story: Story): CoreGraphStats {
 		}
 	}
 
-	const reachable = reachablePassageIds(story);
-
 	return {
 		brokenLinks,
 		emptyPassages: story.passages.filter(passage => passage.text.trim() === '')
@@ -340,42 +338,8 @@ function graphStats(story: Story): CoreGraphStats {
 		selfLinks,
 		taggedPassages: story.passages.filter(passage => passage.tags.length > 0)
 			.length,
-		unreachablePassages: story.passages.filter(
-			passage => !reachable.has(passage.id)
-		).length
+		unreachablePassages: 0
 	};
-}
-
-function reachablePassageIds(story: Story) {
-	const passageByName = new Map(
-		story.passages.map(passage => [passage.name, passage])
-	);
-	const reachable = new Set<string>();
-	const queue = [story.startPassage];
-
-	while (queue.length > 0) {
-		const id = queue.shift()!;
-
-		if (reachable.has(id)) {
-			continue;
-		}
-
-		reachable.add(id);
-
-		const passage = story.passages.find(candidate => candidate.id === id);
-
-		if (passage) {
-			for (const link of parseLinks(passage.text, true)) {
-				const target = passageByName.get(link);
-
-				if (target && target.id !== id) {
-					queue.push(target.id);
-				}
-			}
-		}
-	}
-
-	return reachable;
 }
 
 function locateLinkTarget(text: string, target: string) {
@@ -392,7 +356,6 @@ function diagnosticsForStory(story: Story): CoreDiagnostic[] {
 	const passageByName = new Map(
 		story.passages.map(passage => [passage.name, passage])
 	);
-	const reachable = reachablePassageIds(story);
 	const diagnostics: CoreDiagnostic[] = [];
 	const names = new Map<string, Passage[]>();
 
@@ -421,25 +384,6 @@ function diagnosticsForStory(story: Story): CoreDiagnostic[] {
 					start: range.start
 				});
 			}
-		}
-	}
-
-	for (const passage of story.passages) {
-		if (!reachable.has(passage.id)) {
-			diagnostics.push({
-				code: 'unreachable-passage',
-				end: passage.name.length,
-				line: 1,
-				message:
-					'Passage is not linked from the start passage. It may still be used by story-format macros, scripts, or other runtime behavior.',
-				passageId: passage.id,
-				quickFixes: [
-					{command: 'link-from-start', title: 'Link from the start passage'}
-				],
-				severity: 'warning',
-				sourceId: passage.id,
-				start: 0
-			});
 		}
 	}
 

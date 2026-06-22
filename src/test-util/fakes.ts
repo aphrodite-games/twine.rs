@@ -8,6 +8,7 @@ import {StoryChange} from '../store/undoable-stories';
 export function fakeAppInfo(props?: Partial<AppInfo>): AppInfo {
 	return {
 		name: faker.lorem.words(1),
+		twineCompatibilityVersion: faker.system.semver(),
 		version: faker.system.semver(),
 		...props
 	};
@@ -121,6 +122,7 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 		],
 		donateShown: faker.datatype.boolean(),
 		editorCursorBlinks: faker.datatype.boolean(),
+		editorFocusPreference: 'restore',
 		defaultAssetFolder: '',
 		defaultProjectFolder: '',
 		firstRunTime: new Date().getTime(),
@@ -128,6 +130,7 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 		graphGeneratedLayoutSavePrompt: true,
 		highContrast: faker.datatype.boolean(),
 		keybindingPreset: 'default',
+		keyboardOnlyEditing: true,
 		lastUpdateSeen: '',
 		lastUpdateCheckTime: new Date().getTime(),
 		locale: faker.location.countryCode(),
@@ -136,6 +139,7 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 		passageTagDisplay: 'color',
 		preferredStoryEditMode: 'auto',
 		reducedMotion: faker.datatype.boolean(),
+		cloudSaveIntegration: 'off',
 		proofingFormat: {
 			name: faker.lorem.words(2),
 			version: faker.system.semver()
@@ -144,6 +148,9 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 			name: faker.lorem.words(2),
 			version: faker.system.semver()
 		},
+		revisionControlIntegration: 'manual',
+		shareLinkMode: 'local-file',
+		hostingPublishIntegration: 'manual',
 		storyFormatListFilter: 'current',
 		storyListSort: faker.helpers.arrayElement(['date', 'name']),
 		storyListTagFilter: [],

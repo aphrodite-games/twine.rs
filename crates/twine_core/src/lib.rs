@@ -11,8 +11,8 @@ use std::{
 use thiserror::Error;
 use ts_rs::TS;
 use twine_graph::{
-    AutoLayoutOptions, GraphDirection, GraphEdgeKind, GraphFocus, GraphIndex, GraphLayoutSource,
-    GraphLayoutState, GraphProjectionOptions, GraphViewport, LinkLayerOptions,
+    AutoLayoutOptions, GraphDirection, GraphEdgeKind, GraphFocus, GraphIndex, GraphLayoutSnapshot,
+    GraphLayoutSource, GraphLayoutState, GraphProjectionOptions, GraphViewport, LinkLayerOptions,
 };
 use twine_model::{
     GraphPosition, Passage, PassageId, PassageIndex, PassageLayout, Project, Story, StoryId,
@@ -1102,9 +1102,16 @@ struct Transaction {
 }
 
 #[derive(Clone, Debug)]
+struct GraphSessionCache {
+    graph: GraphIndex,
+    layout: GraphLayoutSnapshot,
+}
+
+#[derive(Clone, Debug)]
 pub struct ProjectSession {
     asset_root: Option<PathBuf>,
     dirty: bool,
+    graph_cache: BTreeMap<StoryId, GraphSessionCache>,
     next_transaction_id: u64,
     project: Project,
     redo_stack: Vec<Transaction>,
@@ -1116,6 +1123,7 @@ impl ProjectSession {
         Self {
             asset_root: None,
             dirty: false,
+            graph_cache: BTreeMap::new(),
             next_transaction_id: 1,
             project,
             redo_stack: Vec::new(),
@@ -1146,6 +1154,7 @@ impl ProjectSession {
             Err(error) => {
                 self.project = before;
                 self.dirty = dirty_before;
+                self.graph_cache.clear();
                 self.next_transaction_id = transaction_id;
                 self.redo_stack = redo_before;
                 self.undo_stack = undo_before;
@@ -1154,6 +1163,7 @@ impl ProjectSession {
         };
 
         if command.mutates_project() {
+            self.graph_cache.clear();
             self.dirty = !matches!(command, StoryCommand::MarkSaved);
             push_dirty_patch(&mut patches, dirty_before, self.dirty);
             self.undo_stack.push(Transaction {
@@ -1195,6 +1205,7 @@ impl ProjectSession {
 
         self.project = transaction.after.clone();
         self.dirty = transaction.dirty_after;
+        self.graph_cache.clear();
         self.undo_stack.push(transaction.clone());
         Some(PatchBatch {
             label: transaction.label,
@@ -1224,6 +1235,7 @@ impl ProjectSession {
 
         self.project = transaction.before.clone();
         self.dirty = transaction.dirty_before;
+        self.graph_cache.clear();
         self.redo_stack.push(transaction.clone());
         Some(PatchBatch {
             label: format!("Undo {}", transaction.label),
@@ -1238,7 +1250,13 @@ impl ProjectSession {
         &mut self,
         command: StoryCommand,
     ) -> Result<Vec<Patch>, CoreError> {
-        match command {
+        let mutates_project = command.mutates_project();
+
+        if mutates_project {
+            self.graph_cache.clear();
+        }
+
+        let result = match command {
             StoryCommand::Batch { commands } => {
                 let mut patches = Vec::new();
 
@@ -1365,7 +1383,13 @@ impl ProjectSession {
             StoryCommand::ValidateAssetReferences { story_id } => {
                 self.validate_asset_references(&story_id)
             }
+        };
+
+        if mutates_project && result.is_ok() {
+            self.graph_cache.clear();
         }
+
+        result
     }
 
     fn create_passage(
@@ -1455,18 +1479,36 @@ impl ProjectSession {
     }
 
     fn graph_projection(
-        &self,
+        &mut self,
         story_id: &str,
         options: CoreGraphProjectionOptions,
     ) -> Result<CoreGraphProjection, CoreError> {
-        let story = self.story(story_id)?;
-        let graph = GraphIndex::from_story(story);
-        let projection = graph.canvas_projection(
-            story,
-            &self.project.layout,
-            &AutoLayoutOptions::default(),
-            &options.into(),
-        );
+        let story_id = StoryId::new(story_id);
+
+        if !self.graph_cache.contains_key(&story_id) {
+            let (graph, layout) = {
+                let story = self.story(story_id.as_ref())?;
+                let graph = GraphIndex::from_story(story);
+                let layout = graph.layout_snapshot(
+                    story,
+                    &self.project.layout,
+                    &AutoLayoutOptions::default(),
+                );
+
+                (graph, layout)
+            };
+
+            self.graph_cache
+                .insert(story_id.clone(), GraphSessionCache { graph, layout });
+        }
+
+        let cache = self
+            .graph_cache
+            .get(&story_id)
+            .expect("graph cache should be populated");
+        let projection = cache
+            .graph
+            .canvas_projection_from_snapshot(&cache.layout, &options.into());
 
         Ok(projection.into())
     }
@@ -1998,25 +2040,6 @@ impl ProjectSession {
                 source_id: broken_link.source.as_ref().to_owned(),
                 start,
             });
-        }
-
-        for node in graph.nodes() {
-            if node.is_unreachable {
-                diagnostics.push(CoreDiagnostic {
-                    code: "unreachable-passage".into(),
-                    end: node.name.len(),
-                    line: 1,
-                    message: "Passage is not linked from the start passage. It may still be used by story-format macros, scripts, or other runtime behavior.".into(),
-                    passage_id: Some(node.id.as_ref().to_owned()),
-                    quick_fixes: vec![CoreQuickFix {
-                        command: "link-from-start".into(),
-                        title: "Link from the start passage".into(),
-                    }],
-                    severity: CoreDiagnosticSeverity::Warning,
-                    source_id: node.id.as_ref().to_owned(),
-                    start: 0,
-                });
-            }
         }
 
         for duplicate in duplicate_passage_names(story) {
@@ -4360,11 +4383,12 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == "broken-link")
         );
-        assert!(index.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == "unreachable-passage"
-                && diagnostic.severity == CoreDiagnosticSeverity::Warning
-                && diagnostic.message.contains("story-format macros")
-        }));
+        assert!(
+            !index
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "unreachable-passage")
+        );
         assert!(
             index
                 .search_hits

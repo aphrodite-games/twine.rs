@@ -1,5 +1,6 @@
 import {app, clipboard, ipcMain, shell} from 'electron';
 import {initIpc} from '../ipc';
+import {consumeCommandLineOpenPaths} from '../command-line';
 import {loadPrefs} from '../prefs';
 import {saveJsonFile} from '../json-file';
 import {openWithScratchFile, openWithScratchPackage} from '../scratch-file';
@@ -13,17 +14,28 @@ import {Story} from '../../../store/stories';
 import {fakePendingStoryFormat, fakePrefs, fakeStory} from '../../../test-util';
 import {loadStoryFormats} from '../story-formats';
 import {
+	backupStoryDirectory,
 	chooseStoryDirectoryPath,
+	getBackupDirectoryPath,
 	getStoryDirectoryPath,
+	revealBackupDirectory,
 	revealStoryDirectory
 } from '../story-directory';
 import {
+	nativeAppPlatformSettings,
+	updateNativeAppPlatformSettings
+} from '../platform-settings';
+import {
 	chooseAssetFile,
+	copyProjectImportAssets,
 	copyAssetToProject,
 	createProjectFolder,
 	deleteProjectAsset,
+	discardProjectImport,
+	hydrateProjectFolder,
 	listProjectAssets,
 	openProjectFolder,
+	prepareProjectImport,
 	projectSessionSnapshot,
 	renameProjectAsset,
 	replaceProjectAsset,
@@ -34,6 +46,8 @@ import {
 } from '../project-folder';
 
 jest.mock('../json-file');
+jest.mock('../command-line');
+jest.mock('../platform-settings');
 jest.mock('../prefs');
 jest.mock('../project-folder');
 jest.mock('../scratch-file');
@@ -49,12 +63,20 @@ describe('initIpc()', () => {
 	const loadStoryFormatsMock = loadStoryFormats as jest.Mock;
 	const chooseAssetFileMock = chooseAssetFile as jest.Mock;
 	const copyAssetToProjectMock = copyAssetToProject as jest.Mock;
+	const copyProjectImportAssetsMock = copyProjectImportAssets as jest.Mock;
 	const chooseStoryDirectoryPathMock = chooseStoryDirectoryPath as jest.Mock;
+	const backupStoryDirectoryMock = backupStoryDirectory as jest.Mock;
+	const consumeCommandLineOpenPathsMock =
+		consumeCommandLineOpenPaths as jest.Mock;
 	const createProjectFolderMock = createProjectFolder as jest.Mock;
 	const deleteProjectAssetMock = deleteProjectAsset as jest.Mock;
+	const discardProjectImportMock = discardProjectImport as jest.Mock;
+	const getBackupDirectoryPathMock = getBackupDirectoryPath as jest.Mock;
 	const getStoryDirectoryPathMock = getStoryDirectoryPath as jest.Mock;
+	const hydrateProjectFolderMock = hydrateProjectFolder as jest.Mock;
 	const listProjectAssetsMock = listProjectAssets as jest.Mock;
 	const openProjectFolderMock = openProjectFolder as jest.Mock;
+	const prepareProjectImportMock = prepareProjectImport as jest.Mock;
 	const projectSessionSnapshotMock = projectSessionSnapshot as jest.Mock;
 	const renameProjectAssetMock = renameProjectAsset as jest.Mock;
 	const replaceProjectAssetMock = replaceProjectAsset as jest.Mock;
@@ -63,6 +85,10 @@ describe('initIpc()', () => {
 	const saveProjectFolderMock = saveProjectFolder as jest.Mock;
 	const startProjectSessionMock = startProjectSession as jest.Mock;
 	const stopProjectSessionMock = stopProjectSession as jest.Mock;
+	const nativeAppPlatformSettingsMock = nativeAppPlatformSettings as jest.Mock;
+	const updateNativeAppPlatformSettingsMock =
+		updateNativeAppPlatformSettings as jest.Mock;
+	const revealBackupDirectoryMock = revealBackupDirectory as jest.Mock;
 	const revealStoryDirectoryMock = revealStoryDirectory as jest.Mock;
 	const onMock = ipcMain.on as jest.Mock;
 	const appOnMock = app.on as jest.Mock;
@@ -83,7 +109,26 @@ describe('initIpc()', () => {
 			sourcePath: '/mock/project/assets/asset.png',
 			targetPath: 'assets/asset.png'
 		});
+		copyProjectImportAssetsMock.mockResolvedValue([
+			{
+				sourcePath: '/mock/project/assets/asset.png',
+				targetPath: 'assets/asset.png'
+			}
+		]);
+		backupStoryDirectoryMock.mockResolvedValue({
+			backupDirectoryName: '/mock/backups/backup',
+			backupPath: '/mock/backups',
+			createdAt: '2026-06-21T16:00:00.000Z',
+			prunedBackupNames: []
+		});
+		consumeCommandLineOpenPathsMock.mockReturnValue([]);
 		deleteProjectAssetMock.mockResolvedValue(undefined);
+		discardProjectImportMock.mockResolvedValue(undefined);
+		hydrateProjectFolderMock.mockResolvedValue({
+			rootPath: '/mock/project',
+			stories: [],
+			storyIds: []
+		});
 		listProjectAssetsMock.mockResolvedValue([
 			{path: 'assets/asset.png', sizeBytes: 100}
 		]);
@@ -121,8 +166,28 @@ describe('initIpc()', () => {
 			stories: [],
 			storyIds: []
 		});
+		getBackupDirectoryPathMock.mockReturnValue('/mock/backups');
 		getStoryDirectoryPathMock.mockReturnValue('/mock/library');
+		nativeAppPlatformSettingsMock.mockReturnValue({
+			backupCadenceMinutes: 20,
+			backupLastReviewedTime: 0,
+			backupReminderDays: 7,
+			backupRetentionLimit: 10,
+			cacheCleanupDays: 3,
+			externalEditorCommand: '',
+			fullscreenPersistence: true,
+			lastWindowFullscreen: false,
+			linkHandlingMode: 'system'
+		});
 		openProjectFolderMock.mockResolvedValue(undefined);
+		prepareProjectImportMock.mockResolvedValue({
+			assets: [],
+			htmlFilePath: '/mock/story.html',
+			htmlSource: '<tw-storydata name="Mock" hidden></tw-storydata>',
+			id: 'import-1',
+			sourceKind: 'html',
+			sourcePath: '/mock/story.html'
+		});
 		saveProjectFolderMock.mockResolvedValue({
 			rootPath: '/mock/project',
 			stories: [],
@@ -139,6 +204,18 @@ describe('initIpc()', () => {
 			storyIds: []
 		});
 		stopProjectSessionMock.mockReturnValue(undefined);
+		updateNativeAppPlatformSettingsMock.mockResolvedValue({
+			backupCadenceMinutes: 30,
+			backupLastReviewedTime: 0,
+			backupReminderDays: 7,
+			backupRetentionLimit: 10,
+			cacheCleanupDays: 3,
+			externalEditorCommand: '',
+			fullscreenPersistence: true,
+			lastWindowFullscreen: false,
+			linkHandlingMode: 'system'
+		});
+		revealBackupDirectoryMock.mockResolvedValue(undefined);
 		revealStoryDirectoryMock.mockResolvedValue(undefined);
 		saveStoryHtmlMock.mockResolvedValue(undefined);
 		initIpc();
@@ -163,8 +240,17 @@ describe('initIpc()', () => {
 		const copyAsset = handleMock.mock.calls.find(
 			call => call[0] === 'copy-asset-to-project'
 		);
+		const copyImportAssets = handleMock.mock.calls.find(
+			call => call[0] === 'copy-project-import-assets'
+		);
 		const deleteAsset = handleMock.mock.calls.find(
 			call => call[0] === 'delete-project-asset'
+		);
+		const discardImport = handleMock.mock.calls.find(
+			call => call[0] === 'discard-project-import'
+		);
+		const hydrateProject = handleMock.mock.calls.find(
+			call => call[0] === 'hydrate-project-folder'
 		);
 		const listAssets = handleMock.mock.calls.find(
 			call => call[0] === 'list-project-assets'
@@ -196,6 +282,9 @@ describe('initIpc()', () => {
 		const openProject = handleMock.mock.calls.find(
 			call => call[0] === 'open-project-folder'
 		);
+		const prepareImport = handleMock.mock.calls.find(
+			call => call[0] === 'prepare-project-import'
+		);
 		const revealLibrary = handleMock.mock.calls.find(
 			call => call[0] === 'reveal-story-library-folder'
 		);
@@ -213,14 +302,26 @@ describe('initIpc()', () => {
 			'/mock/project',
 			'/mock/asset.png'
 		);
+		expect(await copyImportAssets[1]({}, 'import-1', '/mock/project')).toEqual([
+			{
+				sourcePath: '/mock/project/assets/asset.png',
+				targetPath: 'assets/asset.png'
+			}
+		]);
+		expect(copyProjectImportAssetsMock).toHaveBeenCalledWith(
+			'import-1',
+			'/mock/project'
+		);
 		expect(await listAssets[1]({}, '/mock/project')).toEqual([
 			{path: 'assets/asset.png', sizeBytes: 100}
 		]);
 		expect(listProjectAssetsMock).toHaveBeenCalledWith('/mock/project');
-		expect(await sessionSnapshot[1]({}, '/mock/project')).toEqual(
-			expect.objectContaining({rootPath: '/mock/project'})
-		);
-		expect(projectSessionSnapshotMock).toHaveBeenCalledWith('/mock/project');
+		expect(
+			await sessionSnapshot[1]({}, '/mock/project', ['mock-story'])
+		).toEqual(expect.objectContaining({rootPath: '/mock/project'}));
+		expect(projectSessionSnapshotMock).toHaveBeenCalledWith('/mock/project', [
+			'mock-story'
+		]);
 		expect(
 			await startSession[1](
 				{
@@ -231,24 +332,21 @@ describe('initIpc()', () => {
 						send: jest.fn()
 					}
 				},
-				'/mock/project'
+				'/mock/project',
+				['mock-story']
 			)
 		).toEqual(expect.objectContaining({rootPath: '/mock/project'}));
 		expect(startProjectSessionMock).toHaveBeenCalledWith(
 			'/mock/project',
-			expect.any(Function)
+			expect.any(Function),
+			['mock-story']
 		);
 		await stopSession[1]({sender: {id: 7}}, '/mock/project');
 		expect(stopProjectSessionMock).not.toHaveBeenCalled();
 		await stopSession[1]({sender: {id: 8}}, '/mock/project');
 		expect(stopProjectSessionMock).toHaveBeenCalledWith('/mock/project');
 		expect(
-			await resolveSession[1](
-				{},
-				'/mock/project',
-				'keepApp',
-				[story]
-			)
+			await resolveSession[1]({}, '/mock/project', 'keepApp', [story])
 		).toEqual(expect.objectContaining({rootPath: '/mock/project'}));
 		expect(resolveProjectSessionConflictsMock).toHaveBeenCalledWith(
 			'/mock/project',
@@ -292,6 +390,8 @@ describe('initIpc()', () => {
 			'/mock/project',
 			'assets/asset.png'
 		);
+		await discardImport[1]({}, 'import-1');
+		expect(discardProjectImportMock).toHaveBeenCalledWith('import-1');
 		expect(await chooseLibrary[1]()).toBe('/mock/library');
 		expect(await createProject[1]({}, story, '/mock/root')).toEqual({
 			rootPath: '/mock/project',
@@ -301,6 +401,20 @@ describe('initIpc()', () => {
 		expect(createProjectFolderMock).toHaveBeenCalledWith(story, '/mock/root');
 		expect(await getLibrary[1]()).toBe('/mock/library');
 		await expect(openProject[1]()).resolves.toBeUndefined();
+		await expect(
+			hydrateProject[1]({}, '/mock/project', ['mock-story'])
+		).resolves.toEqual({
+			rootPath: '/mock/project',
+			stories: [],
+			storyIds: []
+		});
+		expect(hydrateProjectFolderMock).toHaveBeenCalledWith('/mock/project', [
+			'mock-story'
+		]);
+		await expect(prepareImport[1]({}, '/mock/story.html')).resolves.toEqual(
+			expect.objectContaining({id: 'import-1'})
+		);
+		expect(prepareProjectImportMock).toHaveBeenCalledWith('/mock/story.html');
 		expect(await saveProject[1]({}, '/mock/project', story)).toEqual({
 			rootPath: '/mock/project',
 			stories: [],
@@ -309,6 +423,77 @@ describe('initIpc()', () => {
 		expect(saveProjectFolderMock).toHaveBeenCalledWith('/mock/project', story);
 		await revealLibrary[1]();
 		expect(revealStoryDirectoryMock).toHaveBeenCalled();
+	});
+
+	it('adds platform, backup, and command-line open handlers', async () => {
+		const commandLine = handleMock.mock.calls.find(
+			call => call[0] === 'consume-command-line-open-requests'
+		);
+		const getPlatform = handleMock.mock.calls.find(
+			call => call[0] === 'get-platform-settings'
+		);
+		const updatePlatform = handleMock.mock.calls.find(
+			call => call[0] === 'update-platform-settings'
+		);
+		const runBackup = handleMock.mock.calls.find(
+			call => call[0] === 'run-story-library-backup'
+		);
+		const revealBackup = handleMock.mock.calls.find(
+			call => call[0] === 'reveal-backup-folder'
+		);
+
+		consumeCommandLineOpenPathsMock.mockReturnValue([
+			'/native/project.twine.rs',
+			'/tmp/story.html'
+		]);
+		openProjectFolderMock.mockImplementation(async path => {
+			if (path === '/native/project.twine.rs') {
+				return {
+					rootPath: path,
+					stories: [],
+					storyIds: []
+				};
+			}
+
+			throw Object.assign(new Error('not a directory'), {code: 'ENOTDIR'});
+		});
+
+		expect(await commandLine[1]()).toEqual({
+			errors: [],
+			openedProjects: [
+				{
+					rootPath: '/native/project.twine.rs',
+					stories: [],
+					storyIds: []
+				}
+			],
+			unsupportedPaths: ['/tmp/story.html']
+		});
+		expect(openProjectFolderMock).toHaveBeenCalledWith(
+			'/native/project.twine.rs',
+			{loadPassageText: false}
+		);
+		expect(await getPlatform[1]()).toEqual(
+			expect.objectContaining({
+				backupFolderPath: '/mock/backups',
+				storyLibraryFolderPath: '/mock/library'
+			})
+		);
+		expect(await updatePlatform[1]({}, {backupCadenceMinutes: 30})).toEqual(
+			expect.objectContaining({backupCadenceMinutes: 20})
+		);
+		expect(updateNativeAppPlatformSettingsMock).toHaveBeenCalledWith({
+			backupCadenceMinutes: 30
+		});
+		expect(await runBackup[1]()).toEqual(
+			expect.objectContaining({backupPath: '/mock/backups'})
+		);
+		expect(backupStoryDirectoryMock).toHaveBeenCalledTimes(1);
+		expect(updateNativeAppPlatformSettingsMock).toHaveBeenCalledWith({
+			backupLastReviewedTime: expect.any(Number)
+		});
+		await revealBackup[1]();
+		expect(revealBackupDirectoryMock).toHaveBeenCalled();
 	});
 
 	describe('the listener it adds for delete-story events', () => {
@@ -392,6 +577,20 @@ describe('initIpc()', () => {
 
 		expect(await listener[1]()).toEqual(stories);
 		expect(loadStoriesMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('returns an empty story library if loadStories() throws', async () => {
+		jest.spyOn(console, 'warn').mockReturnValue();
+		loadStoriesMock.mockImplementation(() => {
+			throw new Error('mock-story-load-error');
+		});
+
+		const listener = handleMock.mock.calls.find(
+			call => call[0] === 'load-stories'
+		);
+
+		expect(listener).not.toBeUndefined();
+		expect(await listener[1]()).toEqual([]);
 	});
 
 	describe('the handler it adds for load-story-formats events', () => {

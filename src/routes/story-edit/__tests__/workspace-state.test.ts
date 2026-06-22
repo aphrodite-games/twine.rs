@@ -30,7 +30,7 @@ describe('story edit workspace state', () => {
 		expect(preferredModeForStory(story)).toBe('graph');
 	});
 
-	it('opens mixed text and graph stories in split mode', () => {
+	it('opens mixed text and graph stories in graph mode', () => {
 		const story = fakeStory();
 
 		story.passages = [
@@ -38,7 +38,7 @@ describe('story edit workspace state', () => {
 			fakePassage({height: 100, left: 320, text: 'Again', top: 80, width: 100})
 		];
 
-		expect(preferredModeForStory(story)).toBe('split');
+		expect(preferredModeForStory(story)).toBe('graph');
 	});
 
 	it('uses project mode memory before the story preference', () => {
@@ -61,7 +61,19 @@ describe('story edit workspace state', () => {
 		];
 
 		expect(initialModeForStory(story, undefined, 'graph', 'text')).toBe('text');
-		expect(initialModeForStory(story, 'split', 'graph', 'text')).toBe('split');
+		expect(initialModeForStory(story, 'split', 'graph', 'text')).toBe('text');
+	});
+
+	it('ignores stale split workspace memory for graph-backed stories', () => {
+		const story = fakeStory();
+
+		story.passages = [
+			fakePassage({height: 100, left: 120, text: 'Once', top: 80, width: 100}),
+			fakePassage({height: 100, left: 320, text: 'Again', top: 80, width: 100})
+		];
+
+		expect(initialModeForStory(story, 'split', 'split')).toBe('graph');
+		expect(initialModeForStory(story, undefined, 'split')).toBe('graph');
 	});
 
 	it('opens source-only stories in text mode before workspace mode memory', () => {

@@ -11,6 +11,7 @@ import {
 } from '../../core';
 import {storyFileName} from '../../electron/shared';
 import {useStorySaveStatus} from '../../store/persistence/save-status';
+import {usePrefsContext} from '../../store/prefs';
 import {Story, useStoriesContext} from '../../store/stories';
 import {usePublishing} from '../../store/use-publishing';
 import {useStoryLaunch} from '../../store/use-story-launch';
@@ -30,6 +31,11 @@ import {
 	ShellToolbarRegistration
 } from './app-shell-context';
 import {CommandPalette} from './command-palette';
+import {
+	commandIdForKeyboardEvent,
+	shortcutLabel,
+	ShortcutCommandId
+} from './keyboard-shortcuts';
 import './app-shell.css';
 
 type BuildState = {
@@ -163,6 +169,7 @@ export const AppShell: React.FC = ({children}) => {
 	const history = useHistory();
 	const location = useLocation();
 	const {stories} = useStoriesContext();
+	const {prefs} = usePrefsContext();
 	const coreProjectHost = useCoreProjectHost();
 	const {publishStory} = usePublishing();
 	const {playStory, proofStory, testStory} = useStoryLaunch();
@@ -188,12 +195,13 @@ export const AppShell: React.FC = ({children}) => {
 		() => Object.keys(toolbar?.tabs ?? {}),
 		[toolbar]
 	);
+	const shouldQueryDiagnostics = drawerOpen;
 	const storyIndex = React.useMemo(
 		() =>
-			currentStory
+			currentStory && shouldQueryDiagnostics
 				? coreProjectHost.queryStoryIndex(currentStory.id)
 				: undefined,
-		[coreProjectHost, currentStory, patchVersion]
+		[coreProjectHost, currentStory, patchVersion, shouldQueryDiagnostics]
 	);
 	const dismissedDiagnosticIds = React.useMemo(
 		() =>
@@ -360,6 +368,8 @@ export const AppShell: React.FC = ({children}) => {
 	);
 
 	const commands = React.useMemo<AppCommand[]>(() => {
+		const shortcut = (id: ShortcutCommandId) =>
+			shortcutLabel(id, prefs.keybindingPreset);
 		const allCommands: AppCommand[] = [
 			{
 				group: 'Navigation',
@@ -367,7 +377,7 @@ export const AppShell: React.FC = ({children}) => {
 				id: 'nav.library',
 				label: 'Story Library',
 				run: () => history.push('/'),
-				shortcut: 'G L'
+				shortcut: shortcut('nav.library')
 			},
 			{
 				group: 'Navigation',
@@ -381,14 +391,16 @@ export const AppShell: React.FC = ({children}) => {
 				icon: 'settings',
 				id: 'nav.settings',
 				label: 'Settings',
-				run: () => history.push('/settings')
+				run: () => history.push('/settings'),
+				shortcut: shortcut('nav.settings')
 			},
 			{
 				group: 'Navigation',
 				icon: 'folder-plus',
 				id: 'nav.new-project',
 				label: 'New Project',
-				run: () => history.push('/new-project')
+				run: () => history.push('/new-project'),
+				shortcut: shortcut('nav.new-project')
 			},
 			{
 				disabled: !currentStory,
@@ -396,7 +408,8 @@ export const AppShell: React.FC = ({children}) => {
 				icon: 'layout-columns',
 				id: 'nav.current-story',
 				label: currentStory ? `Edit ${currentStory.name}` : 'Edit Story',
-				run: () => currentStory && history.push(`/stories/${currentStory.id}`)
+				run: () => currentStory && history.push(`/stories/${currentStory.id}`),
+				shortcut: shortcut('nav.current-story')
 			},
 			{
 				disabled: !currentStory,
@@ -405,7 +418,8 @@ export const AppShell: React.FC = ({children}) => {
 				id: 'build.screen',
 				label: 'Build & Export',
 				run: () =>
-					currentStory && history.push(`/stories/${currentStory.id}/build`)
+					currentStory && history.push(`/stories/${currentStory.id}/build`),
+				shortcut: shortcut('build.screen')
 			},
 			{
 				disabled: !currentStory,
@@ -441,7 +455,8 @@ export const AppShell: React.FC = ({children}) => {
 				icon: 'tool',
 				id: 'build.test',
 				label: 'Test Story',
-				run: runTest
+				run: runTest,
+				shortcut: shortcut('build.test')
 			},
 			{
 				disabled: !currentStory,
@@ -449,7 +464,8 @@ export const AppShell: React.FC = ({children}) => {
 				icon: 'player-play',
 				id: 'build.play',
 				label: 'Play Story',
-				run: runPlay
+				run: runPlay,
+				shortcut: shortcut('build.play')
 			},
 			{
 				disabled: !currentStory,
@@ -497,6 +513,7 @@ export const AppShell: React.FC = ({children}) => {
 		activeToolbarTab,
 		currentStory,
 		history,
+		prefs.keybindingPreset,
 		routeTabs,
 		runExportHtml,
 		runExportTwee,
@@ -505,6 +522,32 @@ export const AppShell: React.FC = ({children}) => {
 		runTest,
 		stories
 	]);
+
+	React.useEffect(() => {
+		function handleKeyDown(event: KeyboardEvent) {
+			const commandId = commandIdForKeyboardEvent(
+				event,
+				prefs.keybindingPreset
+			);
+
+			if (!commandId) {
+				return;
+			}
+
+			const command = commands.find(command => command.id === commandId);
+
+			if (!command || command.disabled) {
+				return;
+			}
+
+			event.preventDefault();
+			void Promise.resolve(command.run());
+		}
+
+		window.addEventListener('keydown', handleKeyDown);
+
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [commands, prefs.keybindingPreset]);
 
 	const buildBadgeTone =
 		buildState.kind === 'error'

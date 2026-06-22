@@ -33,7 +33,9 @@ export function useFormatReferenceParser(
 		if (format.loadState === 'unloaded') {
 			dispatch(loadFormatProperties(format));
 		} else if (format.loadState === 'loaded') {
-			setEditorExtensions(formatEditorExtensions(format, getAppInfo().version));
+			setEditorExtensions(
+				formatEditorExtensions(format, getAppInfo().twineCompatibilityVersion)
+			);
 		}
 	}, [dispatch, extensionsDisabled, format]);
 

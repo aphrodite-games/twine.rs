@@ -3,6 +3,7 @@ import {HashRouter, Route, Switch} from 'react-router-dom';
 import {AppShell} from '../components/app-shell';
 import {AssetsRoute} from './assets';
 import {BuildRoute} from './build';
+import {CommandLineOpenSync} from './command-line-open-sync';
 import {ContentsRoute} from './contents';
 import {DiagnosticsRoute} from './diagnostics';
 import {NewProjectRoute} from './new-project';
@@ -22,6 +23,7 @@ export const Routes: React.FC = () => {
 
 	return (
 		<HashRouter>
+			<CommandLineOpenSync />
 			<AppShell>
 				<Switch>
 					<Route exact path="/">

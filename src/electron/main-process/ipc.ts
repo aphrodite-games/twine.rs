@@ -1,6 +1,7 @@
 import {app, clipboard, dialog, ipcMain, shell} from 'electron';
 import debounce from 'lodash/debounce';
 import type {DebouncedFunc} from 'lodash';
+import {consumeCommandLineOpenPaths} from './command-line';
 import {i18n} from './locales';
 import {saveJsonFile} from './json-file';
 import {
@@ -14,17 +15,28 @@ import {loadPrefs} from './prefs';
 import {openWithScratchFile, openWithScratchPackage} from './scratch-file';
 import {Story} from '../../store/stories/stories.types';
 import {
+	backupStoryDirectory,
 	chooseStoryDirectoryPath,
+	getBackupDirectoryPath,
 	getStoryDirectoryPath,
+	revealBackupDirectory,
 	revealStoryDirectory
 } from './story-directory';
 import {
+	nativeAppPlatformSettings,
+	updateNativeAppPlatformSettings
+} from './platform-settings';
+import {
 	chooseAssetFile,
+	copyProjectImportAssets,
 	copyAssetToProject,
 	createProjectFolder,
 	deleteProjectAsset,
+	discardProjectImport,
+	hydrateProjectFolder,
 	listProjectAssets,
 	openProjectFolder,
+	prepareProjectImport,
 	projectSessionSnapshot,
 	renameProjectAsset,
 	replaceProjectAsset,
@@ -34,6 +46,18 @@ import {
 	stopProjectSession,
 	unsubscribeProjectSession
 } from './project-folder';
+import type {
+	NativeCommandLineOpenResult,
+	NativePlatformSettingsUpdate
+} from '../shared';
+
+function nativePlatformSettings() {
+	return {
+		...nativeAppPlatformSettings(),
+		backupFolderPath: getBackupDirectoryPath(),
+		storyLibraryFolderPath: getStoryDirectoryPath()
+	};
+}
 
 export function initIpc() {
 	// We want to debounce story saves so we aren't constantly writing to disk.
@@ -81,39 +105,57 @@ export function initIpc() {
 			copyAssetToProject(rootPath, sourcePath)
 	);
 
+	ipcMain.handle(
+		'copy-project-import-assets',
+		async (_event, importId: string, rootPath: string) =>
+			copyProjectImportAssets(importId, rootPath)
+	);
+
+	ipcMain.handle('discard-project-import', async (_event, importId: string) =>
+		discardProjectImport(importId)
+	);
+
 	ipcMain.handle('list-project-assets', async (_event, rootPath: string) =>
 		listProjectAssets(rootPath)
 	);
 
-	ipcMain.handle(
-		'project-session-snapshot',
-		async (_event, rootPath: string) => projectSessionSnapshot(rootPath)
+	ipcMain.handle('prepare-project-import', async (_event, sourcePath: string) =>
+		prepareProjectImport(sourcePath)
 	);
 
-	ipcMain.handle('start-project-session', async (event, rootPath: string) => {
-		stopProjectSessionSubscription(event.sender.id, rootPath);
+	ipcMain.handle(
+		'project-session-snapshot',
+		async (_event, rootPath: string, storyIds?: string[]) =>
+			projectSessionSnapshot(rootPath, storyIds)
+	);
 
-		const listener = (
-			snapshot: Awaited<ReturnType<typeof projectSessionSnapshot>>
-		) => {
-			if (!event.sender.isDestroyed()) {
-				event.sender.send('project-session-changed', snapshot);
-			}
-		};
-		const subscriptionKey = projectSessionSubscriptionKey(
-			event.sender.id,
-			rootPath
-		);
-		const cleanup = () => {
-			unsubscribeProjectSession(rootPath, listener);
-			projectSessionSubscriptions.delete(subscriptionKey);
-		};
+	ipcMain.handle(
+		'start-project-session',
+		async (event, rootPath: string, storyIds?: string[]) => {
+			stopProjectSessionSubscription(event.sender.id, rootPath);
 
-		projectSessionSubscriptions.set(subscriptionKey, cleanup);
-		event.sender.once('destroyed', cleanup);
+			const listener = (
+				snapshot: Awaited<ReturnType<typeof projectSessionSnapshot>>
+			) => {
+				if (!event.sender.isDestroyed()) {
+					event.sender.send('project-session-changed', snapshot);
+				}
+			};
+			const subscriptionKey = projectSessionSubscriptionKey(
+				event.sender.id,
+				rootPath
+			);
+			const cleanup = () => {
+				unsubscribeProjectSession(rootPath, listener);
+				projectSessionSubscriptions.delete(subscriptionKey);
+			};
 
-		return startProjectSession(rootPath, listener);
-	});
+			projectSessionSubscriptions.set(subscriptionKey, cleanup);
+			event.sender.once('destroyed', cleanup);
+
+			return startProjectSession(rootPath, listener, storyIds);
+		}
+	);
 
 	ipcMain.handle('stop-project-session', async (event, rootPath: string) => {
 		if (!stopProjectSessionSubscription(event.sender.id, rootPath)) {
@@ -153,15 +195,74 @@ export function initIpc() {
 		return (await chooseStoryDirectoryPath()) ?? getStoryDirectoryPath();
 	});
 
+	ipcMain.handle('consume-command-line-open-requests', async () => {
+		const openedProjects: NativeCommandLineOpenResult['openedProjects'] = [];
+		const unsupportedPaths: NativeCommandLineOpenResult['unsupportedPaths'] =
+			[];
+		const errors: NativeCommandLineOpenResult['errors'] = [];
+
+		for (const path of consumeCommandLineOpenPaths()) {
+			try {
+				const result = await openProjectFolder(path, {
+					loadPassageText: false
+				});
+
+				if (result) {
+					openedProjects.push(result);
+				}
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') {
+					unsupportedPaths.push(path);
+				} else {
+					errors.push({path, message: (error as Error).message});
+				}
+			}
+		}
+
+		return {errors, openedProjects, unsupportedPaths};
+	});
+
+	ipcMain.handle('get-platform-settings', async () => nativePlatformSettings());
+
+	ipcMain.handle(
+		'update-platform-settings',
+		async (_event, settings: NativePlatformSettingsUpdate) => {
+			await updateNativeAppPlatformSettings(settings);
+			return nativePlatformSettings();
+		}
+	);
+
+	ipcMain.handle('run-story-library-backup', async () => {
+		const result = await backupStoryDirectory();
+
+		await updateNativeAppPlatformSettings({
+			backupLastReviewedTime: Date.now()
+		});
+
+		return result;
+	});
+
 	ipcMain.handle(
 		'create-project-folder',
 		async (_event, story: Story, preferredParent?: string) =>
 			createProjectFolder(story, preferredParent)
 	);
 
-	ipcMain.handle('get-story-library-folder', async () => getStoryDirectoryPath());
+	ipcMain.handle('get-story-library-folder', async () =>
+		getStoryDirectoryPath()
+	);
 
-	ipcMain.handle('open-project-folder', async () => openProjectFolder());
+	ipcMain.handle(
+		'open-project-folder',
+		async (_event, options?: Parameters<typeof openProjectFolder>[1]) =>
+			openProjectFolder(undefined, options)
+	);
+
+	ipcMain.handle(
+		'hydrate-project-folder',
+		async (_event, rootPath: string, storyIds?: string[]) =>
+			hydrateProjectFolder(rootPath, storyIds)
+	);
 
 	ipcMain.handle(
 		'save-project-folder',
@@ -171,6 +272,10 @@ export function initIpc() {
 
 	ipcMain.handle('reveal-story-library-folder', async () => {
 		await revealStoryDirectory();
+	});
+
+	ipcMain.handle('reveal-backup-folder', async () => {
+		await revealBackupDirectory();
 	});
 
 	ipcMain.on('delete-story', async (event, story) => {
@@ -197,7 +302,14 @@ export function initIpc() {
 		}
 	});
 
-	ipcMain.handle('load-stories', loadStories);
+	ipcMain.handle('load-stories', async () => {
+		try {
+			return await loadStories();
+		} catch (error) {
+			console.warn(`Could not load stories, returning empty array: ${error}`);
+			return [];
+		}
+	});
 
 	ipcMain.handle('load-story-formats', async () => {
 		try {

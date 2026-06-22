@@ -22,11 +22,24 @@ import {
 	Story,
 	useStoriesContext
 } from '../../store/stories';
-import type {TwineElectronWindow} from '../../electron/shared';
+import type {
+	NativeProjectImportSource,
+	TwineElectronWindow
+} from '../../electron/shared';
 import {saveProjectMetadata} from '../../store/project-metadata';
+import {
+	mergeProjectStories,
+	projectStoryIdsForCurrentStories
+} from '../../store/merge-project-stories';
+import {markProjectStoryHydration} from '../../store/project-hydration';
 import {useStoryFormatsContext} from '../../store/story-formats';
 import {useStoriesRepair} from '../../store/use-stories-repair';
 import {importStories as importStoriesFromHtml} from '../../util/import';
+import {
+	markPerformance,
+	measurePerformance,
+	scheduleIdleWork
+} from '../../util/performance';
 import {storyFromTwee} from '../../util/twee';
 import {StoryEditMode} from '../story-edit/workspace-state';
 import './new-project-route.css';
@@ -36,6 +49,7 @@ type SourceLayout = 'single' | 'multi';
 
 interface ImportQueue {
 	fileName: string;
+	preparedImport?: NativeProjectImportSource;
 	stories: Story[];
 	selectedIds: string[];
 }
@@ -68,7 +82,9 @@ function projectSlug(name: string) {
 }
 
 function projectFolder(name: string, parent?: string) {
-	return `${parent || '~/Documents/Twine/Stories'}/${projectSlug(name)}.twine.rs`;
+	return `${
+		parent || '~/Documents/Twine RS/Stories'
+	}/${projectSlug(name)}.twine.rs`;
 }
 
 function projectPreviewFiles(sourceLayout: SourceLayout, graphLayout: boolean) {
@@ -118,6 +134,18 @@ async function readFile(file: File) {
 	});
 }
 
+function parseAfterIdle<T>(parse: () => T) {
+	return new Promise<T>((resolve, reject) =>
+		scheduleIdleWork(() => {
+			try {
+				resolve(parse());
+			} catch (error) {
+				reject(error);
+			}
+		})
+	);
+}
+
 function parseStoryFile(file: File, source: string) {
 	if (/\.html?$/i.test(file.name)) {
 		return importStoriesFromHtml(source);
@@ -130,7 +158,67 @@ function desktopBridge() {
 	return (window as TwineElectronWindow).twineElectron;
 }
 
-async function persistNativeProjectFolder(story: Story, preferredParent?: string) {
+function nativeFilePath(file: File) {
+	const twineElectron = desktopBridge();
+
+	try {
+		const path = twineElectron?.filePathForFile?.(file);
+
+		if (path?.trim()) {
+			return path;
+		}
+	} catch {
+		// Fall back to Electron versions that exposed File.path directly.
+	}
+
+	const legacyPath = (file as File & {path?: string}).path;
+
+	return legacyPath?.trim() ? legacyPath : undefined;
+}
+
+function canPrepareNativeImport(file: File) {
+	return /\.(html?|zip)$/i.test(file.name);
+}
+
+async function parseImportFile(file: File) {
+	const twineElectron = desktopBridge();
+	const sourcePath = nativeFilePath(file);
+
+	if (sourcePath && canPrepareNativeImport(file)) {
+		if (twineElectron?.prepareProjectImport) {
+			const preparedImport =
+				await twineElectron.prepareProjectImport(sourcePath);
+
+			try {
+				return {
+					preparedImport,
+					stories: await parseAfterIdle(() =>
+						importStoriesFromHtml(preparedImport.htmlSource)
+					)
+				};
+			} catch (error) {
+				await twineElectron.discardProjectImport?.(preparedImport.id);
+				throw error;
+			}
+		}
+	}
+
+	if (/\.zip$/i.test(file.name)) {
+		throw new Error('Zip import requires the desktop app file bridge.');
+	}
+
+	const source = await readFile(file);
+
+	return {
+		preparedImport: undefined,
+		stories: await parseAfterIdle(() => parseStoryFile(file, source))
+	};
+}
+
+async function persistNativeProjectFolder(
+	story: Story,
+	preferredParent?: string
+) {
 	const twineElectron = desktopBridge();
 
 	if (!twineElectron?.createProjectFolder) {
@@ -141,12 +229,19 @@ async function persistNativeProjectFolder(story: Story, preferredParent?: string
 		return undefined;
 	}
 
-	const result = await twineElectron.createProjectFolder(story, preferredParent);
+	const result = await twineElectron.createProjectFolder(
+		story,
+		preferredParent
+	);
 
 	saveProjectMetadata(story.id, {
 		rootPath: result.rootPath,
 		status: 'file-backed',
 		storageKind: 'electron-project-folder'
+	});
+	markProjectStoryHydration(story.id, {
+		passageTextLoaded: result.passageTextLoaded !== false,
+		rootPath: result.rootPath
 	});
 
 	return result;
@@ -177,7 +272,10 @@ export const NewProjectRoute: React.FC = () => {
 	const [importQueue, setImportQueue] = React.useState<ImportQueue>();
 	const [importing, setImporting] = React.useState(false);
 	const [importError, setImportError] = React.useState<string>();
+	const [draggingImport, setDraggingImport] = React.useState(false);
 	const fileInput = React.useRef<HTMLInputElement>(null);
+	const preparedImportIds = React.useRef(new Set<string>());
+	const storiesRef = React.useRef(stories);
 	const formatOptions = React.useMemo(
 		() =>
 			formats.map(format => ({
@@ -192,6 +290,10 @@ export const NewProjectRoute: React.FC = () => {
 		[graphLayout, sourceLayout]
 	);
 	const projectParent = prefs.defaultProjectFolder || storyLibraryFolder;
+
+	React.useEffect(() => {
+		storiesRef.current = stories;
+	}, [stories]);
 
 	React.useEffect(() => {
 		let cancelled = false;
@@ -215,6 +317,35 @@ export const NewProjectRoute: React.FC = () => {
 
 		setTab(nextTab);
 	}, [pathname]);
+
+	React.useEffect(
+		() => () => {
+			for (const importId of preparedImportIds.current) {
+				void desktopBridge()?.discardProjectImport?.(importId);
+			}
+
+			preparedImportIds.current.clear();
+		},
+		[]
+	);
+
+	async function discardPreparedImports() {
+		const importIds = [...preparedImportIds.current];
+
+		preparedImportIds.current.clear();
+
+		await Promise.all(
+			importIds.map(importId =>
+				desktopBridge()?.discardProjectImport?.(importId)
+			)
+		);
+	}
+
+	function trackPreparedImport(preparedImport?: NativeProjectImportSource) {
+		if (preparedImport) {
+			preparedImportIds.current.add(preparedImport.id);
+		}
+	}
 
 	function handleChangeTab(value: string) {
 		const nextTab = value as NewProjectTab;
@@ -241,7 +372,9 @@ export const NewProjectRoute: React.FC = () => {
 			}
 
 			if (
-				stories.some(story => story.name.toLowerCase() === storyName.toLowerCase())
+				stories.some(
+					story => story.name.toLowerCase() === storyName.toLowerCase()
+				)
 			) {
 				throw new Error(`There is already a story named "${storyName}"`);
 			}
@@ -296,9 +429,7 @@ export const NewProjectRoute: React.FC = () => {
 		}
 	}
 
-	async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-		const file = event.target.files?.[0];
-
+	async function handleImportFile(file: File | undefined) {
 		if (!file) {
 			return;
 		}
@@ -308,10 +439,16 @@ export const NewProjectRoute: React.FC = () => {
 		setImporting(true);
 
 		try {
-			const importedStories = parseStoryFile(file, await readFile(file));
+			await discardPreparedImports();
+
+			const {preparedImport, stories: importedStories} =
+				await parseImportFile(file);
+
+			trackPreparedImport(preparedImport);
 
 			setImportQueue({
 				fileName: file.name,
+				preparedImport,
 				selectedIds: importedStories
 					.filter(story => !willReplaceExisting(story))
 					.map(story => story.id),
@@ -321,6 +458,13 @@ export const NewProjectRoute: React.FC = () => {
 			setImportError((error as Error).message);
 		} finally {
 			setImporting(false);
+		}
+	}
+
+	async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+		try {
+			await handleImportFile(event.target.files?.[0]);
+		} finally {
 			event.target.value = '';
 		}
 	}
@@ -346,6 +490,25 @@ export const NewProjectRoute: React.FC = () => {
 		});
 	}
 
+	function storyWithImportIdentity(story: Story) {
+		const existingStory = stories.find(
+			existing => storyFileName(existing) === storyFileName(story)
+		);
+
+		if (!existingStory) {
+			return story;
+		}
+
+		return {
+			...story,
+			id: existingStory.id,
+			passages: story.passages.map(passage => ({
+				...passage,
+				story: existingStory.id
+			}))
+		};
+	}
+
 	async function handleImport() {
 		if (!importQueue) {
 			return;
@@ -360,15 +523,35 @@ export const NewProjectRoute: React.FC = () => {
 		}
 
 		try {
-			await Promise.all(
-				selectedStories.map(story =>
+			const storiesToImport = selectedStories.map(storyWithImportIdentity);
+			const projectResults = await Promise.all(
+				storiesToImport.map(story =>
 					persistNativeProjectFolder(
 						story,
 						prefs.defaultProjectFolder || undefined
 					)
 				)
 			);
-			dispatch(importStoriesAction(selectedStories, stories));
+			const preparedImport = importQueue.preparedImport;
+
+			if (preparedImport) {
+				await Promise.all(
+					projectResults.flatMap(result =>
+						result
+							? [
+									desktopBridge()?.copyProjectImportAssets?.(
+										preparedImport.id,
+										result.rootPath
+									)
+								]
+							: []
+					)
+				);
+				await desktopBridge()?.discardProjectImport?.(preparedImport.id);
+				preparedImportIds.current.delete(preparedImport.id);
+			}
+
+			dispatch(importStoriesAction(storiesToImport, stories));
 			repairStories();
 			history.push('/');
 		} catch (error) {
@@ -376,28 +559,146 @@ export const NewProjectRoute: React.FC = () => {
 		}
 	}
 
+	function rememberNativeProjectStories(
+		rootPath: string,
+		projectStories: Story[],
+		storeStoryIds: string[],
+		passageTextLoaded: boolean
+	) {
+		for (const [index, story] of projectStories.entries()) {
+			const storyId = storeStoryIds[index] ?? story.id;
+
+			saveProjectMetadata(storyId, {
+				rootPath,
+				status: 'file-backed',
+				storageKind: 'electron-project-folder'
+			});
+			markProjectStoryHydration(storyId, {
+				passageTextLoaded,
+				rootPath
+			});
+		}
+	}
+
+	async function hydrateNativeProjectStories(
+		rootPath: string,
+		storyIds: string[]
+	) {
+		const hydrated = await desktopBridge()?.hydrateProjectFolder?.(
+			rootPath,
+			storyIds
+		);
+
+		if (!hydrated?.stories.length) {
+			return;
+		}
+
+		const hydratedStoryIds = projectStoryIdsForCurrentStories(
+			storiesRef.current,
+			hydrated.stories
+		);
+		const hydratedStories = mergeProjectStories(
+			storiesRef.current,
+			hydrated.stories,
+			{
+				preserveExistingText: true
+			}
+		);
+
+		storiesRef.current = hydratedStories;
+		dispatch({
+			state: hydratedStories,
+			type: 'init'
+		});
+
+		for (const [index, story] of hydrated.stories.entries()) {
+			markProjectStoryHydration(hydratedStoryIds[index] ?? story.id, {
+				passageTextLoaded: true,
+				rootPath
+			});
+		}
+
+		markPerformance('all-passages-ready');
+		measurePerformance('open-to-hydrated', 'open-start', 'all-passages-ready');
+	}
+
+	function handleImportDragOver(event: React.DragEvent) {
+		event.preventDefault();
+		event.dataTransfer.dropEffect = 'copy';
+		setDraggingImport(true);
+	}
+
+	function handleImportDragLeave(event: React.DragEvent) {
+		if (
+			event.relatedTarget instanceof Node &&
+			event.currentTarget.contains(event.relatedTarget)
+		) {
+			return;
+		}
+
+		setDraggingImport(false);
+	}
+
+	async function handleImportDrop(event: React.DragEvent) {
+		event.preventDefault();
+		setDraggingImport(false);
+
+		await handleImportFile(event.dataTransfer.files[0]);
+	}
+
 	async function handleOpenProjectFolder() {
 		setImportError(undefined);
+		setImportQueue(undefined);
 		setImporting(true);
+		markPerformance('open-start');
 
 		try {
-			const result = await desktopBridge()?.openProjectFolder?.();
+			await discardPreparedImports();
+
+			const result = await desktopBridge()?.openProjectFolder?.({
+				loadPassageText: false
+			});
 
 			if (!result?.stories.length) {
 				return;
 			}
 
-			for (const story of result.stories) {
-				saveProjectMetadata(story.id, {
-					rootPath: result.rootPath,
-					status: 'file-backed',
-					storageKind: 'electron-project-folder'
-				});
-			}
+			const storeStoryIds = projectStoryIdsForCurrentStories(
+				storiesRef.current,
+				result.stories
+			);
 
-			dispatch(importStoriesAction(result.stories, stories));
+			rememberNativeProjectStories(
+				result.rootPath,
+				result.stories,
+				storeStoryIds,
+				result.passageTextLoaded !== false
+			);
+			const shellStories = mergeProjectStories(
+				storiesRef.current,
+				result.stories
+			);
+
+			storiesRef.current = shellStories;
+			dispatch({
+				state: shellStories,
+				type: 'init'
+			});
 			repairStories();
+			markPerformance('shell-visible');
+			measurePerformance('open-to-shell', 'open-start', 'shell-visible');
 			history.push('/');
+
+			if (!result.passageTextLoaded) {
+				void hydrateNativeProjectStories(result.rootPath, result.storyIds);
+			} else {
+				markPerformance('all-passages-ready');
+				measurePerformance(
+					'open-to-hydrated',
+					'open-start',
+					'all-passages-ready'
+				);
+			}
 		} catch (error) {
 			setImportError((error as Error).message);
 		} finally {
@@ -551,11 +852,21 @@ export const NewProjectRoute: React.FC = () => {
 						</Panel>
 					</>
 				) : (
-					<div className="new-project-route__import">
+					<div
+						className="new-project-route__import"
+						onDragLeave={handleImportDragLeave}
+						onDragOver={handleImportDragOver}
+						onDrop={handleImportDrop}
+					>
 						<Panel icon="file-import" title="Import Source" pad>
-							<div className="new-project-route__dropzone">
+							<div
+								className={classNames(
+									'new-project-route__dropzone',
+									draggingImport && 'new-project-route__dropzone--dragging'
+								)}
+							>
 								<input
-									accept=".html,.htm,.twee,.tw"
+									accept=".html,.htm,.twee,.tw,.zip"
 									aria-label="Source file"
 									onChange={handleFileChange}
 									ref={fileInput}
@@ -577,7 +888,7 @@ export const NewProjectRoute: React.FC = () => {
 								>
 									Open Project Folder
 								</Button>
-								<span>.html, .twee, .tw</span>
+								<span>.html, .twee, .tw, .zip</span>
 							</div>
 							{importError && (
 								<Badge icon="alert-octagon" tone="error">

@@ -2,6 +2,7 @@ import {renderHook} from '@testing-library/react-hooks';
 import {useStoryLaunch} from '../use-story-launch';
 import {isElectronRenderer} from '../../util/is-electron';
 import {usePublishing} from '../use-publishing';
+import {saveProjectMetadata} from '../project-metadata';
 
 jest.mock('../use-publishing');
 jest.mock('../../util/is-electron');
@@ -10,25 +11,32 @@ describe('useStoryLaunch', () => {
 	const isElectronRendererMock = isElectronRenderer as jest.Mock;
 	const usePublishingMock = usePublishing as jest.Mock;
 	let openSpy: jest.SpyInstance;
+	let proofStoryPackageMock: jest.Mock;
+	let publishStoryPackageMock: jest.Mock;
 
 	beforeEach(() => {
+		window.localStorage.clear();
 		const assets = [
 			{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}
 		];
+		proofStoryPackageMock = jest.fn((storyId: string) =>
+			Promise.resolve({
+				assets,
+				html: `mock-proofed-story-${storyId}`,
+				report: {}
+			})
+		);
+		publishStoryPackageMock = jest.fn((storyId: string, options: any) =>
+			Promise.resolve({
+				assets,
+				html: `mock-published-story-${storyId}-${JSON.stringify(options)}`,
+				report: {}
+			})
+		);
 
 		usePublishingMock.mockReturnValue({
-			proofStoryPackage: (storyId: string) =>
-				Promise.resolve({
-					assets,
-					html: `mock-proofed-story-${storyId}`,
-					report: {}
-				}),
-			publishStoryPackage: (storyId: string, options: any) =>
-				Promise.resolve({
-					assets,
-					html: `mock-published-story-${storyId}-${JSON.stringify(options)}`,
-					report: {}
-				}),
+			proofStoryPackage: proofStoryPackageMock,
+			publishStoryPackage: publishStoryPackageMock,
 			proofStory: (storyId: string) =>
 				Promise.resolve(`mock-proofed-story-${storyId}`),
 			publishStory: (storyId: string, options: any) =>
@@ -97,6 +105,45 @@ describe('useStoryLaunch', () => {
 					[{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}]
 				]
 			]);
+		});
+
+		it('refreshes project assets before building an Electron play package', async () => {
+			const inventory = [
+				{
+					exists: true,
+					kind: 'image',
+					missing: false,
+					path: 'assets/live-cover.png',
+					previewUrl: 'file:///native/project/assets/live-cover.png',
+					publish: {
+						copy: true,
+						outputPath: 'assets/live-cover.png',
+						reason: 'Copy asset into published output'
+					},
+					thumbnailUrl: 'file:///native/project/assets/live-cover.png'
+				}
+			];
+			const projectSessionSnapshot = jest.fn(async () => ({assets: inventory}));
+
+			saveProjectMetadata('mock-story-id', {
+				rootPath: '/native/project',
+				status: 'file-backed',
+				storageKind: 'electron-project-folder'
+			});
+			(window as any).twineElectron = {
+				openWithScratchPackage,
+				projectSessionSnapshot
+			};
+
+			const {result} = renderHook(() => useStoryLaunch());
+
+			await result.current.playStory('mock-story-id');
+
+			expect(projectSessionSnapshot).toHaveBeenCalledWith('/native/project');
+			expect(publishStoryPackageMock).toHaveBeenCalledWith('mock-story-id', {
+				assetInventory: inventory,
+				buildTarget: 'play'
+			});
 		});
 
 		it('throws an error when playing a story if the twineElectron global is not present', () => {

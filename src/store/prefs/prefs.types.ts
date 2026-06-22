@@ -11,6 +11,12 @@ export type GraphCardSizePreference =
 
 export type StoryEditModePreference = 'auto' | 'graph' | 'split' | 'text';
 
+export type EditorFocusPreference = 'none' | 'passage-start' | 'restore';
+
+export type SharingModePreference = 'off' | 'local-file' | 'published-url';
+
+export type IntegrationPreference = 'manual' | 'off';
+
 export type PrefsAction =
 	| {type: 'init'; state: Partial<PrefsState>}
 	| {
@@ -61,6 +67,10 @@ export interface PrefsState {
 	 */
 	editorCursorBlinks: boolean;
 	/**
+	 * How aggressively passage editors should restore focus when opened.
+	 */
+	editorFocusPreference: EditorFocusPreference;
+	/**
 	 * Default folder path for newly created project folders.
 	 */
 	defaultProjectFolder: string;
@@ -88,6 +98,11 @@ export interface PrefsState {
 	 * Keyboard shortcut profile for workbench/editor commands.
 	 */
 	keybindingPreset: 'default' | 'emacs' | 'vim';
+	/**
+	 * Prefer keyboard-reachable controls for editing workflows over pointer-only
+	 * affordances.
+	 */
+	keyboardOnlyEditing: boolean;
 	/**
 	 * Last version number seen during an update check.
 	 */
@@ -123,6 +138,11 @@ export interface PrefsState {
 	 */
 	reducedMotion: boolean;
 	/**
+	 * Cloud save hook preference. Manual means Twine keeps local files but exposes
+	 * predictable folders for external sync clients.
+	 */
+	cloudSaveIntegration: IntegrationPreference;
+	/**
 	 * Name and version of the selected proofing format.
 	 */
 	proofingFormat: {
@@ -136,6 +156,18 @@ export interface PrefsState {
 		name: string;
 		version: string;
 	};
+	/**
+	 * Revision-control integration preference.
+	 */
+	revisionControlIntegration: IntegrationPreference;
+	/**
+	 * Sharing link workflow preference.
+	 */
+	shareLinkMode: SharingModePreference;
+	/**
+	 * Hosting/publish hook preference.
+	 */
+	hostingPublishIntegration: IntegrationPreference;
 	/**
 	 * Which story formats to show in the list route. This does not affect story
 	 * formats shown when setting it on a story.

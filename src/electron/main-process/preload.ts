@@ -7,16 +7,64 @@
 // crosses a context boundary, that global is in the wrong place. For now, we
 // place a privileged jsonp function into renderer context.
 
-import {contextBridge, ipcRenderer} from 'electron';
-import jsonp from 'jsonp';
+import {contextBridge, ipcRenderer, webUtils} from 'electron';
 import {Story} from '../../store/stories/stories.types';
 
-contextBridge.exposeInMainWorld('twineElectron', {
+function jsonp(
+	url: string,
+	options: {name?: string; param?: string; timeout?: number},
+	callback: (error: Error | null, data?: any) => void
+) {
+	const callbackName = options.name ?? `__twineJsonp${Date.now()}`;
+	const callbackParam = options.param ?? 'callback';
+	const target = document.getElementsByTagName('script')[0] || document.head;
+	const script = document.createElement('script');
+	let timer: number | undefined;
+
+	function cleanup() {
+		if (script.parentNode) {
+			script.parentNode.removeChild(script);
+		}
+
+		delete (window as any)[callbackName];
+
+		if (timer) {
+			window.clearTimeout(timer);
+		}
+	}
+
+	(window as any)[callbackName] = (data: any) => {
+		cleanup();
+		callback(null, data);
+	};
+
+	if (options.timeout) {
+		timer = window.setTimeout(() => {
+			cleanup();
+			callback(new Error('Timeout'));
+		}, options.timeout);
+	}
+
+	url += `${url.includes('?') ? '&' : '?'}${callbackParam}=${encodeURIComponent(
+		callbackName
+	)}`;
+	url = url.replace('?&', '?');
+
+	script.src = url;
+	target.parentNode!.insertBefore(script, target);
+
+	return cleanup;
+}
+
+const bridge = {
 	chooseAssetFile(defaultPath?: string) {
 		return ipcRenderer.invoke('choose-asset-file', defaultPath);
 	},
 	chooseStoryLibraryFolder() {
 		return ipcRenderer.invoke('choose-story-library-folder');
+	},
+	consumeCommandLineOpenRequests() {
+		return ipcRenderer.invoke('consume-command-line-open-requests');
 	},
 	copyText(text: string) {
 		ipcRenderer.send('copy-text', text);
@@ -24,17 +72,29 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	copyAssetToProject(rootPath: string, sourcePath: string) {
 		return ipcRenderer.invoke('copy-asset-to-project', rootPath, sourcePath);
 	},
+	copyProjectImportAssets(importId: string, rootPath: string) {
+		return ipcRenderer.invoke('copy-project-import-assets', importId, rootPath);
+	},
 	createProjectFolder(story: Story, preferredParent?: string) {
 		return ipcRenderer.invoke('create-project-folder', story, preferredParent);
 	},
 	deleteProjectAsset(rootPath: string, path: string) {
 		return ipcRenderer.invoke('delete-project-asset', rootPath, path);
 	},
+	discardProjectImport(importId: string) {
+		return ipcRenderer.invoke('discard-project-import', importId);
+	},
 	deleteStory(story: Story) {
 		ipcRenderer.send('delete-story', story);
 	},
+	filePathForFile(file: File) {
+		return webUtils.getPathForFile(file);
+	},
 	getStoryLibraryFolder() {
 		return ipcRenderer.invoke('get-story-library-folder');
+	},
+	getPlatformSettings() {
+		return ipcRenderer.invoke('get-platform-settings');
 	},
 	loadPrefs() {
 		return ipcRenderer.invoke('load-prefs');
@@ -45,10 +105,17 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	loadStoryFormats() {
 		return ipcRenderer.invoke('load-story-formats');
 	},
+	hydrateProjectFolder(rootPath: string, storyIds?: string[]) {
+		return ipcRenderer.invoke('hydrate-project-folder', rootPath, storyIds);
+	},
 	listProjectAssets(rootPath: string) {
 		return ipcRenderer.invoke('list-project-assets', rootPath);
 	},
-	jsonp(url: string, options: {name?: string; timeout?: number}, callback: any) {
+	jsonp(
+		url: string,
+		options: {name?: string; timeout?: number},
+		callback: any
+	) {
 		return jsonp(url, options, callback);
 	},
 	onceStoryRenamed(callback: () => void): void {
@@ -60,20 +127,31 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	openWithScratchPackage(data: string, filename: string, assets: unknown[]) {
 		ipcRenderer.send('open-with-scratch-package', data, filename, assets);
 	},
-	openProjectFolder() {
-		return ipcRenderer.invoke('open-project-folder');
+	openProjectFolder(options?: {loadPassageText?: boolean}) {
+		return ipcRenderer.invoke('open-project-folder', options);
 	},
-	projectSessionSnapshot(rootPath: string) {
-		return ipcRenderer.invoke('project-session-snapshot', rootPath);
+	prepareProjectImport(sourcePath: string) {
+		return ipcRenderer.invoke('prepare-project-import', sourcePath);
+	},
+	projectSessionSnapshot(rootPath: string, storyIds?: string[]) {
+		return ipcRenderer.invoke('project-session-snapshot', rootPath, storyIds);
 	},
 	revealStoryLibraryFolder() {
 		return ipcRenderer.invoke('reveal-story-library-folder');
+	},
+	revealBackupFolder() {
+		return ipcRenderer.invoke('reveal-backup-folder');
 	},
 	revealPath(path: string) {
 		ipcRenderer.send('reveal-path', path);
 	},
 	renameProjectAsset(rootPath: string, oldPath: string, newPath: string) {
-		return ipcRenderer.invoke('rename-project-asset', rootPath, oldPath, newPath);
+		return ipcRenderer.invoke(
+			'rename-project-asset',
+			rootPath,
+			oldPath,
+			newPath
+		);
 	},
 	renameStory(oldStory: Story, newStory: Story) {
 		ipcRenderer.send('rename-story', oldStory, newStory);
@@ -104,20 +182,33 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	saveProjectFolder(rootPath: string, story: Story) {
 		return ipcRenderer.invoke('save-project-folder', rootPath, story);
 	},
+	runStoryLibraryBackup() {
+		return ipcRenderer.invoke('run-story-library-backup');
+	},
 	saveStoryHtml(story: Story, data: string) {
 		ipcRenderer.send('save-story-html', story, data);
 	},
-	startProjectSession(rootPath: string) {
-		return ipcRenderer.invoke('start-project-session', rootPath);
+	startProjectSession(rootPath: string, storyIds?: string[]) {
+		return ipcRenderer.invoke('start-project-session', rootPath, storyIds);
 	},
 	stopProjectSession(rootPath: string) {
 		return ipcRenderer.invoke('stop-project-session', rootPath);
+	},
+	updatePlatformSettings(settings: unknown) {
+		return ipcRenderer.invoke('update-platform-settings', settings);
 	},
 	onProjectSessionChanged(callback: (snapshot: unknown) => void) {
 		const listener = (_event: unknown, snapshot: unknown) => callback(snapshot);
 
 		ipcRenderer.on('project-session-changed', listener);
 
-		return () => ipcRenderer.removeListener('project-session-changed', listener);
+		return () =>
+			ipcRenderer.removeListener('project-session-changed', listener);
 	}
-});
+};
+
+if ((process as any).contextIsolated) {
+	contextBridge.exposeInMainWorld('twineElectron', bridge);
+} else {
+	(window as any).twineElectron = bridge;
+}

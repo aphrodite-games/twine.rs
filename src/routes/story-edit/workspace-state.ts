@@ -100,17 +100,9 @@ function storyHasGraphLayout(story: Story) {
 	);
 }
 
-function storyHasSourceText(story: Story) {
-	return story.passages.some(passage => passage.text.trim() !== '');
-}
-
 export function preferredModeForStory(story: Story): StoryEditMode {
 	if (!storyHasGraphLayout(story)) {
 		return 'text';
-	}
-
-	if (story.passages.length > 1 && storyHasSourceText(story)) {
-		return 'split';
 	}
 
 	return 'graph';
@@ -145,13 +137,9 @@ function firstAvailablePassageId(story: Story, preferredId?: string) {
 export function initialModeForStory(
 	story: Story,
 	projectMode?: StoryEditMode,
-	workspaceMode?: StoryEditMode,
+	_workspaceMode?: StoryEditMode,
 	preferredMode: StoryEditModePreference = 'auto'
 ): StoryEditMode {
-	if (projectMode) {
-		return projectMode;
-	}
-
 	if (preferredMode !== 'auto') {
 		return preferredMode;
 	}
@@ -162,7 +150,11 @@ export function initialModeForStory(
 		return storyPreferredMode;
 	}
 
-	return workspaceMode ?? storyPreferredMode;
+	if (projectMode === 'text' || projectMode === 'graph') {
+		return projectMode;
+	}
+
+	return storyPreferredMode;
 }
 
 export function setStoryEditScrollMemory(

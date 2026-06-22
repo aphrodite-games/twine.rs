@@ -88,7 +88,24 @@ cargo lint
 cargo test --workspace
 ```
 
-`npm test` runs Jest in watch mode. `npm run build` creates the Electron build.
+`npm test` runs Jest in watch mode. `npm run dist` creates the Electron release
+build.
+
+### Desktop Release
+
+```sh
+npm run dist
+```
+
+This single command builds the web renderer, Electron main process, and all
+desktop packages for macOS, Windows, and Linux. Finished downloads are organized
+under `release/mac`, `release/windows`, and `release/linux`, with
+`release/WHICH TO DOWNLOAD.md` and `release/SHA256SUMS.txt` written alongside
+them.
+
+Twine RS uses its own release version from `package.json` and the Rust workspace
+version in `Cargo.toml`. `package.json` also keeps `twineCompatibilityVersion`
+for upstream Twine story-format editor-extension compatibility.
 
 ## Fixtures and CLI
 

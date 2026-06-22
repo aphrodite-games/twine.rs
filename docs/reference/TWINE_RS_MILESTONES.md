@@ -648,6 +648,45 @@ Core deliverables:
 - Platform support for command-line help/open, installer documentation, 32-bit decisions, Linux launcher/Flatpak, Mac update path, auto-update strategy, mobile/online constraints, and link-handling behavior.
 - Sharing and collaboration-adjacent features: shareable story links, cloud save hooks, revision-control integration, hosting/FTP publish hooks, and clear warnings about local-only data.
 
+M7 implementation status (advanced 2026-06-22 — **DONE for the current desktop app path**):
+
+- Settings now exposes first-class DS panels for Accessibility, Keyboard,
+  Storage, Backups, Integrations, Sharing, and Platform. The preference model
+  includes reduced motion, high contrast, keyboard-only editing, editor focus,
+  shortcut profile, default folders, cache cleanup, sharing mode, cloud save,
+  revision-control, hosting publish, and manual external-editor command state.
+  Preference repair validates every M7 enum so old localStorage state upgrades
+  safely.
+- Native platform settings now persist through Electron app prefs instead of
+  renderer-only placeholders. The desktop bridge exposes backup cadence,
+  retention, reminder/review time, cache cleanup age, fullscreen persistence,
+  last fullscreen state, link-handling mode, external editor command, story
+  library path, and backup path. Settings can run a backup, mark backup review,
+  reveal the backup folder, and update native settings through IPC.
+- Backups now honor native retention settings, create the backup root before
+  copying, return backup metadata, and schedule on a normalized native cadence
+  instead of a hardcoded interval. Startup still performs an immediate backup.
+- Platform behavior now includes `--help` command-line usage text, queued
+  command-line project-folder opens, macOS `open-file` queueing, direct
+  project-folder loading through the same native parser/session path as the
+  picker, remembered fullscreen restore, and configurable external-link
+  handling (`system` or `block`).
+- Keyboard accessibility is no longer only a preference label: AppShell command
+  shortcuts execute the same command registry entries as the command palette,
+  and the displayed shortcut labels follow the selected profile.
+- Sharing/collaboration-adjacent requirements are represented as explicit
+  local-file/published-URL sharing policy plus manual cloud/revision/hosting
+  hooks and local-only warnings. These are intentionally local-first hooks, not
+  hidden network services.
+- Installer/update/mobile/platform policy is captured in
+  [`TWINE_RS_M7_PLATFORM_DISTRIBUTION.md`](./TWINE_RS_M7_PLATFORM_DISTRIBUTION.md):
+  Windows remains x64 NSIS with documented install options, 32-bit builds are
+  out of scope for current Electron support, Linux ships zip/AppImage-adjacent
+  artifacts with Flatpak metadata as the next packaging layer, macOS remains
+  signed/notarized DMG with manual update check, auto-update stays explicit
+  until a signed update feed exists, and mobile/online are constrained by the
+  local-project desktop architecture.
+
 Highest-signal requests in this milestone:
 
 - [#1211](https://github.com/klembot/twinejs/issues/1211) Windows app: colours are removed by Electron if Windows is in a High Contrast theme (P2 (should), 3 comments)

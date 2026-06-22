@@ -21,11 +21,14 @@ import {
 	diagnosticsViewModel,
 	insertAssetSnippetCommand,
 	loadDismissedDiagnosticIds,
+	storyShellIndex,
+	useKnownAssetInventoryForStory,
 	useCoreProjectHost,
 	workbenchSelection
 } from '../../core';
 import type {
 	AssetManagerViewModel,
+	ContentsViewModelEntry,
 	ContentsViewModel,
 	DiagnosticsViewModel,
 	WorkbenchSelection
@@ -41,7 +44,18 @@ import {
 	canOpenStorySource,
 	openStorySourceDialog
 } from '../../dialogs/story-source-dialog';
-import {Passage, Story} from '../../store/stories';
+import {loadProjectMetadata} from '../../store/project-metadata';
+import {
+	markProjectStoryHydration,
+	useProjectStoryHydration
+} from '../../store/project-hydration';
+import {mergeProjectStories} from '../../store/merge-project-stories';
+import {Passage, Story, useStoriesContext} from '../../store/stories';
+import {
+	markPerformance,
+	measurePerformance,
+	scheduleIdleWork
+} from '../../util/performance';
 import {StoryEditMode} from './workspace-state';
 import {StoryTextPanel} from './story-text-panel';
 
@@ -63,6 +77,7 @@ export interface StoryWorkspaceShellProps {
 }
 
 type NavigatorTab = 'passages' | 'contents' | 'assets';
+const deferIndexPassageThreshold = 500;
 
 function navigatorStorageKey(storyId: string) {
 	return `twine-story-edit-navigator-${storyId}`;
@@ -424,6 +439,30 @@ const AssetManager: React.FC<{
 	);
 };
 
+const ContentsEntryVisual: React.FC<{entry: ContentsViewModelEntry}> = ({
+	entry
+}) => {
+	const previewUrl = entry.asset?.thumbnailUrl ?? entry.asset?.previewUrl;
+
+	if (
+		entry.core.kind === 'asset' &&
+		previewUrl &&
+		entry.asset?.kind === 'image'
+	) {
+		return (
+			<span className="cn__preview story-edit-contents-preview">
+				<img alt="" src={previewUrl} />
+			</span>
+		);
+	}
+
+	return (
+		<span className={`cn__ricon story-edit-contents-kind ${entry.core.kind}`}>
+			{entry.core.kind}
+		</span>
+	);
+};
+
 const ContentsNavigator: React.FC<{
 	contents: ContentsViewModel;
 	onOpenSource: (entry: CoreContentsEntry) => void;
@@ -459,11 +498,7 @@ const ContentsNavigator: React.FC<{
 					lastGroup = entry.group;
 					const content = (
 						<>
-							<span
-								className={`cn__ricon story-edit-contents-kind ${entry.core.kind}`}
-							>
-								{entry.core.kind}
-							</span>
+							<ContentsEntryVisual entry={entry} />
 							<span className="cn__rname story-edit-contents-label">
 								<b>{entry.label}</b>
 							</span>
@@ -964,8 +999,95 @@ export const StoryWorkspaceShell: React.FC<
 		story
 	} = props;
 	const coreProjectHost = useCoreProjectHost();
+	const {dispatch: storiesDispatch, stories} = useStoriesContext();
 	const [patchVersion, setPatchVersion] = React.useState(0);
 	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
+	const hydratingStories = React.useRef(new Set<string>());
+	const storiesRef = React.useRef(stories);
+	const knownAssets = useKnownAssetInventoryForStory(story.id);
+	const hydration = useProjectStoryHydration(story.id);
+	const projectMetadata = React.useMemo(
+		() => loadProjectMetadata(story.id),
+		[story.id]
+	);
+	const isFileBackedStory =
+		projectMetadata?.storageKind === 'electron-project-folder' &&
+		projectMetadata.status === 'file-backed';
+	const passageTextLoaded =
+		!isFileBackedStory || hydration?.passageTextLoaded !== false;
+	const shellIndex = React.useMemo(
+		() => storyShellIndex(story, knownAssets),
+		[knownAssets, story]
+	);
+	const [fullIndex, setFullIndex] = React.useState<CoreStoryIndex>();
+
+	React.useEffect(() => {
+		storiesRef.current = stories;
+	}, [stories]);
+
+	React.useEffect(() => {
+		if (passageTextLoaded) {
+			return;
+		}
+
+		if (
+			projectMetadata?.storageKind !== 'electron-project-folder' ||
+			projectMetadata.status !== 'file-backed' ||
+			!projectMetadata.rootPath
+		) {
+			return;
+		}
+
+		const bridge = (window as TwineElectronWindow).twineElectron;
+		const hydrateKey = `${projectMetadata.rootPath}:${story.id}`;
+
+		if (
+			!bridge?.hydrateProjectFolder ||
+			hydratingStories.current.has(hydrateKey)
+		) {
+			return;
+		}
+
+		hydratingStories.current.add(hydrateKey);
+		void bridge
+			.hydrateProjectFolder(projectMetadata.rootPath)
+			.then(result => {
+				if (result.stories.length > 0) {
+					const hydratedStories = mergeProjectStories(
+						storiesRef.current,
+						result.stories,
+						{
+							preserveExistingText: true
+						}
+					);
+
+					storiesRef.current = hydratedStories;
+					storiesDispatch({
+						state: hydratedStories,
+						type: 'init'
+					});
+					markProjectStoryHydration(story.id, {
+						passageTextLoaded: true,
+						rootPath: projectMetadata.rootPath
+					});
+					markPerformance('all-passages-ready');
+					measurePerformance(
+						'open-to-hydrated',
+						'open-start',
+						'all-passages-ready'
+					);
+				}
+			})
+			.catch(error =>
+				console.warn(`Could not hydrate project folder story: ${error}`)
+			);
+	}, [
+		passageTextLoaded,
+		projectMetadata,
+		stories,
+		storiesDispatch,
+		story.id
+	]);
 
 	React.useEffect(
 		() =>
@@ -993,10 +1115,24 @@ export const StoryWorkspaceShell: React.FC<
 			);
 	}, []);
 
-	const index = React.useMemo(
-		() => coreProjectHost.queryStoryIndex(story.id),
-		[coreProjectHost, patchVersion, story]
-	);
+	React.useEffect(() => {
+		setFullIndex(undefined);
+
+		if (!passageTextLoaded) {
+			return;
+		}
+
+		if (story.passages.length <= deferIndexPassageThreshold) {
+			setFullIndex(coreProjectHost.queryStoryIndex(story.id));
+			return;
+		}
+
+		return scheduleIdleWork(() => {
+			setFullIndex(coreProjectHost.queryStoryIndex(story.id));
+		});
+	}, [coreProjectHost, knownAssets, passageTextLoaded, patchVersion, story]);
+
+	const index = fullIndex ?? shellIndex;
 	const dismissedDiagnosticIds = React.useMemo(
 		() => loadDismissedDiagnosticIds(story.id),
 		[dismissalsVersion, story.id]
@@ -1099,13 +1235,13 @@ export const StoryWorkspaceShell: React.FC<
 							story={story}
 						/>
 					) : (
-							<AssetManager
-								assets={assets}
-								host={coreProjectHost}
-								onSelectPassage={onSelectPassage}
-								onTestPassage={onTestPassage}
-								selection={selection}
-								story={story}
+						<AssetManager
+							assets={assets}
+							host={coreProjectHost}
+							onSelectPassage={onSelectPassage}
+							onTestPassage={onTestPassage}
+							selection={selection}
+							story={story}
 						/>
 					)}
 				</DockPanel>
@@ -1115,10 +1251,10 @@ export const StoryWorkspaceShell: React.FC<
 				<div className="story-edit-text-layer">
 					<StoryTextPanel
 						index={activeIndex}
-							onRevealPassageInGraph={onRevealPassageInGraph}
-							onSelectPassage={onSelectPassage}
-							onTestPassage={onTestPassage}
-							selectedPassageId={passage?.id}
+						onRevealPassageInGraph={onRevealPassageInGraph}
+						onSelectPassage={onSelectPassage}
+						onTestPassage={onTestPassage}
+						selectedPassageId={passage?.id}
 						selection={selection}
 						story={story}
 					/>
@@ -1141,10 +1277,10 @@ export const StoryWorkspaceShell: React.FC<
 						diagnostics={diagnostics}
 						host={coreProjectHost}
 						index={index}
-							onRevealPassageInGraph={onRevealPassageInGraph}
-							onSelectPassage={onSelectPassage}
-							onTestPassage={onTestPassage}
-							selection={selection}
+						onRevealPassageInGraph={onRevealPassageInGraph}
+						onSelectPassage={onSelectPassage}
+						onTestPassage={onTestPassage}
+						selection={selection}
 						story={story}
 					/>
 				</DockPanel>

@@ -74,12 +74,8 @@ describe('<DiagnosticsRoute>', () => {
 		expect(
 			screen.getAllByText(/Broken link to "Missing"/).length
 		).toBeGreaterThan(0);
-		expect(screen.getAllByText('unreachable-passage').length).toBeGreaterThan(
-			0
-		);
-		expect(screen.getAllByText(/story-format macros/).length).toBeGreaterThan(
-			0
-		);
+		expect(screen.queryByText('unreachable-passage')).not.toBeInTheDocument();
+		expect(screen.queryByText(/story-format macros/)).not.toBeInTheDocument();
 		expect(screen.getAllByText('warning').length).toBeGreaterThan(0);
 		expect(
 			screen.getByRole('button', {name: 'Reveal Source'})
@@ -99,9 +95,7 @@ describe('<DiagnosticsRoute>', () => {
 		await waitFor(() =>
 			expect(screen.queryByText('broken-link')).not.toBeInTheDocument()
 		);
-		expect(screen.getAllByText('unreachable-passage').length).toBeGreaterThan(
-			0
-		);
+		expect(screen.queryByText('unreachable-passage')).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole('button', {name: /Dismissed/}));
 

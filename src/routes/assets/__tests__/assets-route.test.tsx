@@ -9,6 +9,7 @@ import {
 } from '../../../test-util';
 import {
 	knownAssetInventoryForStory,
+	replaceKnownAssetInventoryForStory,
 	type CoreAssetInventoryEntry
 } from '../../../core';
 import {saveProjectMetadata} from '../../../store/project-metadata';
@@ -113,16 +114,25 @@ function renderComponent() {
 }
 
 function assetCard(path: string) {
-	const label = screen.getAllByText(path).find(element =>
-		element.closest('.assets-route__card')
-	);
+	return screen.getByRole('button', {
+		name: `Select asset ${path}`
+	}) as HTMLButtonElement;
+}
 
-	return label?.closest('button') as HTMLButtonElement;
+function folderCard(path: string) {
+	return screen.getByRole('button', {
+		name: `Open folder ${path}`
+	}) as HTMLButtonElement;
+}
+
+function openAssetsFolder() {
+	fireEvent.click(folderCard('assets'));
 }
 
 describe('<AssetsRoute>', () => {
 	beforeEach(() => {
 		window.localStorage.clear();
+		replaceKnownAssetInventoryForStory('story-id', []);
 		mockTestStory.mockReset();
 	});
 
@@ -134,7 +144,14 @@ describe('<AssetsRoute>', () => {
 		renderComponent();
 
 		expect(screen.getByLabelText('Search assets')).toBeInTheDocument();
-		expect(screen.getAllByText('assets/cover.png').length).toBeGreaterThan(0);
+		expect(folderCard('assets')).toBeInTheDocument();
+
+		openAssetsFolder();
+
+		expect(assetCard('assets/cover.png')).toHaveTextContent('cover.png');
+		expect(assetCard('assets/cover.png')).not.toHaveTextContent(
+			'assets/cover.png'
+		);
 		expect(
 			screen.getByText('<img src="assets/cover.png" alt="">')
 		).toBeInTheDocument();
@@ -143,9 +160,105 @@ describe('<AssetsRoute>', () => {
 		).toBeInTheDocument();
 	});
 
+	it('keeps folders collapsed by default and opens directories in the browser', async () => {
+		const {story} = assetStory();
+
+		saveProjectMetadata(story.id, {
+			rootPath: '/native/project.twine.rs',
+			status: 'file-backed',
+			storageKind: 'electron-project-folder'
+		});
+		(window as any).twineElectron = {
+			projectSessionSnapshot: jest.fn(async () =>
+				projectSnapshot([
+					inventoryAsset('assets/cover.png'),
+					inventoryAsset('assets/images/tr/scenes/laviusd.png')
+				])
+			)
+		};
+
+		render(
+			<FakeStateProvider stories={[story]}>
+				<MemoryRouter initialEntries={[`/stories/${story.id}/assets`]}>
+					<Route path="/stories/:storyId/assets">
+						<AssetsRoute />
+					</Route>
+				</MemoryRouter>
+			</FakeStateProvider>
+		);
+
+		await waitFor(() =>
+			expect(screen.getByText('Live folder')).toBeInTheDocument()
+		);
+		expect(folderCard('assets')).toBeInTheDocument();
+		expect(
+			screen.queryByRole('button', {name: 'Select asset assets/cover.png'})
+		).toBeNull();
+		expect(
+			screen.queryByRole('button', {name: 'Open folder assets/images'})
+		).toBeNull();
+
+		openAssetsFolder();
+
+		expect(assetCard('assets/cover.png')).toBeInTheDocument();
+		expect(folderCard('assets/images')).toBeInTheDocument();
+		expect(
+			screen.queryByText('assets/images/tr/scenes/laviusd.png')
+		).toBeNull();
+	});
+
+	it('recovers the default native project folder and renders image previews', async () => {
+		const {story} = assetStory();
+		const inventory = [
+			inventoryAsset('assets/images/website/alex.avatar.png', {
+				previewUrl:
+					'file:///native/library/Projects/asset-castle.twine.rs/assets/images/website/alex.avatar.png',
+				thumbnailUrl:
+					'file:///native/library/Projects/asset-castle.twine.rs/assets/images/website/alex.avatar.png'
+			})
+		];
+
+		(window as any).twineElectron = {
+			getStoryLibraryFolder: jest.fn(async () => '/native/library'),
+			listProjectAssets: jest.fn(async () => inventory)
+		};
+
+		const result = render(
+			<FakeStateProvider stories={[story]}>
+				<MemoryRouter initialEntries={[`/stories/${story.id}/assets`]}>
+					<Route path="/stories/:storyId/assets">
+						<AssetsRoute />
+					</Route>
+				</MemoryRouter>
+			</FakeStateProvider>
+		);
+
+		await waitFor(() =>
+			expect(screen.getByText('Live folder')).toBeInTheDocument()
+		);
+		expect(
+			(window as any).twineElectron.listProjectAssets
+		).toHaveBeenCalledWith('/native/library/Projects/asset-castle.twine.rs');
+
+		openAssetsFolder();
+		fireEvent.click(folderCard('assets/images'));
+		fireEvent.click(folderCard('assets/images/website'));
+
+		expect(
+			assetCard('assets/images/website/alex.avatar.png')
+		).toBeInTheDocument();
+		expect(
+			result.container.querySelector(
+				'.assets-route__thumb img[src="file:///native/library/Projects/asset-castle.twine.rs/assets/images/website/alex.avatar.png"]'
+			)
+		).toBeInTheDocument();
+	});
+
 	it('inserts the selected asset snippet through the core host', async () => {
 		const {result} = renderComponent();
 
+		openAssetsFolder();
+		fireEvent.click(assetCard('assets/cover.png'));
 		fireEvent.click(screen.getByRole('button', {name: 'Insert into Passage'}));
 
 		await waitFor(() =>
@@ -158,6 +271,8 @@ describe('<AssetsRoute>', () => {
 	it('tests the first passage that references the selected asset', () => {
 		const {story} = renderComponent();
 
+		openAssetsFolder();
+		fireEvent.click(assetCard('assets/cover.png'));
 		fireEvent.click(screen.getByRole('button', {name: 'Test First Usage'}));
 
 		expect(mockTestStory).toHaveBeenCalledWith(story.id, story.passages[0].id);
@@ -172,12 +287,12 @@ describe('<AssetsRoute>', () => {
 		fireEvent.click(screen.getByRole('button', {name: 'Import Asset'}));
 
 		await waitFor(() =>
-			expect(screen.getAllByText('assets/ambient.mp3').length).toBeGreaterThan(
-				0
-			)
+			expect(assetCard('assets/ambient.mp3')).toBeInTheDocument()
 		);
 
-		fireEvent.click(screen.getByText('assets/ambient.mp3').closest('button')!);
+		fireEvent.click(
+			screen.getByRole('button', {name: 'Select asset assets/ambient.mp3'})
+		);
 
 		expect(screen.getAllByText('Unused').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('0 refs').length).toBeGreaterThan(0);
@@ -193,9 +308,7 @@ describe('<AssetsRoute>', () => {
 		fireEvent.click(screen.getByRole('button', {name: 'Choose Asset'}));
 
 		await waitFor(() =>
-			expect(
-				screen.getAllByText('assets/native-cover.png').length
-			).toBeGreaterThan(0)
+			expect(assetCard('assets/native-cover.png')).toBeInTheDocument()
 		);
 		expect((window as any).twineElectron.chooseAssetFile).toHaveBeenCalled();
 	});
@@ -229,14 +342,14 @@ describe('<AssetsRoute>', () => {
 		fireEvent.click(screen.getByRole('button', {name: 'Choose Asset'}));
 
 		await waitFor(() =>
-			expect((window as any).twineElectron.copyAssetToProject).toHaveBeenCalledWith(
+			expect(
+				(window as any).twineElectron.copyAssetToProject
+			).toHaveBeenCalledWith(
 				'/native/project.twine.rs',
 				'/tmp/native-cover.png'
 			)
 		);
-		expect(
-			screen.getAllByText('assets/native-cover.png').length
-		).toBeGreaterThan(0);
+		expect(assetCard('assets/native-cover.png')).toBeInTheDocument();
 	});
 
 	it('loads live native project assets and surfaces unused files', async () => {
@@ -266,17 +379,19 @@ describe('<AssetsRoute>', () => {
 			</FakeStateProvider>
 		);
 
-		await waitFor(() => expect(screen.getByText('Live folder')).toBeInTheDocument());
-		expect(screen.getByText('2 files')).toBeInTheDocument();
-		expect(screen.getAllByText('assets/unused.png').length).toBeGreaterThan(0);
-		expect(screen.getAllByText('Unused').length).toBeGreaterThan(0);
-		expect(knownAssetInventoryForStory(story.id).map(asset => asset.path)).toEqual([
-			'assets/cover.png',
-			'assets/unused.png'
-		]);
-		expect((window as any).twineElectron.projectSessionSnapshot).toHaveBeenCalledWith(
-			'/native/project.twine.rs'
+		await waitFor(() =>
+			expect(screen.getByText('Live folder')).toBeInTheDocument()
 		);
+		expect(screen.getByText('2 files')).toBeInTheDocument();
+		openAssetsFolder();
+		expect(assetCard('assets/unused.png')).toBeInTheDocument();
+		expect(screen.getAllByText('Unused').length).toBeGreaterThan(0);
+		expect(
+			knownAssetInventoryForStory(story.id).map(asset => asset.path)
+		).toEqual(['assets/cover.png', 'assets/unused.png']);
+		expect(
+			(window as any).twineElectron.projectSessionSnapshot
+		).toHaveBeenCalledWith('/native/project.twine.rs', [story.id]);
 		fireEvent.click(assetCard('assets/cover.png'));
 		await waitFor(() =>
 			expect(screen.getByText('File + references')).toBeInTheDocument()
@@ -287,7 +402,9 @@ describe('<AssetsRoute>', () => {
 		const {story} = assetStory();
 		const projectSessionSnapshot = jest
 			.fn()
-			.mockResolvedValueOnce(projectSnapshot([inventoryAsset('assets/cover.png')]))
+			.mockResolvedValueOnce(
+				projectSnapshot([inventoryAsset('assets/cover.png')])
+			)
 			.mockResolvedValue(projectSnapshot([inventoryAsset('assets/hero.png')]));
 		const renameProjectAsset = jest.fn(async () => ({
 			sourcePath: '/native/project.twine.rs/assets/hero.png',
@@ -315,7 +432,10 @@ describe('<AssetsRoute>', () => {
 			</FakeStateProvider>
 		);
 
-		await waitFor(() => expect(screen.getByText('Live folder')).toBeInTheDocument());
+		await waitFor(() =>
+			expect(screen.getByText('Live folder')).toBeInTheDocument()
+		);
+		openAssetsFolder();
 		fireEvent.click(assetCard('assets/cover.png'));
 		fireEvent.click(screen.getByRole('button', {name: 'Rename'}));
 		fireEvent.change(screen.getByLabelText('New asset path'), {

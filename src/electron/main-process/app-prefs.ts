@@ -6,15 +6,31 @@ import {loadJsonFileSync, saveJsonFile} from './json-file';
  * that are related to the app build, e.g. things like folder locations.
  */
 export type AppPrefName =
+	| 'backupCadenceMinutes'
 	| 'backupFolderPath'
+	| 'backupLastReviewedTime'
+	| 'backupReminderDays'
+	| 'backupRetentionLimit'
+	| 'externalEditorCommand'
+	| 'fullscreenPersistence'
+	| 'lastWindowFullscreen'
+	| 'linkHandlingMode'
 	| 'disableHardwareAcceleration'
 	| 'scratchFolderPath'
 	| 'scratchFileCleanupAge'
 	| 'storyLibraryFolderPath';
 
 const prefNames: AppPrefName[] = [
+	'backupCadenceMinutes',
 	'backupFolderPath',
+	'backupLastReviewedTime',
+	'backupReminderDays',
+	'backupRetentionLimit',
 	'disableHardwareAcceleration',
+	'externalEditorCommand',
+	'fullscreenPersistence',
+	'lastWindowFullscreen',
+	'linkHandlingMode',
 	'scratchFolderPath',
 	'scratchFileCleanupAge',
 	'storyLibraryFolderPath'

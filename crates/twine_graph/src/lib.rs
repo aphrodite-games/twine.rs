@@ -213,7 +213,6 @@ impl GraphIndex {
             }
         }
 
-        graph.mark_reachability(&story.start_passage);
         graph.mark_orphans(&story.start_passage);
         graph
     }
@@ -511,35 +510,6 @@ impl GraphIndex {
 
             if node.is_orphan {
                 self.stats.orphan_passages += 1;
-            }
-        }
-    }
-
-    fn mark_reachability(&mut self, start_passage: &PassageId) {
-        let mut reachable = BTreeSet::new();
-        let mut queue = VecDeque::new();
-
-        if self.nodes.contains_key(start_passage) {
-            reachable.insert(start_passage.clone());
-            queue.push_back(start_passage.clone());
-        } else if let Some(first) = self.story_order.first() {
-            reachable.insert(first.clone());
-            queue.push_back(first.clone());
-        }
-
-        while let Some(id) = queue.pop_front() {
-            for neighbor in self.neighbors(&id, GraphDirection::Outgoing) {
-                if reachable.insert(neighbor.clone()) {
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
-        for node in self.nodes.values_mut() {
-            node.is_unreachable = !reachable.contains(&node.id);
-
-            if node.is_unreachable {
-                self.stats.unreachable_passages += 1;
             }
         }
     }
@@ -1079,7 +1049,7 @@ mod tests {
                 resolved_links: 1,
                 self_links: 1,
                 tagged_passages: 1,
-                unreachable_passages: 1
+                unreachable_passages: 0
             }
         );
         assert_eq!(graph.broken_links()[0].target_name, "Missing");

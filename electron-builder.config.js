@@ -1,45 +1,52 @@
+const {execFileSync} = require('child_process');
 const {notarize} = require('@electron/notarize');
 const path = require('path');
 const pkg = require('./package.json');
 
 const isPreview =
 	/alpha|beta|pre/.test(pkg.version) || process.env.FORCE_PREVIEW;
+const productName = 'Twine RS';
+const artifactProductName = 'Twine-RS';
+
+function macAppPath(context) {
+	return path.join(
+		context.appOutDir,
+		`${context.packager.appInfo.productFilename || productName}.app`
+	);
+}
 
 module.exports = {
 	async afterSign(context) {
 		if (context.packager.platform.name === 'mac') {
-			if (!('APPLE_APP_ID' in process.env)) {
-				console.log(
-					'APPLE_APP_ID environment variable is not set, skipping notarization'
-				);
-				return;
-			}
+			const missingNotarizationEnv = [
+				'APPLE_APP_ID',
+				'APPLE_ID',
+				'APPLE_ID_PASSWORD',
+				'APPLE_TEAM_ID'
+			].filter(key => !(key in process.env));
+			const appPath = macAppPath(context);
 
-			if (!('APPLE_ID' in process.env)) {
+			if (missingNotarizationEnv.length > 0) {
 				console.log(
-					'APPLE_ID environment variable is not set, skipping notarization'
+					`${missingNotarizationEnv.join(
+						', '
+					)} environment variable(s) are not set, skipping notarization`
 				);
-				return;
-			}
-
-			if (!('APPLE_ID_PASSWORD' in process.env)) {
-				console.log(
-					'APPLE_ID_PASSWORD environment variable is not set, skipping notarization'
-				);
-				return;
-			}
-
-			if (!('APPLE_TEAM_ID' in process.env)) {
-				console.log(
-					'APPLE_TEAM_ID environment variable is not set, skipping notarization'
-				);
+				console.log('Ad hoc signing Mac app for local file access identity...');
+				execFileSync('/usr/bin/codesign', [
+					'--force',
+					'--deep',
+					'--sign',
+					'-',
+					appPath
+				]);
 				return;
 			}
 
 			console.log('Notarizing Mac app...');
 			await notarize({
 				appBundleId: process.env.APPLE_APP_ID,
-				appPath: path.join(context.appOutDir, `Twine.app`),
+				appPath,
 				appleId: process.env.APPLE_ID,
 				appleIdPassword: process.env.APPLE_ID_PASSWORD,
 				teamId: process.env.APPLE_TEAM_ID
@@ -58,24 +65,36 @@ module.exports = {
 	// 	if (context.packager.platform.name === 'mac') {
 	// 		console.log('Ad hoc signing Mac app...');
 	// 		child_process.execSync(
-	// 			'codesign --force --deep --sign - dist/electron/mac-universal/Twine.app'
+	// 			'codesign --force --deep --sign - "release/mac-universal/Twine RS.app"'
 	// 		);
 	// 	}
 	// },
-	appId: 'org.twinery.twine',
+	appId: 'rs.twine.app',
+	productName,
 	directories: {
-		output: 'dist/electron'
+		output: 'release'
 	},
 	extraMetadata: {
-		main: 'electron-build/main/src/electron/main-process/index.js'
+		main: 'electron-build/main/src/electron/main-process/index.js',
+		name: 'twine-rs',
+		productName
 	},
 	files: ['electron-build/**/*', 'node_modules/**/*'],
+	dmg: {
+		writeUpdateInfo: false
+	},
 	linux: {
-		artifactName: `Twine-${pkg.version}-Linux-\${arch}.zip`,
-		target: [{arch: ['arm64', 'x64'], target: 'zip'}]
+		artifactName: `${artifactProductName}-${pkg.version}-linux-\${arch}.\${ext}`,
+		category: 'Development',
+		icon: `icons/app-${isPreview ? 'preview' : 'release'}.png`,
+		target: [
+			{arch: ['arm64', 'x64'], target: 'AppImage'},
+			{arch: ['arm64', 'x64'], target: 'zip'}
+		]
 	},
 	mac: {
-		artifactName: `Twine-${pkg.version}-macOS.dmg`,
+		artifactName: `${artifactProductName}-${pkg.version}-mac-universal.\${ext}`,
+		category: 'public.app-category.developer-tools',
 		icon: `icons/app-${isPreview ? 'preview' : 'release'}.png`,
 		target: {arch: ['universal'], target: 'dmg'}
 	},
@@ -84,7 +103,7 @@ module.exports = {
 		allowToChangeInstallationDirectory: true
 	},
 	win: {
-		artifactName: `Twine-${pkg.version}-Windows.exe`,
+		artifactName: `${artifactProductName}-${pkg.version}-win-\${arch}.\${ext}`,
 		icon: `icons/app-${isPreview ? 'preview' : 'release'}-no-padding.ico`,
 		target: {arch: ['x64'], target: 'nsis'}
 	}

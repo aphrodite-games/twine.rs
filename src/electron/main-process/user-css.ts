@@ -8,7 +8,7 @@ export async function getUserCss(): Promise<string | undefined> {
 		return await readFile(
 			join(
 				app.getPath('documents'),
-				i18n.t('common.appName'),
+				app.getName(),
 				i18n.t('electron.userCss.filename')
 			),
 			'utf8'

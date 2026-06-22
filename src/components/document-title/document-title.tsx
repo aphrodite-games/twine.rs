@@ -6,11 +6,29 @@ export interface DocumentTitleProps {
 	title: string;
 }
 
+const appDocumentTitle = 'Twine RS';
+
+export function brandedDocumentTitle(title: string) {
+	const trimmedTitle = title.trim();
+
+	if (trimmedTitle === '' || trimmedTitle === appDocumentTitle) {
+		return appDocumentTitle;
+	}
+
+	if (trimmedTitle.endsWith(` - ${appDocumentTitle}`)) {
+		return trimmedTitle;
+	}
+
+	return `${trimmedTitle} - ${appDocumentTitle}`;
+}
+
 /**
  * Sets the document title. This works around a bug with Electron and may not be
  * needed in later versions.
  */
 export const DocumentTitle: React.FC<DocumentTitleProps> = ({title}) => {
+	const documentTitle = brandedDocumentTitle(title);
+
 	// Using `history.goBack()` doesn't seem to cause Electron to update the
 	// window title bar--possibly tied to using a <HashRouter>. If it does in a
 	// future version, we can just use react-helmet directly.
@@ -18,16 +36,16 @@ export const DocumentTitle: React.FC<DocumentTitleProps> = ({title}) => {
 	React.useEffect(() => {
 		if (isElectronRenderer()) {
 			const timeout = window.setTimeout(() => {
-				document.querySelector('title')!.innerHTML = title;
+				document.querySelector('title')!.textContent = documentTitle;
 			}, 0);
 
 			return () => window.clearTimeout(timeout);
 		}
-	}, [title]);
+	}, [documentTitle]);
 
 	return (
 		<Helmet>
-			<title>{title}</title>
+			<title>{documentTitle}</title>
 		</Helmet>
 	);
 };

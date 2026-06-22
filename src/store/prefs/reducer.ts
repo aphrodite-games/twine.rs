@@ -2,6 +2,20 @@ import {PrefsAction, PrefsState} from './prefs.types';
 import {defaults} from './defaults';
 import {formatWithNameAndVersion, newestFormatNamed} from '../story-formats';
 
+const validPreferenceValues: Partial<Record<keyof PrefsState, string[]>> = {
+	cloudSaveIntegration: ['off', 'manual'],
+	editorFocusPreference: ['restore', 'passage-start', 'none'],
+	graphDefaultCardSize: ['small', 'narrow', 'medium', 'large', 'tall', 'wide'],
+	hostingPublishIntegration: ['off', 'manual'],
+	keybindingPreset: ['default', 'emacs', 'vim'],
+	passageTagDisplay: ['color', 'name'],
+	preferredStoryEditMode: ['auto', 'text', 'graph', 'split'],
+	revisionControlIntegration: ['off', 'manual'],
+	shareLinkMode: ['off', 'local-file', 'published-url'],
+	storyFormatListFilter: ['current', 'all', 'user'],
+	storyListSort: ['date', 'name']
+};
+
 export const reducer: React.Reducer<PrefsState, PrefsAction> = (
 	state,
 	action
@@ -30,47 +44,12 @@ export const reducer: React.Reducer<PrefsState, PrefsAction> = (
 						return {...result, [prefKey]: value};
 					}
 
-					// If the passage tag display pref isn't a valid value, then replace it with the default.
+					// If an enumerated preference has drifted to an invalid value, then
+					// replace it with the default.
 
-					if (
-						key === 'passageTagDisplay' &&
-						// cast here is OK; [1, 2].includes('a') is valid and returns false
-						!['color', 'name'].includes(state[prefKey] as string)
-					) {
-						console.info(
-							`Repairing preference "${key}" by setting it to ${value}, was ${state[prefKey]} (not a valid value)`
-						);
-						return {...result, [prefKey]: value};
-					}
+					const validValues = validPreferenceValues[prefKey];
 
-					if (
-						key === 'keybindingPreset' &&
-						!['default', 'emacs', 'vim'].includes(state[prefKey] as string)
-					) {
-						console.info(
-							`Repairing preference "${key}" by setting it to ${value}, was ${state[prefKey]} (not a valid value)`
-						);
-						return {...result, [prefKey]: value};
-					}
-
-					if (
-						key === 'preferredStoryEditMode' &&
-						!['auto', 'text', 'graph', 'split'].includes(
-							state[prefKey] as string
-						)
-					) {
-						console.info(
-							`Repairing preference "${key}" by setting it to ${value}, was ${state[prefKey]} (not a valid value)`
-						);
-						return {...result, [prefKey]: value};
-					}
-
-					if (
-						key === 'graphDefaultCardSize' &&
-						!['small', 'narrow', 'medium', 'large', 'tall', 'wide'].includes(
-							state[prefKey] as string
-						)
-					) {
+					if (validValues && !validValues.includes(state[prefKey] as string)) {
 						console.info(
 							`Repairing preference "${key}" by setting it to ${value}, was ${state[prefKey]} (not a valid value)`
 						);

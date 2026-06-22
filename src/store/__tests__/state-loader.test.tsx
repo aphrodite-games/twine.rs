@@ -179,4 +179,32 @@ describe('<StateLoader>', () => {
 		expect(screen.queryByTestId('children')).not.toBeInTheDocument();
 		expect(await screen.findByTestId('children')).toBeInTheDocument();
 	});
+
+	it('falls back to empty state if persistence loading fails', async () => {
+		jest.spyOn(console, 'warn').mockReturnValue();
+		(usePersistence as jest.Mock).mockReturnValue({
+			prefs: {load: async () => Promise.reject(new Error('prefs failed'))},
+			stories: {load: async () => Promise.reject(new Error('stories failed'))},
+			storyFormats: {
+				load: async () => Promise.reject(new Error('formats failed'))
+			}
+		});
+
+		render(
+			<StateLoader>
+				<div data-testid="children" />
+			</StateLoader>
+		);
+
+		expect(await screen.findByTestId('children')).toBeInTheDocument();
+		expect(formatsDispatchMock.mock.calls[0]).toEqual([
+			{type: 'init', state: []}
+		]);
+		expect(prefsDispatchMock.mock.calls[0]).toEqual([
+			{type: 'init', state: {}}
+		]);
+		expect(storiesDispatchMock.mock.calls[0]).toEqual([
+			{type: 'init', state: []}
+		]);
+	});
 });
