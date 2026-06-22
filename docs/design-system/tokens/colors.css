@@ -114,3 +114,19 @@
 
 	color-scheme: dark;
 }
+
+body[data-high-contrast='true'] {
+	--ink-0: oklch(0.10 0.006 240);
+	--ink-1: oklch(0.14 0.008 240);
+	--ink-2: oklch(0.18 0.010 239);
+	--ink-3: oklch(0.22 0.011 238);
+	--ink-4: oklch(0.28 0.013 237);
+	--ink-5: oklch(0.34 0.015 236);
+	--line-1: oklch(0.40 0.014 236);
+	--line-2: oklch(0.50 0.018 236);
+	--line-3: oklch(0.62 0.022 235);
+	--tx-1: oklch(0.99 0.003 230);
+	--tx-2: oklch(0.90 0.006 233);
+	--tx-3: oklch(0.78 0.008 236);
+	--tx-4: oklch(0.66 0.010 238);
+}

@@ -13,6 +13,22 @@ import {loadStoryFormats} from './story-formats';
 import {loadPrefs} from './prefs';
 import {openWithScratchFile, openWithScratchPackage} from './scratch-file';
 import {Story} from '../../store/stories/stories.types';
+import {
+	chooseStoryDirectoryPath,
+	getStoryDirectoryPath,
+	revealStoryDirectory
+} from './story-directory';
+import {
+	chooseAssetFile,
+	copyAssetToProject,
+	createProjectFolder,
+	deleteProjectAsset,
+	listProjectAssets,
+	openProjectFolder,
+	renameProjectAsset,
+	replaceProjectAsset,
+	saveProjectFolder
+} from './project-folder';
 
 export function initIpc() {
 	// We want to debounce story saves so we aren't constantly writing to disk.
@@ -34,6 +50,62 @@ export function initIpc() {
 		if (typeof text === 'string') {
 			clipboard.writeText(text);
 		}
+	});
+
+	ipcMain.handle('choose-asset-file', async (_event, defaultPath?: string) =>
+		chooseAssetFile(defaultPath)
+	);
+
+	ipcMain.handle(
+		'copy-asset-to-project',
+		async (_event, rootPath: string, sourcePath: string) =>
+			copyAssetToProject(rootPath, sourcePath)
+	);
+
+	ipcMain.handle('list-project-assets', async (_event, rootPath: string) =>
+		listProjectAssets(rootPath)
+	);
+
+	ipcMain.handle(
+		'rename-project-asset',
+		async (_event, rootPath: string, oldPath: string, newPath: string) =>
+			renameProjectAsset(rootPath, oldPath, newPath)
+	);
+
+	ipcMain.handle(
+		'replace-project-asset',
+		async (_event, rootPath: string, path: string, sourcePath: string) =>
+			replaceProjectAsset(rootPath, path, sourcePath)
+	);
+
+	ipcMain.handle(
+		'delete-project-asset',
+		async (_event, rootPath: string, path: string) =>
+			deleteProjectAsset(rootPath, path)
+	);
+
+	ipcMain.handle('choose-story-library-folder', async () => {
+		return (await chooseStoryDirectoryPath()) ?? getStoryDirectoryPath();
+	});
+
+	ipcMain.handle(
+		'create-project-folder',
+		async (_event, story: Story, preferredParent?: string) =>
+			createProjectFolder(story, preferredParent)
+	);
+
+	ipcMain.handle('get-story-library-folder', async () => getStoryDirectoryPath());
+
+	ipcMain.handle('open-project-folder', async () => openProjectFolder());
+
+	ipcMain.handle(
+		'save-project-folder',
+		async (_event, rootPath: string, story: Story) =>
+			saveProjectFolder(rootPath, story)
+	);
+
+	ipcMain.handle('reveal-story-library-folder', async () => {
+		await revealStoryDirectory();
 	});
 
 	ipcMain.on('delete-story', async (event, story) => {

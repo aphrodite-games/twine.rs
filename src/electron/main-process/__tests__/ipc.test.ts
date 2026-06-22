@@ -12,10 +12,28 @@ import {
 import {Story} from '../../../store/stories';
 import {fakePendingStoryFormat, fakePrefs, fakeStory} from '../../../test-util';
 import {loadStoryFormats} from '../story-formats';
+import {
+	chooseStoryDirectoryPath,
+	getStoryDirectoryPath,
+	revealStoryDirectory
+} from '../story-directory';
+import {
+	chooseAssetFile,
+	copyAssetToProject,
+	createProjectFolder,
+	deleteProjectAsset,
+	listProjectAssets,
+	openProjectFolder,
+	renameProjectAsset,
+	replaceProjectAsset,
+	saveProjectFolder
+} from '../project-folder';
 
 jest.mock('../json-file');
 jest.mock('../prefs');
+jest.mock('../project-folder');
 jest.mock('../scratch-file');
+jest.mock('../story-directory');
 jest.mock('../story-file');
 jest.mock('../story-formats');
 
@@ -25,6 +43,18 @@ describe('initIpc()', () => {
 	const handleMock = ipcMain.handle as jest.Mock;
 	const loadStoriesMock = loadStories as jest.Mock;
 	const loadStoryFormatsMock = loadStoryFormats as jest.Mock;
+	const chooseAssetFileMock = chooseAssetFile as jest.Mock;
+	const copyAssetToProjectMock = copyAssetToProject as jest.Mock;
+	const chooseStoryDirectoryPathMock = chooseStoryDirectoryPath as jest.Mock;
+	const createProjectFolderMock = createProjectFolder as jest.Mock;
+	const deleteProjectAssetMock = deleteProjectAsset as jest.Mock;
+	const getStoryDirectoryPathMock = getStoryDirectoryPath as jest.Mock;
+	const listProjectAssetsMock = listProjectAssets as jest.Mock;
+	const openProjectFolderMock = openProjectFolder as jest.Mock;
+	const renameProjectAssetMock = renameProjectAsset as jest.Mock;
+	const replaceProjectAssetMock = replaceProjectAsset as jest.Mock;
+	const saveProjectFolderMock = saveProjectFolder as jest.Mock;
+	const revealStoryDirectoryMock = revealStoryDirectory as jest.Mock;
 	const onMock = ipcMain.on as jest.Mock;
 	const appOnMock = app.on as jest.Mock;
 	const clipboardWriteTextMock = clipboard.writeText as jest.Mock;
@@ -39,6 +69,37 @@ describe('initIpc()', () => {
 		clipboardWriteTextMock.mockClear();
 		showItemInFolderMock.mockClear();
 		openWithScratchPackageMock.mockClear();
+		chooseAssetFileMock.mockResolvedValue('/mock/asset.png');
+		copyAssetToProjectMock.mockResolvedValue({
+			sourcePath: '/mock/project/assets/asset.png',
+			targetPath: 'assets/asset.png'
+		});
+		deleteProjectAssetMock.mockResolvedValue(undefined);
+		listProjectAssetsMock.mockResolvedValue([
+			{path: 'assets/asset.png', sizeBytes: 100}
+		]);
+		renameProjectAssetMock.mockResolvedValue({
+			sourcePath: '/mock/project/assets/renamed.png',
+			targetPath: 'assets/renamed.png'
+		});
+		replaceProjectAssetMock.mockResolvedValue({
+			sourcePath: '/mock/project/assets/asset.png',
+			targetPath: 'assets/asset.png'
+		});
+		chooseStoryDirectoryPathMock.mockResolvedValue('/mock/library');
+		createProjectFolderMock.mockResolvedValue({
+			rootPath: '/mock/project',
+			stories: [],
+			storyIds: []
+		});
+		getStoryDirectoryPathMock.mockReturnValue('/mock/library');
+		openProjectFolderMock.mockResolvedValue(undefined);
+		saveProjectFolderMock.mockResolvedValue({
+			rootPath: '/mock/project',
+			stories: [],
+			storyIds: []
+		});
+		revealStoryDirectoryMock.mockResolvedValue(undefined);
 		saveStoryHtmlMock.mockResolvedValue(undefined);
 		initIpc();
 	});
@@ -49,6 +110,115 @@ describe('initIpc()', () => {
 		expect(listener).not.toBeUndefined();
 		listener[1]({}, 'test text');
 		expect(clipboardWriteTextMock).toHaveBeenCalledWith('test text');
+	});
+
+	it('adds native project and asset handlers', async () => {
+		const story = fakeStory();
+		const chooseAsset = handleMock.mock.calls.find(
+			call => call[0] === 'choose-asset-file'
+		);
+		const chooseLibrary = handleMock.mock.calls.find(
+			call => call[0] === 'choose-story-library-folder'
+		);
+		const copyAsset = handleMock.mock.calls.find(
+			call => call[0] === 'copy-asset-to-project'
+		);
+		const deleteAsset = handleMock.mock.calls.find(
+			call => call[0] === 'delete-project-asset'
+		);
+		const listAssets = handleMock.mock.calls.find(
+			call => call[0] === 'list-project-assets'
+		);
+		const renameAsset = handleMock.mock.calls.find(
+			call => call[0] === 'rename-project-asset'
+		);
+		const replaceAsset = handleMock.mock.calls.find(
+			call => call[0] === 'replace-project-asset'
+		);
+		const createProject = handleMock.mock.calls.find(
+			call => call[0] === 'create-project-folder'
+		);
+		const getLibrary = handleMock.mock.calls.find(
+			call => call[0] === 'get-story-library-folder'
+		);
+		const openProject = handleMock.mock.calls.find(
+			call => call[0] === 'open-project-folder'
+		);
+		const revealLibrary = handleMock.mock.calls.find(
+			call => call[0] === 'reveal-story-library-folder'
+		);
+		const saveProject = handleMock.mock.calls.find(
+			call => call[0] === 'save-project-folder'
+		);
+
+		expect(await chooseAsset[1]({}, '/mock/assets')).toBe('/mock/asset.png');
+		expect(chooseAssetFileMock).toHaveBeenCalledWith('/mock/assets');
+		expect(await copyAsset[1]({}, '/mock/project', '/mock/asset.png')).toEqual({
+			sourcePath: '/mock/project/assets/asset.png',
+			targetPath: 'assets/asset.png'
+		});
+		expect(copyAssetToProjectMock).toHaveBeenCalledWith(
+			'/mock/project',
+			'/mock/asset.png'
+		);
+		expect(await listAssets[1]({}, '/mock/project')).toEqual([
+			{path: 'assets/asset.png', sizeBytes: 100}
+		]);
+		expect(listProjectAssetsMock).toHaveBeenCalledWith('/mock/project');
+		expect(
+			await renameAsset[1](
+				{},
+				'/mock/project',
+				'assets/asset.png',
+				'assets/renamed.png'
+			)
+		).toEqual({
+			sourcePath: '/mock/project/assets/renamed.png',
+			targetPath: 'assets/renamed.png'
+		});
+		expect(renameProjectAssetMock).toHaveBeenCalledWith(
+			'/mock/project',
+			'assets/asset.png',
+			'assets/renamed.png'
+		);
+		expect(
+			await replaceAsset[1](
+				{},
+				'/mock/project',
+				'assets/asset.png',
+				'/tmp/replacement.png'
+			)
+		).toEqual({
+			sourcePath: '/mock/project/assets/asset.png',
+			targetPath: 'assets/asset.png'
+		});
+		expect(replaceProjectAssetMock).toHaveBeenCalledWith(
+			'/mock/project',
+			'assets/asset.png',
+			'/tmp/replacement.png'
+		);
+		await deleteAsset[1]({}, '/mock/project', 'assets/asset.png');
+		expect(deleteProjectAssetMock).toHaveBeenCalledWith(
+			'/mock/project',
+			'assets/asset.png'
+		);
+		expect(await chooseLibrary[1]()).toBe('/mock/library');
+		expect(await createProject[1]({}, story, '/mock/root')).toEqual({
+			rootPath: '/mock/project',
+			stories: [],
+			storyIds: []
+		});
+		expect(createProjectFolderMock).toHaveBeenCalledWith(story, '/mock/root');
+		expect(await getLibrary[1]()).toBe('/mock/library');
+		await expect(openProject[1]()).resolves.toBeUndefined();
+		expect(await saveProject[1]({}, '/mock/project', story)).toEqual({
+			rootPath: '/mock/project',
+			stories: [],
+			storyIds: []
+		});
+		expect(saveProjectFolderMock).toHaveBeenCalledWith('/mock/project', story);
+		await revealLibrary[1]();
+		expect(revealStoryDirectoryMock).toHaveBeenCalled();
 	});
 
 	describe('the listener it adds for delete-story events', () => {

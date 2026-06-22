@@ -111,16 +111,16 @@ remains is deeper integration and retiring compatibility surfaces:
 | Capability manifest (1)              | done (engine); surfaced in `/formats` and `/stories/:storyId/build`                                                         | D6/D7 polish         |
 | Format host API (2)                  | partial — types/loader/resolver done; `/formats` is now the primary capabilities/modules/defaults/proofing/extensions route | D6 + engine plumbing |
 | Local format dev workflow (3)        | partial — dev metadata and URL-add surfaced                                                                                 | D6 + engine plumbing |
-| Build / export / package targets (4) | partial — package builder plus `/stories/:storyId/build` for Play/Test/Proof/HTML/Twee/JSON/Package/Publish                 | D7 advanced policy   |
-| Runtime/debug hooks (5)              | missing                                                                                                                     | D8                   |
+| Build / export / package targets (4) | partial — package builder plus `/stories/:storyId/build` for Play/Test/Proof/HTML/Twee/JSON/Package/Publish/Compatibility/Inspect | D7 advanced policy   |
+| Runtime/debug hooks (5)              | partial — preview debug strip plus source/graph reveal actions; runtime state/devtools still missing                       | D8                   |
 | Publish-safety (6)                   | done (engine); surfaced in Build/Formats routes                                                                             | D7 polish            |
 | H1 previews on host/query            | partial — app-owned iframe routes; debugger/reveal bridge still missing                                                     | D8                   |
 | H2 graph projection                  | D5 done on the app side; native/WASM host bridge still follow-up                                                            | D5 + core bridge     |
 | H3 run-from-here                     | partial (`startId` plumbed; not everywhere)                                                                                 | D4 / D5 / D8         |
 
 **Do not build M6's UI in legacy chrome.** Finish the remaining gaps
-(compatibility export mode, archive/project-folder packaging, full format-dev
-reload loop, runtime/debug hooks) as core-first or DS-shell work; let D5–D8
+(archive/project-folder packaging, full format-dev reload loop, runtime state
+inspection, and diagnostics-grade build warnings) as core-first or DS-shell work; let D5–D8
 finish the surrounding screens. The engine half is tracked in
 [`TWINE_RS_MILESTONES.md`](./TWINE_RS_MILESTONES.md) (M6 section).
 
@@ -319,7 +319,9 @@ Implementation note (2026-06-21): the DS graph now includes immediate
 pointer-down selection feedback, shift/ctrl/meta additive selection, group drag
 from the current selection, live edge/arrow geometry while nodes move, one-shot
 selection centering that no longer fights ordinary scrolling, and a draggable
-minimap preview for graph navigation.
+minimap preview for graph navigation. A later pass moved dense edge rendering to
+Canvas2D and added a 10k-passage viewport-bounded projection test; 50k
+browser-level interaction traces remain a core performance follow-up.
 
 Depends on: D4; Rust `QueryGraphProjection`.
 
@@ -353,16 +355,18 @@ first-class shell routes with rail/command-palette access. Contents consumes the
 story index for passages, tags, variables, assets, scripts/styles, entry points,
 orphans, and diagnostics; Diagnostics groups severities/types and exposes
 quick-fix/reveal actions plus per-diagnostic dismissal/restore; Assets exposes
-the current reference-backed inventory plus host-known imported assets with
-snippet copy/insert, usage reveal, validation, rename/replace/delete command
-hooks, and publish/missing/unused status affordances. Dismissed diagnostics are
+the reference-backed fallback plus host-known imported assets, and native
+project folders can now scan their real `assets/` tree into that same index so
+file metadata, image thumbnails/dimensions, missing/unused state, snippet
+copy/insert, usage reveal, validation, and native rename/replace/delete all flow
+through one Asset Manager surface. Dismissed diagnostics are
 kept in a review lane and removed from active shell/build validation counts.
 Unlinked passage diagnostics are warnings, not errors, because story formats may
 still reach them through macros such as `(display: "passage")`, scripts, or
-other runtime behavior. Remaining adjacent work is full file-backed asset
-inventory integration once project roots are opened through the live core host,
-deeper virtualization/perf for huge lists, and app-owned UI for every future
-format extension slot.
+other runtime behavior. Remaining adjacent work is moving the renderer/Electron
+asset scan behind the live Rust `ProjectSession`, adding import conflict and
+publish-policy controls, deeper virtualization/perf for huge lists, and
+app-owned UI for every future format extension slot.
 
 Exit criteria: each of the four is a DS-built screen/panel reachable from the
 shell, consuming host/query data, with no legacy dialog as the primary surface.
@@ -391,11 +395,16 @@ Implementation note (2026-06-21): `/stories/:storyId/build` now exists as a DS
 shell screen with Play, Test From Selection, Proof, Export HTML, Export Twee,
 Export JSON, Package, and Publish targets, build/save/report actions,
 capability/fidelity/output panels, missing-asset and publish-safety warnings, and
-build output logs. D7 still owns Settings plus advanced Build policy: compatibility
-export mode, streamed logs, archive/project-folder packaging, source/HTML
-inspection, and diagnostic promotion.
+build output logs. A follow-up D7 pass added `/settings`, native story-library
+folder controls, accessibility toggles, default project/asset folders, a
+compatibility export target, source/HTML inspection targets, and project-fidelity
+StoryData graph package carriers. Remaining advanced Build/Settings work is streamed
+logs, archive/project-folder packaging beyond the current descriptor, diagnostic
+promotion, and fully retiring the legacy App Prefs dialog compatibility surface.
 
-Exit criteria: build and settings are DS screens; App Prefs dialog retired.
+Exit criteria: build and settings are DS screens; App Prefs dialog retired as a
+primary path, with any remaining legacy compatibility surface isolated for
+removal in D9.
 
 Depends on: D2; build content from M6.
 

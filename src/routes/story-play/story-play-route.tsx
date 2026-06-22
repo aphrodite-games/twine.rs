@@ -1,5 +1,5 @@
 import * as React from 'react';
-import {useParams} from 'react-router-dom';
+import {useHistory, useParams} from 'react-router-dom';
 import {usePublishing} from '../../store/use-publishing';
 import {useStoriesContext} from '../../store/stories';
 import {StoryPreviewFrame} from '../story-preview-frame';
@@ -8,10 +8,15 @@ export const StoryPlayRoute: React.FC = () => {
 	const [publishError, setPublishError] = React.useState<Error>();
 	const [html, setHtml] = React.useState<string>();
 	const {storyId} = useParams<{storyId: string}>();
+	const history = useHistory();
 	const {publishStory} = usePublishing();
 	const publishStoryRef = React.useRef(publishStory);
 	const {stories} = useStoriesContext();
-	const storyExists = stories.some(story => story.id === storyId);
+	const story = stories.find(story => story.id === storyId);
+	const storyExists = !!story;
+	const startPassage = story?.passages.find(
+		passage => passage.id === story.startPassage
+	);
 
 	React.useEffect(() => {
 		publishStoryRef.current = publishStory;
@@ -53,7 +58,24 @@ export const StoryPlayRoute: React.FC = () => {
 			error={publishError}
 			html={html}
 			missingStoryMessage={`There is no story with ID "${storyId}".`}
+			onRevealGraph={() =>
+				history.push(
+					`/stories/${storyId}?mode=graph${
+						startPassage ? `&passage=${startPassage.id}` : ''
+					}`
+				)
+			}
+			onRevealSource={() =>
+				history.push(
+					`/stories/${storyId}?mode=text${
+						startPassage ? `&passage=${startPassage.id}` : ''
+					}`
+				)
+			}
+			startPassageName={startPassage?.name}
 			storyExists={storyExists}
+			storyName={story?.name}
+			targetLabel="Play"
 			title="Story preview"
 		/>
 	);

@@ -68,6 +68,7 @@ pub fn story_from_twee_named(source: &str, fallback_name: &str) -> Result<Story,
         name: fallback_name.to_owned(),
         ..Story::default()
     };
+    let mut story_data_graph: Option<Value> = None;
     let mut story_data_start: Option<String> = None;
     let mut passages = Vec::new();
 
@@ -83,7 +84,12 @@ pub fn story_from_twee_named(source: &str, fallback_name: &str) -> Result<Story,
                 }
             }
             "StoryData" => {
-                apply_story_data(&mut story, &passage.text, &mut story_data_start)?;
+                apply_story_data(
+                    &mut story,
+                    &passage.text,
+                    &mut story_data_start,
+                    &mut story_data_graph,
+                )?;
             }
             _ if passage.tags.contains(&"script".to_owned())
                 && !passage.tags.contains(&"stylesheet".to_owned()) =>
@@ -114,6 +120,7 @@ pub fn story_from_twee_named(source: &str, fallback_name: &str) -> Result<Story,
     }
 
     story.passages = passages.into();
+    apply_story_graph_metadata(&mut story, story_data_graph.as_ref());
     Ok(story)
 }
 
@@ -290,6 +297,7 @@ fn apply_story_data(
     story: &mut Story,
     source: &str,
     story_data_start: &mut Option<String>,
+    story_data_graph: &mut Option<Value>,
 ) -> Result<(), ParseError> {
     let Value::Object(data) = serde_json::from_str(source)? else {
         return Ok(());
@@ -318,6 +326,16 @@ fn apply_story_data(
                     story.zoom = zoom;
                 }
             }
+            ("twine.rs", value) => {
+                if let Some(graph) = value.get("storyGraph") {
+                    *story_data_graph = Some(graph.clone());
+                }
+                unknown.insert(key.to_owned(), value);
+            }
+            ("storyGraph", value) => {
+                *story_data_graph = Some(value.clone());
+                unknown.insert(key.to_owned(), value);
+            }
             (key, value) => {
                 unknown.insert(key.to_owned(), value);
             }
@@ -331,6 +349,73 @@ fn apply_story_data(
     }
 
     Ok(())
+}
+
+fn apply_story_graph_metadata(story: &mut Story, metadata: Option<&Value>) {
+    let Some(Value::Object(metadata)) = metadata else {
+        return;
+    };
+
+    let entries = if metadata
+        .get("schema")
+        .and_then(Value::as_str)
+        .is_some_and(|schema| matches!(schema, "twine.rs/story-graph" | "twine.rs/story-graph/v1"))
+    {
+        metadata
+            .get("layout")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().collect::<Vec<_>>())
+            .or_else(|| {
+                metadata
+                    .get("graph")
+                    .and_then(|graph| graph.get("passages"))
+                    .and_then(|passages| {
+                        passages
+                            .as_array()
+                            .map(|items| items.iter().collect::<Vec<_>>())
+                            .or_else(|| {
+                                passages
+                                    .as_object()
+                                    .map(|items| items.values().collect::<Vec<_>>())
+                            })
+                    })
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    for entry in entries {
+        let Some(bounds) = story_graph_entry_bounds(entry) else {
+            continue;
+        };
+        let passage = story.passages.iter_mut().find(|passage| {
+            entry
+                .get("id")
+                .or_else(|| entry.get("passageId"))
+                .and_then(Value::as_str)
+                .is_some_and(|id| id == passage.id.as_ref())
+                || entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name == passage.name)
+        });
+
+        if let Some(passage) = passage {
+            passage.set_bounds(bounds);
+        }
+    }
+}
+
+fn story_graph_entry_bounds(entry: &Value) -> Option<twine_model::GraphPosition> {
+    let bounds = entry.get("bounds").unwrap_or(entry);
+
+    Some(twine_model::GraphPosition {
+        height: bounds.get("height")?.as_f64()?,
+        left: bounds.get("left")?.as_f64()?,
+        top: bounds.get("top")?.as_f64()?,
+        width: bounds.get("width")?.as_f64()?,
+    })
 }
 
 fn apply_passage_metadata(passage: &mut Passage, metadata: BTreeMap<String, Value>) {
@@ -422,6 +507,7 @@ fn story_from_storydata_element(element: &HtmlElement, index: usize) -> Result<S
         custom_attributes: custom_attrs(
             &element.attrs,
             &[
+                "data-twine-rs-story-graph",
                 "format",
                 "format-version",
                 "ifid",
@@ -434,6 +520,10 @@ fn story_from_storydata_element(element: &HtmlElement, index: usize) -> Result<S
         ),
         ..Story::default()
     };
+    let story_data_graph = element
+        .attrs
+        .get("data-twine-rs-story-graph")
+        .and_then(|value| serde_json::from_str::<Value>(value).ok());
 
     for style in find_elements(&element.inner, "style") {
         if is_role(&style, "stylesheet")
@@ -490,6 +580,8 @@ fn story_from_storydata_element(element: &HtmlElement, index: usize) -> Result<S
         passage.story = story_id.clone();
         story.passages.push(passage);
     }
+
+    apply_story_graph_metadata(&mut story, story_data_graph.as_ref());
 
     Ok(story)
 }
@@ -1158,6 +1250,28 @@ Hello [[Next]]
     }
 
     #[test]
+    fn parses_twee_storydata_graph_metadata_over_passage_positions() {
+        let story = story_from_twee_named(
+            r#":: StoryData
+{"twine.rs":{"storyGraph":{"schema":"twine.rs/story-graph/v1","kind":"storyGraph","graph":{"passages":{"old-id":{"id":"old-id","name":"Start","bounds":{"left":320,"top":240,"width":220,"height":160}}}}}}}
+
+:: Start {"position":"25,50","size":"150,175"}
+Hello
+"#,
+            "file-name",
+        )
+        .expect("twee should parse");
+
+        let layout = story.passages[0].layout.expect("storydata graph layout");
+
+        assert_eq!(layout.left, 320.0);
+        assert_eq!(layout.top, 240.0);
+        assert_eq!(layout.width, 220.0);
+        assert_eq!(layout.height, 160.0);
+        assert!(story.metadata["storyData"]["twine.rs"]["storyGraph"].is_object());
+    }
+
+    #[test]
     fn parses_nested_twee_passage_metadata() {
         let story = story_from_twee_named(
             r#":: Start {"position":"25,50","diagnostics":{"reviewed":true}}
@@ -1234,6 +1348,29 @@ body {}
             "kept"
         );
         assert_eq!(stories[0].start_passage, stories[0].passages[0].id);
+    }
+
+    #[test]
+    fn parses_html_storydata_graph_metadata_over_passage_positions() {
+        let html = r#"
+<tw-storydata name="Test" data-twine-rs-story-graph='{"schema":"twine.rs/story-graph/v1","kind":"storyGraph","graph":{"passages":{"old-id":{"id":"old-id","name":"Untitled Passage","bounds":{"left":123,"top":456,"width":240,"height":180}}}}}' hidden>
+<tw-passagedata pid="1" name="Untitled Passage" position="0,0" size="100,100">Text</tw-passagedata>
+</tw-storydata>
+"#;
+        let stories = stories_from_twine_html(html).expect("html should parse");
+        let layout = stories[0].passages[0]
+            .layout
+            .expect("storydata graph layout");
+
+        assert_eq!(layout.left, 123.0);
+        assert_eq!(layout.top, 456.0);
+        assert_eq!(layout.width, 240.0);
+        assert_eq!(layout.height, 180.0);
+        assert!(
+            !stories[0]
+                .custom_attributes
+                .contains_key("data-twine-rs-story-graph")
+        );
     }
 
     #[test]

@@ -104,29 +104,42 @@ function nodeButton(container: HTMLElement, passageId: string) {
 }
 
 describe('<StoryGraphPanel>', () => {
-	afterEach(() => jest.restoreAllMocks());
+	afterEach(() => {
+		window.localStorage.clear();
+		jest.restoreAllMocks();
+	});
 
 	it('renders passage nodes and projected link edges', () => {
 		const {result} = renderComponent();
 
-		expect(screen.getByRole('button', {name: /Start/})).toBeInTheDocument();
+		expect(nodeButton(result.container, 'start')).toHaveTextContent('Start');
+		expect(
+			screen.getByRole('button', {name: 'Resize Start'})
+		).toBeInTheDocument();
 		expect(nodeButton(result.container, 'next')).toHaveTextContent('Next');
 		expect(screen.getByText('saved')).toBeInTheDocument();
 		expect(
-			result.container.querySelector('[data-kind="resolved"]')
-		).toBeTruthy();
-		expect(result.container.querySelector('[data-kind="broken"]')).toBeTruthy();
+			screen.getByTestId('story-graph-edges-canvas')
+		).toHaveAttribute('data-edge-kinds', expect.stringContaining('resolved'));
+		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+			'data-edge-kinds',
+			expect.stringContaining('broken')
+		);
 	});
 
 	it('updates link layers from graph toolbar buttons', () => {
-		const {result} = renderComponent();
+		renderComponent();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Broken links'}));
 
-		expect(
-			result.container.querySelector('[data-kind="resolved"]')
-		).toBeTruthy();
-		expect(result.container.querySelector('[data-kind="broken"]')).toBeNull();
+		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+			'data-edge-kinds',
+			expect.stringContaining('resolved')
+		);
+		expect(screen.getByTestId('story-graph-edges-canvas')).not.toHaveAttribute(
+			'data-edge-kinds',
+			expect.stringContaining('broken')
+		);
 	});
 
 	it('passes the measured viewport into graph projection queries', async () => {
@@ -325,7 +338,64 @@ describe('<StoryGraphPanel>', () => {
 			result.container.querySelector('.story-edit-graph-viewport')!,
 			{clientX: 220, clientY: 180}
 		);
-		expect(onCreate).toHaveBeenCalledWith({left: 220, top: 180});
+		expect(onCreate).toHaveBeenCalledWith(
+			{left: 220, top: 180},
+			expect.objectContaining({height: 110, width: 184})
+		);
+	});
+
+	it('applies the default card size to every selected passage', () => {
+		const {story, undoableDispatch} = renderComponent(false, ({next, start}) => {
+			start.selected = true;
+			next.selected = true;
+		});
+
+		fireEvent.change(screen.getByLabelText('Default card size'), {
+			target: {value: 'wide'}
+		});
+		fireEvent.click(screen.getByRole('button', {name: 'Apply'}));
+
+		expect(screen.getByText('2 selected')).toBeInTheDocument();
+		expect(undoableDispatch).toHaveBeenCalledWith(
+			{
+				passageUpdates: {
+					next: expect.objectContaining({
+						height: 110,
+						left: 160,
+						top: 0,
+						width: 292
+					}),
+					start: expect.objectContaining({
+						height: 110,
+						left: 0,
+						top: 0,
+						width: 292
+					})
+				},
+				storyId: story.id,
+				type: 'updatePassages'
+			},
+			'undoChange.movePassage'
+		);
+	});
+
+	it('rotates the graph view without changing story layout data', () => {
+		const querySpy = jest.spyOn(
+			StoreCoreProjectHost.prototype,
+			'queryGraphProjection'
+		);
+		const {story, undoableDispatch} = renderComponent();
+
+		fireEvent.click(
+			screen.getByRole('button', {name: 'Rotate view: Left to Right'})
+		);
+
+		expect(screen.getByText('Top to Bottom')).toBeInTheDocument();
+		expect(undoableDispatch).not.toHaveBeenCalled();
+		expect(querySpy).toHaveBeenLastCalledWith(
+			story.id,
+			expect.objectContaining({viewport: null})
+		);
 	});
 
 	it('saves generated layout through the core project host', () => {

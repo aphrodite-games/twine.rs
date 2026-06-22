@@ -51,9 +51,25 @@ export interface PrefsState {
 	 */
 	editorCursorBlinks: boolean;
 	/**
+	 * Default folder path for newly created project folders.
+	 */
+	defaultProjectFolder: string;
+	/**
+	 * Default folder path for asset imports.
+	 */
+	defaultAssetFolder: string;
+	/**
 	 * Timestamp when the app was first run.
 	 */
 	firstRunTime: number;
+	/**
+	 * Prefer a stronger app contrast treatment where supported by DS screens.
+	 */
+	highContrast: boolean;
+	/**
+	 * Keyboard shortcut profile for workbench/editor commands.
+	 */
+	keybindingPreset: 'default' | 'emacs' | 'vim';
 	/**
 	 * Last version number seen during an update check.
 	 */
@@ -80,6 +96,10 @@ export interface PrefsState {
 	 * cards in the story map.
 	 */
 	passageTagDisplay: 'color' | 'name';
+	/**
+	 * Reduce nonessential UI motion.
+	 */
+	reducedMotion: boolean;
 	/**
 	 * Name and version of the selected proofing format.
 	 */

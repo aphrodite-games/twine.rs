@@ -54,6 +54,13 @@ export function knownAssetInventoryForStory(storyId: string) {
 	return sharedAssetInventoryByStory.get(storyId) ?? [];
 }
 
+export function replaceKnownAssetInventoryForStory(
+	storyId: string,
+	assets: CoreAssetInventoryEntry[]
+) {
+	sharedAssetInventoryByStory.set(storyId, assets);
+}
+
 type UndoableDispatch = (
 	action: StoriesActionOrThunk,
 	annotation?: string

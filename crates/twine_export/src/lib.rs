@@ -1,6 +1,6 @@
 #![doc = "Export interfaces for story and project data."]
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 use twine_model::{Passage, PassageId, Story};
@@ -20,6 +20,7 @@ pub struct HtmlExportOptions {
     pub creator: String,
     pub creator_version: String,
     pub format_options: String,
+    pub include_story_graph: bool,
     pub preserve_source_pids: bool,
     pub start_id: Option<PassageId>,
     pub start_optional: bool,
@@ -31,11 +32,17 @@ impl Default for HtmlExportOptions {
             creator: "twine.rs".into(),
             creator_version: env!("CARGO_PKG_VERSION").into(),
             format_options: String::new(),
+            include_story_graph: false,
             preserve_source_pids: true,
             start_id: None,
             start_optional: false,
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TweeExportOptions {
+    pub include_story_graph: bool,
 }
 
 pub fn story_to_json_pretty(story: &Story) -> Result<String, ExportError> {
@@ -72,12 +79,22 @@ pub fn passage_to_twee(passage: &Passage) -> Result<String, ExportError> {
 }
 
 pub fn story_to_twee(story: &Story) -> Result<String, ExportError> {
+    story_to_twee_with_options(story, &TweeExportOptions::default())
+}
+
+pub fn story_to_twee_with_options(
+    story: &Story,
+    options: &TweeExportOptions,
+) -> Result<String, ExportError> {
     let mut output = String::new();
 
     output.push_str(":: StoryTitle\n");
     output.push_str(&escape_for_twee_text(&story.name));
     output.push_str("\n\n\n:: StoryData\n");
-    output.push_str(&serde_json::to_string_pretty(&story_data_for_twee(story))?);
+    output.push_str(&serde_json::to_string_pretty(&story_data_for_twee(
+        story,
+        options.include_story_graph,
+    ))?);
     output.push_str("\n\n\n");
 
     for (index, passage) in story.passages.iter().enumerate() {
@@ -143,6 +160,13 @@ pub fn story_to_twine_html(
     attrs.insert("options".into(), format_options.clone());
     attrs.insert("tags".into(), story.tags.join(" "));
     attrs.insert("zoom".into(), story.zoom.to_string());
+
+    if options.include_story_graph {
+        attrs.insert(
+            "data-twine-rs-story-graph".into(),
+            serde_json::to_string(&story_graph_metadata(story))?,
+        );
+    }
 
     let mut output = String::new();
 
@@ -240,7 +264,7 @@ fn passage_to_twine_html(passage: &Passage, pid: &str) -> String {
     )
 }
 
-fn story_data_for_twee(story: &Story) -> Value {
+fn story_data_for_twee(story: &Story, include_story_graph: bool) -> Value {
     let mut data = Map::new();
 
     data.insert("ifid".into(), Value::String(story.ifid.clone()));
@@ -280,7 +304,64 @@ fn story_data_for_twee(story: &Story) -> Value {
         }
     }
 
+    if include_story_graph {
+        let mut twine_rs = data
+            .remove("twine.rs")
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+
+        twine_rs.insert("storyGraph".into(), story_graph_metadata(story));
+        data.insert("twine.rs".into(), Value::Object(twine_rs));
+    }
+
     Value::Object(data)
+}
+
+fn story_graph_metadata(story: &Story) -> Value {
+    let mut passages = Map::new();
+    let mut sorted_passages = story.passages.iter().collect::<Vec<_>>();
+
+    sorted_passages.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.id.as_ref().cmp(right.id.as_ref()))
+    });
+
+    for passage in sorted_passages {
+        if let Some(bounds) = passage.layout {
+            passages.insert(
+                passage.id.to_string(),
+                json!({
+                    "bounds": {
+                        "height": bounds.height,
+                        "left": bounds.left,
+                        "top": bounds.top,
+                        "width": bounds.width
+                    },
+                    "id": passage.id,
+                    "name": passage.name,
+                    "tags": passage.tags
+                }),
+            );
+        }
+    }
+
+    json!({
+        "compatibility": {
+            "passagePositions": "mirrored-to-standard-metadata",
+            "precedence": "storydata-over-passage-position-metadata"
+        },
+        "graph": {
+            "annotations": {},
+            "groups": {},
+            "metadata": {},
+            "passages": passages,
+            "savedLayouts": {}
+        },
+        "kind": "storyGraph",
+        "schema": "twine.rs/story-graph/v1",
+        "storyId": story.id
+    })
 }
 
 fn passage_twee_metadata(passage: &Passage) -> Result<Option<String>, ExportError> {
@@ -452,9 +533,25 @@ mod tests {
         assert!(output.contains(":: StoryTitle\nExample"));
         assert!(output.contains(r#""start": "Start""#));
         assert!(output.contains(r#""extra": 1"#));
+        assert!(!output.contains(r#""twine.rs""#));
         assert!(output.contains(r#""unknown":true"#));
         assert!(output.contains(":: StoryScript [script]\nalert(1)"));
         assert!(output.contains(":: StoryStylesheet [stylesheet]\nbody {}"));
+    }
+
+    #[test]
+    fn exports_story_graph_metadata_inside_story_data_when_requested() {
+        let output = story_to_twee_with_options(
+            &story(),
+            &TweeExportOptions {
+                include_story_graph: true,
+            },
+        )
+        .expect("twee should export");
+
+        assert!(output.contains(r#""twine.rs": {"#));
+        assert!(output.contains(r#""schema": "twine.rs/story-graph/v1""#));
+        assert!(output.contains(r#""passagePositions": "mirrored-to-standard-metadata""#));
     }
 
     #[test]
@@ -465,7 +562,23 @@ mod tests {
         assert!(output.contains(r#"startnode="7""#));
         assert!(output.contains(r#"pid="7""#));
         assert!(output.contains(r#"data-extra="kept""#));
+        assert!(!output.contains("data-twine-rs-story-graph"));
         assert!(output.contains("&lt;"));
+    }
+
+    #[test]
+    fn exports_story_graph_metadata_on_storydata_html_when_requested() {
+        let output = story_to_twine_html(
+            &story(),
+            &HtmlExportOptions {
+                include_story_graph: true,
+                ..HtmlExportOptions::default()
+            },
+        )
+        .expect("html exports");
+
+        assert!(output.contains("data-twine-rs-story-graph="));
+        assert!(output.contains("twine.rs/story-graph/v1"));
     }
 
     #[test]

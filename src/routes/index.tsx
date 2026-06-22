@@ -6,6 +6,7 @@ import {BuildRoute} from './build';
 import {ContentsRoute} from './contents';
 import {DiagnosticsRoute} from './diagnostics';
 import {NewProjectRoute} from './new-project';
+import {SettingsRoute} from './settings';
 import {StoryFormatsRoute} from './story-formats';
 import {StoryEditRoute} from './story-edit';
 import {StoryListRoute} from './story-list';
@@ -37,6 +38,9 @@ export const Routes: React.FC = () => {
 					</Route>
 					<Route exact path="/formats">
 						<StoryFormatsRoute />
+					</Route>
+					<Route exact path="/settings">
+						<SettingsRoute />
 					</Route>
 					<Route path="/stories/:storyId/build">
 						<BuildRoute />

@@ -102,8 +102,12 @@ export async function chooseStoryDirectoryPath() {
 
 	if (!canceled) {
 		setAppPref('storyLibraryFolderPath', filePaths[0]);
+		storyDirectoryPath = filePaths[0];
 		await showRelaunchDialog();
+		return filePaths[0];
 	}
+
+	return undefined;
 }
 
 /**

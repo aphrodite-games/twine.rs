@@ -9,5 +9,6 @@ export * from './prompt-icon-button';
 export * from './segmented-control';
 export * from './select';
 export * from './switch';
+export * from './source-editor';
 export * from './tag';
 export * from './tabler-icon';

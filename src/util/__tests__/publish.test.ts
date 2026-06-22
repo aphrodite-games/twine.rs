@@ -3,6 +3,7 @@ import * as publish from '../publish';
 import {AppInfo} from '../app-info';
 import {Passage, Story} from '../../store/stories';
 import {fakeAppInfo, fakePassage, fakeStory} from '../../test-util';
+import {TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE} from '../story-graph-metadata';
 
 function toDOM(htmlSource: string, dive = true): Element {
 	const container = document.createElement('div');
@@ -183,6 +184,29 @@ describe('publishPassage()', () => {
 
 		expect(result.getAttribute('startnode')).toBe(
 			startPassageData?.getAttribute('pid')
+		);
+	});
+
+	it('adds StoryData graph metadata only when requested', () => {
+		let result = toDOM(publish.publishStory(story, appInfo));
+
+		expect(result.querySelector('tw-passagedata[name="StoryGraph"]')).toBeNull();
+		expect(result.getAttribute(TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE)).toBeNull();
+
+		result = toDOM(
+			publish.publishStory(story, appInfo, {includeStoryGraph: true})
+		);
+
+		const storyGraph = JSON.parse(
+			result.getAttribute(TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE)!
+		);
+
+		expect(result.querySelector('tw-passagedata[name="StoryGraph"]')).toBeNull();
+		expect(storyGraph).toEqual(
+			expect.objectContaining({
+				kind: 'storyGraph',
+				schema: 'twine.rs/story-graph/v1'
+			})
 		);
 	});
 

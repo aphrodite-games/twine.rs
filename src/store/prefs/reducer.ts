@@ -43,6 +43,16 @@ export const reducer: React.Reducer<PrefsState, PrefsAction> = (
 						return {...result, [prefKey]: value};
 					}
 
+					if (
+						key === 'keybindingPreset' &&
+						!['default', 'emacs', 'vim'].includes(state[prefKey] as string)
+					) {
+						console.info(
+							`Repairing preference "${key}" by setting it to ${value}, was ${state[prefKey]} (not a valid value)`
+						);
+						return {...result, [prefKey]: value};
+					}
+
 					return result;
 				},
 				{}

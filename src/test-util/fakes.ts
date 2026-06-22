@@ -121,13 +121,18 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 		],
 		donateShown: faker.datatype.boolean(),
 		editorCursorBlinks: faker.datatype.boolean(),
+		defaultAssetFolder: '',
+		defaultProjectFolder: '',
 		firstRunTime: new Date().getTime(),
+		highContrast: faker.datatype.boolean(),
+		keybindingPreset: 'default',
 		lastUpdateSeen: '',
 		lastUpdateCheckTime: new Date().getTime(),
 		locale: faker.location.countryCode(),
 		passageEditorFontFamily: faker.lorem.words(2),
 		passageEditorFontScale: 0.8 + faker.number.float(0.5),
 		passageTagDisplay: 'color',
+		reducedMotion: faker.datatype.boolean(),
 		proofingFormat: {
 			name: faker.lorem.words(2),
 			version: faker.system.semver()

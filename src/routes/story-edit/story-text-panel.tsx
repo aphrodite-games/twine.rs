@@ -1,10 +1,12 @@
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {
+	Badge,
+	Button,
 	SourceEditor,
-	SourceEditorLanguage
-} from '../../components/control/source-editor';
-import {Badge, Button, TablerIcon} from '../../components/design-system';
+	SourceEditorLanguage,
+	TablerIcon
+} from '../../components/design-system';
 import {
 	updatePassageTextCommand,
 	updateStoryScriptCommand,

@@ -8,7 +8,11 @@ export const defaults = (): PrefsState => ({
 	disabledStoryFormatEditorExtensions: [],
 	donateShown: false,
 	editorCursorBlinks: true,
+	defaultAssetFolder: '',
+	defaultProjectFolder: '',
 	firstRunTime: new Date().getTime(),
+	highContrast: false,
+	keybindingPreset: 'default',
 	lastUpdateSeen: '',
 	lastUpdateCheckTime: new Date().getTime(),
 	locale:
@@ -20,6 +24,7 @@ export const defaults = (): PrefsState => ({
 	passageEditorFontFamily: 'var(--font-ui)',
 	passageEditorFontScale: 1,
 	passageTagDisplay: 'color',
+	reducedMotion: false,
 	proofingFormat: {
 		name: 'Paperthin',
 		version: '1.0.0'

@@ -81,6 +81,14 @@ const buildTargets: BuildTargetDefinition[] = [
 		target: 'export-twee'
 	},
 	{
+		description:
+			'Normal Twine HTML plus Twee without the twine.rs StoryData graph carrier.',
+		group: 'Export',
+		icon: 'file-import',
+		label: 'Compatibility Export',
+		target: 'compatibility-export'
+	},
+	{
 		description: 'Current app story JSON for tooling and inspection.',
 		group: 'Export',
 		icon: 'braces',
@@ -88,7 +96,22 @@ const buildTargets: BuildTargetDefinition[] = [
 		target: 'export-json'
 	},
 	{
-		description: 'Manifest plus HTML, JSON, Twee, and the asset copy plan.',
+		description: 'Text report for generated HTML structure and publish markers.',
+		group: 'Export',
+		icon: 'search',
+		label: 'Inspect HTML',
+		target: 'inspect-html'
+	},
+	{
+		description: 'Text report for source structure, passages, and metadata.',
+		group: 'Export',
+		icon: 'list-details',
+		label: 'Inspect Source',
+		target: 'inspect-source'
+	},
+	{
+		description:
+			'Archive descriptor plus HTML, JSON, project-fidelity Twee, and assets.',
 		group: 'Export',
 		icon: 'file-zip',
 		label: 'Package',
@@ -106,6 +129,7 @@ const buildTargets: BuildTargetDefinition[] = [
 const publishBoundTargets: StoryBuildTarget[] = [
 	'publish',
 	'export-html',
+	'compatibility-export',
 	'package'
 ];
 

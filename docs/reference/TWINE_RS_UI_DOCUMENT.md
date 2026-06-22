@@ -990,11 +990,11 @@ my-story.twine/
 
 This keeps narrative source clean while preserving graph-native editing. A source-only project does not need this file. Graph view may create an in-memory generated layout, but it should only write `.twine/graph.json` after the author chooses to save layout metadata.
 
-### `StoryGraph` Export Bundle
+### StoryData Graph Export Bundle
 
-For single-file Twee or project-compatible Story HTML round trips, `twine.rs` can deterministically bundle `.twine/graph.json` into a reserved passage named `StoryGraph`. This passage is an export/import carrier for sidecar graph metadata, not a normal story passage and not the canonical editable model.
+For single-file Twee or project-compatible Story HTML round trips, `twine.rs` can deterministically bundle `.twine/graph.json` into StoryData graph metadata. Twee uses `StoryData["twine.rs"].storyGraph`; Story HTML uses `data-twine-rs-story-graph` on `<tw-storydata>`. This is an export/import carrier for sidecar graph metadata, not a normal story passage and not the canonical editable model.
 
-When exporting a full-fidelity single file, the app writes `StoryGraph` with validated JSON for graph positions, groups, collapsed state, annotations, saved layouts, workspace view state, and auto-grouping rules. When importing, the app parses `StoryGraph` back into sidecar graph metadata, hides it from normal passage lists, and excludes it from play/test/publish unless the author explicitly asks to include editor metadata.
+When exporting a full-fidelity single file, the app writes validated `twine.rs/story-graph/v1` JSON for graph positions, groups, collapsed state, annotations, saved layouts, workspace view state, and auto-grouping rules into the StoryData carrier. When importing, the app parses this carrier back into sidecar graph metadata. Legacy `StoryGraph [metadata]` passages are still recognized and stripped during import for backwards compatibility, but new exports should not create them.
 
 Auto-grouping rules may derive organization views from passage names, folder paths, tags, link topology, connected components, reachability islands, hub/spoke neighborhoods, or graph clustering. Derived groups remain refreshable and explainable until the author pins or edits them, at which point stable IDs preserve the author's intent across external edits and reindexes.
 
@@ -1010,7 +1010,7 @@ Rules:
 4. Comments should survive parse/write cycles.
 5. Generated files should be clearly marked.
 6. If a conflict cannot be resolved losslessly, the UI should show a review panel instead of guessing.
-7. `StoryGraph` should be regenerated deterministically from sidecar graph metadata on export and parsed back into sidecar graph metadata on import.
+7. StoryData graph metadata should be regenerated deterministically from sidecar graph metadata on export and parsed back into sidecar graph metadata on import; legacy `StoryGraph` passages are import compatibility only.
 
 ## Canonical Data Model
 

@@ -62,6 +62,10 @@ function routeMode(pathname: string): RouteMode {
 		return {icon: 'puzzle', label: 'Formats'};
 	}
 
+	if (pathname.startsWith('/settings')) {
+		return {icon: 'settings', label: 'Settings'};
+	}
+
 	if (routeHasSegment(pathname, 'play')) {
 		return {icon: 'player-play', label: 'Play'};
 	}
@@ -142,6 +146,10 @@ function breadcrumbs(
 
 	if (pathname.startsWith('/formats')) {
 		return ['Story Formats'];
+	}
+
+	if (pathname.startsWith('/settings')) {
+		return ['Settings'];
 	}
 
 	if (story) {
@@ -367,6 +375,13 @@ export const AppShell: React.FC = ({children}) => {
 				id: 'nav.formats',
 				label: 'Story Formats',
 				run: () => history.push('/formats')
+			},
+			{
+				group: 'Navigation',
+				icon: 'settings',
+				id: 'nav.settings',
+				label: 'Settings',
+				run: () => history.push('/settings')
 			},
 			{
 				group: 'Navigation',
@@ -682,6 +697,17 @@ export const AppShell: React.FC = ({children}) => {
 						type="button"
 					>
 						<TablerIcon icon="puzzle" />
+					</button>
+					<button
+						aria-current={
+							location.pathname.startsWith('/settings') ? 'page' : undefined
+						}
+						className="app-shell__rail-button"
+						onClick={() => history.push('/settings')}
+						title="Settings"
+						type="button"
+					>
+						<TablerIcon icon="settings" />
 					</button>
 					<button
 						aria-current={

@@ -1,4 +1,5 @@
 import {importStories} from '../import';
+import {TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE} from '../story-graph-metadata';
 
 const testHtml = `
 <tw-storydata name="Test" startnode="1" zoom="1.5" creator="Twine" creator-version="2.0.11" ifid="3AE380EE-4B34-4D0D-A8E2-BE624EB271C9" format="SugarCube" options="" hidden><tw-tag name="my-tag" color="purple" /><style role="stylesheet" id="twine-user-stylesheet" type="text/twine-css">* { color: red }
@@ -103,6 +104,43 @@ describe('importStories', () => {
 		const result = importStories(testHtml, forceDate);
 
 		expect(result[0].lastUpdate).toBe(forceDate);
+	});
+
+	it('applies twine.rs StoryData graph metadata over normal passage positions', () => {
+		const metadata = {
+			schema: 'twine.rs/story-graph/v1',
+			kind: 'storyGraph',
+			graph: {
+				passages: {
+					'old-id': {
+						id: 'old-id',
+						name: 'Untitled Passage',
+						bounds: {
+							height: 180,
+							left: 123,
+							top: 456,
+							width: 240
+						}
+					}
+				}
+			}
+		};
+		const result = importStories(`
+			<tw-storydata name="Test" ${TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE}='${JSON.stringify(
+				metadata
+			)}' hidden>
+				<tw-passagedata pid="1" name="Untitled Passage" position="0,0" size="100,100">Text</tw-passagedata>
+			</tw-storydata>
+		`);
+
+		expect(result[0].passages[0]).toEqual(
+			expect.objectContaining({
+				height: 180,
+				left: 123,
+				top: 456,
+				width: 240
+			})
+		);
 	});
 
 	it('links passages to their parent story', () => {

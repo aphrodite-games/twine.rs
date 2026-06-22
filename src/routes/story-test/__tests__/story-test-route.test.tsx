@@ -44,6 +44,7 @@ describe('<StoryTestRoute>', () => {
 				'mock-published-story'
 			)
 		);
+		expect(screen.getByText('Test')).toBeInTheDocument();
 		expect(publishStory.mock.calls).toEqual([
 			['123', {buildTarget: 'test', formatOptions: 'debug', startId: undefined}]
 		]);

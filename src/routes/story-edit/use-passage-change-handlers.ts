@@ -31,9 +31,9 @@ export function usePassageChangeHandlers(story: Story) {
 	);
 
 	const handleCreatePassage = React.useCallback(
-		(point: Point) =>
+		(point: Point, size?: {height: number; width: number}) =>
 			coreProjectHost.applyStoryCommand(
-				createUntitledPassageCommand(story, point.left, point.top),
+				createUntitledPassageCommand(story, point.left, point.top, size),
 				'undoChange.newPassage'
 			),
 		[coreProjectHost, story]

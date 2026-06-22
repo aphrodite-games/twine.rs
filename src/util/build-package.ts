@@ -4,6 +4,7 @@ import type {Story} from '../store/stories';
 import type {AppInfo} from './app-info';
 import type {PublishOptions} from './publish';
 import {publishStoryWithFormat} from './publish';
+import {TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE} from './story-graph-metadata';
 import {storyToTwee} from './twee';
 import {
 	inspectStoryFormatPublishSafety,
@@ -20,6 +21,9 @@ export type StoryBuildTarget =
 	| 'export-html'
 	| 'export-json'
 	| 'export-twee'
+	| 'compatibility-export'
+	| 'inspect-html'
+	| 'inspect-source'
 	| 'package';
 
 export type StoryHtmlBuildTarget =
@@ -30,7 +34,9 @@ export type StoryHtmlBuildTarget =
 	| 'export-html';
 
 export type StoryBuildOutputKind =
+	| 'archive'
 	| 'html'
+	| 'inspection'
 	| 'json'
 	| 'package-manifest'
 	| 'twee';
@@ -163,7 +169,7 @@ function storyToJson(story: Story) {
 }
 
 function shouldRenderHtml(target: StoryBuildTarget) {
-	return target !== 'export-json' && target !== 'export-twee';
+	return !['export-json', 'export-twee', 'inspect-source'].includes(target);
 }
 
 function publishOptionsForTarget(
@@ -171,7 +177,7 @@ function publishOptionsForTarget(
 	publishOptions: PublishOptions
 ) {
 	if (target === 'package') {
-		return {...publishOptions, startOptional: true};
+		return {...publishOptions, includeStoryGraph: true, startOptional: true};
 	}
 
 	return publishOptions;
@@ -208,14 +214,50 @@ function targetFidelity(target: StoryBuildTarget): StoryBuildFidelityReport {
 				]
 			};
 
+		case 'compatibility-export':
+			return {
+				omits: [
+					'twine.rs StoryData graph metadata carrier',
+					'future graph groups, collapsed state, annotations, saved views, hierarchy, and derived rules',
+					'editor selection/highlight state'
+				],
+				preserves: [
+					'normal Twine HTML and Twee compatibility outputs',
+					'passage text, tags, and standard position/size metadata',
+					'story IFID, format, start passage, tag colors, JavaScript, and CSS'
+				]
+			};
+
+		case 'inspect-html':
+			return {
+				omits: ['no runnable package is produced by the inspection report'],
+				preserves: [
+					'HTML output structure summary',
+					'story data, format, start passage, asset, and publish-safety markers'
+				]
+			};
+
+		case 'inspect-source':
+			return {
+				omits: [
+					'story format runtime bundle',
+					'asset binaries',
+					'HTML runtime wrapper'
+				],
+				preserves: [
+					'Twee source structure summary',
+					'StoryData, StoryTitle, passage count, script, stylesheet, and asset reference counts'
+				]
+			};
+
 		case 'package':
 			return {
 				omits: [
-					'asset file bytes when no file-backed source path is available',
-					'future project-folder sidecars outside the current web store model'
+					'asset file bytes when no file-backed source path is available'
 				],
 				preserves: [
-					'HTML, JSON, and Twee compatibility outputs',
+					'HTML, JSON, Twee, and archive descriptor outputs',
+					'twine.rs StoryData graph metadata carrier in project-fidelity Twee/HTML',
 					'asset copy plan',
 					'capability manifest and publish-safety report'
 				]
@@ -274,6 +316,86 @@ function packageManifest(
 	);
 }
 
+function packageArchive(
+	story: Story,
+	generatedAt: string,
+	files: StoryBuildFile[],
+	assets: StoryBuildAsset[]
+) {
+	return JSON.stringify(
+		{
+			type: 'twine.rs/project-archive',
+			version: 1,
+			generatedAt,
+			story: {
+				format: story.storyFormat,
+				formatVersion: story.storyFormatVersion,
+				id: story.id,
+				ifid: story.ifid,
+				name: story.name
+			},
+			files: files.map(file => ({
+				contents: file.contents,
+				filename: file.filename,
+				kind: file.kind,
+				mediaType: file.mediaType,
+				role: file.role,
+				sizeBytes: file.sizeBytes
+			})),
+			assets
+		},
+		null,
+		2
+	);
+}
+
+function htmlInspection(story: Story, html: string, assets: StoryBuildAsset[]) {
+	const storyDataCount = (html.match(/<tw-storydata\b/g) ?? []).length;
+	const passageCount = (html.match(/<tw-passagedata\b/g) ?? []).length;
+	const hasStoryDataGraph = html.includes(`${TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE}=`);
+
+	return [
+		`HTML inspection for ${story.name}`,
+		'',
+		`Story format: ${story.storyFormat} ${story.storyFormatVersion}`,
+		`IFID: ${story.ifid}`,
+		`Story data blocks: ${storyDataCount}`,
+		`Passage data blocks: ${passageCount}`,
+		`twine.rs StoryData graph metadata: ${
+			hasStoryDataGraph ? 'present' : 'omitted'
+		}`,
+		`Asset copy plan items: ${assets.length}`,
+		`Output size: ${byteLength(html)} bytes`
+	].join('\n');
+}
+
+function sourceInspection(story: Story, twee: string, assets: StoryBuildAsset[]) {
+	return [
+		`Source inspection for ${story.name}`,
+		'',
+		`Passages: ${story.passages.length}`,
+		`Tags: ${story.tags.length}`,
+		`Story format: ${story.storyFormat} ${story.storyFormatVersion}`,
+		`Start passage: ${
+			story.passages.find(passage => passage.id === story.startPassage)?.name ??
+			'not set'
+		}`,
+		`Script bytes: ${byteLength(story.script)}`,
+		`Stylesheet bytes: ${byteLength(story.stylesheet)}`,
+		`Asset copy plan items: ${assets.length}`,
+		`Twee bytes: ${byteLength(twee)}`,
+		'',
+		'Passages:',
+		...story.passages
+			.slice()
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map(
+				passage =>
+					`- ${passage.name} (${byteLength(passage.text)} bytes, ${passage.tags.length} tags, ${passage.left},${passage.top} ${passage.width}x${passage.height})`
+			)
+	].join('\n');
+}
+
 function buildOutputFiles(
 	story: Story,
 	target: StoryBuildTarget,
@@ -281,12 +403,15 @@ function buildOutputFiles(
 	generatedAt: string,
 	assets: StoryBuildAsset[]
 ) {
+	const projectFidelity = target === 'package';
 	const htmlFile =
 		html.trim() !== ''
 			? outputDescriptor(
 					target,
 					'html',
-					target === 'package' ? 'supporting' : 'primary',
+					target === 'package' || target === 'inspect-html'
+						? 'supporting'
+						: 'primary',
 					storyFilename(story, '.html'),
 					'text/html;charset=utf-8',
 					html
@@ -306,7 +431,7 @@ function buildOutputFiles(
 		target === 'export-twee' ? 'primary' : 'supporting',
 		storyFilename(story, '.twee'),
 		'text/plain;charset=utf-8',
-		storyToTwee(story)
+		storyToTwee(story, {includeStoryGraph: projectFidelity})
 	);
 
 	switch (target) {
@@ -315,6 +440,37 @@ function buildOutputFiles(
 
 		case 'export-twee':
 			return [tweeFile];
+
+		case 'compatibility-export':
+			return [htmlFile, tweeFile].filter(
+				(file): file is StoryBuildFile => !!file
+			);
+
+		case 'inspect-html':
+			return [
+				outputDescriptor(
+					target,
+					'inspection',
+					'primary',
+					storyFilename(story, '.html-inspection.txt'),
+					'text/plain;charset=utf-8',
+					htmlInspection(story, html, assets)
+				),
+				...(htmlFile ? [htmlFile] : [])
+			];
+
+		case 'inspect-source':
+			return [
+				outputDescriptor(
+					target,
+					'inspection',
+					'primary',
+					storyFilename(story, '.source-inspection.txt'),
+					'text/plain;charset=utf-8',
+					sourceInspection(story, tweeFile.contents, assets)
+				),
+				tweeFile
+			];
 
 		case 'package': {
 			const packageFiles = [htmlFile, jsonFile, tweeFile].filter(
@@ -328,8 +484,16 @@ function buildOutputFiles(
 				'application/json;charset=utf-8',
 				packageManifest(story, generatedAt, packageFiles, assets)
 			);
+			const archive = outputDescriptor(
+				target,
+				'archive',
+				'primary',
+				storyFilename(story, '.twine-project-archive.json'),
+				'application/json;charset=utf-8',
+				packageArchive(story, generatedAt, packageFiles, assets)
+			);
 
-			return [manifest, ...packageFiles];
+			return [manifest, archive, ...packageFiles];
 		}
 
 		default:
@@ -367,6 +531,7 @@ function assertPublishSafety(
 	const publishBoundTargets: StoryBuildTarget[] = [
 		'publish',
 		'export-html',
+		'compatibility-export',
 		'package'
 	];
 

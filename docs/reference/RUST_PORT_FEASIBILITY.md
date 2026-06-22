@@ -54,12 +54,13 @@ SVG link path.
 Current D5 status: the primary story-edit graph now renders through
 `src/routes/story-edit/story-graph-panel.tsx`, backed by `QueryGraphProjection`
 and DS `PassageNode` rendering. Viewport/focus options cross the query boundary,
-and reveal-in-graph is explicit from Text, search, and diagnostics.
+reveal-in-graph is explicit from Text, search, and diagnostics, and dense edges
+now render through a bounded Canvas2D layer instead of per-edge SVG elements.
 
 Remaining risk:
 
-- Edges are still rendered as SVG paths, so 10k/50k-node performance is not yet
-  proven.
+- The projection path now has a 10k-passage viewport-bounded test, but 50k-node
+  interactive behavior is still not proven end to end in the running app.
 - The legacy map components remain in `src/components/passage` and
   `src/routes/story-edit/marqueeable-passage-map.tsx` for compatibility/tests;
   they are no longer the primary Workbench route.
@@ -68,8 +69,10 @@ Remaining risk:
 
 Best remaining fix:
 
-- Prove the D5 path with 10k/50k graph fixtures.
-- Move dense link rendering to canvas/WebGL or virtualized SVG.
+- Prove the D5 path with 50k graph fixtures and browser-level interaction
+  traces.
+- Keep dense link rendering on Canvas2D/WebGL rather than returning to per-link
+  DOM/SVG.
 - Keep drag/selection state local during pointer movement.
 - Keep text excerpts and layout geometry precomputed.
 
@@ -243,7 +246,13 @@ Use a normalized model:
 
 ### UI Shell
 
-Best first shell: Tauri with a web frontend.
+Greenfield best shell: Tauri with a web frontend.
+
+Current repo reality: the working desktop application is still Electron
+(`src/electron/*`, `electron-builder`, and the `window.twineElectron` bridge).
+Native desktop filesystem work should therefore land behind the existing Electron
+IPC bridge first, while keeping the command/query surface narrow enough that a
+later Tauri command layer can replace it.
 
 Reason:
 

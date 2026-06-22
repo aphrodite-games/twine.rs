@@ -303,7 +303,7 @@ Important principle:
 - A project with graph positions gets graph mode immediately.
 - Generated layouts can be viewed without dirtying the source.
 - Only explicit layout save writes `.twine/graph.json`.
-- For full-fidelity single-file Twee or project-compatible Story HTML export, `.twine/graph.json` is deterministically bundled into a reserved `StoryGraph` passage and parsed back into sidecar graph metadata on import.
+- For full-fidelity single-file Twee or project-compatible Story HTML export, `.twine/graph.json` is deterministically bundled into StoryData graph metadata (`StoryData["twine.rs"].storyGraph` for Twee, `data-twine-rs-story-graph` on `<tw-storydata>` for HTML) and parsed back into sidecar graph metadata on import. Legacy `StoryGraph` passages are import compatibility only.
 
 This gives you both dreams:
 

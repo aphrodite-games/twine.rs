@@ -17,12 +17,13 @@ import {
 	importAssetCommand,
 	insertAssetSnippetCommand,
 	replaceAssetCommand,
+	replaceKnownAssetInventoryForStory,
 	renameAssetCommand,
 	revealAssetCommand,
 	useCoreProjectHost,
 	validateAssetReferencesCommand
 } from '../../core';
-import type {PatchBatch} from '../../core';
+import type {CoreAssetInventoryEntry, PatchBatch} from '../../core';
 import type {AssetManagerViewModelEntry} from '../../core/view-models';
 import {
 	Passage,
@@ -30,10 +31,13 @@ import {
 	Story,
 	useStoriesContext
 } from '../../store/stories';
+import {usePrefsContext} from '../../store/prefs';
+import {loadProjectMetadata} from '../../store/project-metadata';
 import './assets-route.css';
 
 type AssetSort = 'Name' | 'References' | 'Size' | 'Type';
 type AssetView = 'grid' | 'table';
+type AssetInventoryState = 'fallback' | 'loading' | 'live' | 'error';
 
 function storyForId(stories: Story[], storyId: string | undefined) {
 	return stories.find(story => story.id === storyId);
@@ -82,6 +86,17 @@ function bytesLabel(bytes: number | null) {
 	}
 
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function modifiedLabel(value: string | null) {
+	if (!value) {
+		return 'Unknown';
+	}
+
+	return new Intl.DateTimeFormat(undefined, {
+		dateStyle: 'medium',
+		timeStyle: 'short'
+	}).format(new Date(value));
 }
 
 function dimensionLabel(asset: AssetManagerViewModelEntry) {
@@ -183,9 +198,34 @@ function sourceTarget(story: Story, passage?: Passage) {
 	return `/stories/${story.id}?${query.toString()}`;
 }
 
+function assetSourceLabel(asset: AssetManagerViewModelEntry) {
+	if (asset.exists === true) {
+		return asset.referenceCount > 0 ? 'File + references' : 'File only';
+	}
+
+	if (asset.exists === false) {
+		return 'Missing file';
+	}
+
+	return 'Reference only';
+}
+
+function assetStatusLabel(asset: AssetManagerViewModelEntry) {
+	if (asset.missing) {
+		return 'Missing';
+	}
+
+	if (asset.unused) {
+		return 'Unused';
+	}
+
+	return 'Referenced';
+}
+
 export const AssetsRoute: React.FC = () => {
 	const {storyId} = useParams<{storyId: string}>();
 	const {dispatch, stories} = useStoriesContext();
+	const {prefs} = usePrefsContext();
 	const history = useHistory();
 	const coreProjectHost = useCoreProjectHost();
 	const story = storyForId(stories, storyId);
@@ -195,6 +235,8 @@ export const AssetsRoute: React.FC = () => {
 	const [view, setView] = React.useState<AssetView>('grid');
 	const [selectedPath, setSelectedPath] = React.useState<string>();
 	const [importPath, setImportPath] = React.useState('');
+	const [importingAsset, setImportingAsset] = React.useState(false);
+	const [assetError, setAssetError] = React.useState<string>();
 	const [assetEdit, setAssetEdit] = React.useState<
 		| {
 				mode: 'rename' | 'replace';
@@ -203,7 +245,18 @@ export const AssetsRoute: React.FC = () => {
 		  }
 		| undefined
 	>();
+	const [projectAssets, setProjectAssets] = React.useState<
+		CoreAssetInventoryEntry[]
+	>([]);
+	const [inventoryState, setInventoryState] =
+		React.useState<AssetInventoryState>('fallback');
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const projectMetadata = React.useMemo(
+		() => (story ? loadProjectMetadata(story.id) : undefined),
+		[story]
+	);
+	const projectRoot = projectMetadata?.rootPath;
+	const twineElectron = (window as TwineElectronWindow).twineElectron;
 
 	React.useEffect(
 		() =>
@@ -214,9 +267,38 @@ export const AssetsRoute: React.FC = () => {
 		[coreProjectHost]
 	);
 
+	const refreshProjectAssets = React.useCallback(async () => {
+		if (!projectRoot || !twineElectron?.listProjectAssets) {
+			setProjectAssets([]);
+			setInventoryState('fallback');
+			return;
+		}
+
+		setInventoryState('loading');
+
+		try {
+			const inventory = await twineElectron.listProjectAssets(projectRoot);
+
+			if (story) {
+				replaceKnownAssetInventoryForStory(story.id, inventory);
+			}
+			setProjectAssets(inventory);
+			setInventoryState('live');
+			setAssetError(undefined);
+		} catch (error) {
+			setProjectAssets([]);
+			setInventoryState('error');
+			setAssetError((error as Error).message);
+		}
+	}, [projectRoot, story, twineElectron]);
+
+	React.useEffect(() => {
+		void refreshProjectAssets();
+	}, [refreshProjectAssets]);
+
 	const index = React.useMemo(
 		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
-		[coreProjectHost, patchVersion, story]
+		[coreProjectHost, patchVersion, projectAssets, story]
 	);
 	const assets = React.useMemo(
 		() => (index ? assetManagerViewModel(index) : undefined),
@@ -262,7 +344,7 @@ export const AssetsRoute: React.FC = () => {
 		}
 	}, [selectedAsset, selectedPath]);
 
-	function importAsset() {
+	async function importAsset() {
 		if (!story) {
 			return;
 		}
@@ -270,10 +352,71 @@ export const AssetsRoute: React.FC = () => {
 		const sourcePath = importPath.trim();
 
 		if (sourcePath) {
-			coreProjectHost.applyStoryCommand(
-				importAssetCommand(story.id, sourcePath)
+			setAssetError(undefined);
+			setImportingAsset(true);
+
+			try {
+				const copied =
+					projectRoot && twineElectron?.copyAssetToProject
+						? await twineElectron.copyAssetToProject(projectRoot, sourcePath)
+						: undefined;
+
+				coreProjectHost.applyStoryCommand(
+					importAssetCommand(story.id, copied?.sourcePath ?? sourcePath, {
+						targetPath: copied?.targetPath
+					})
+				);
+				setImportPath('');
+				await refreshProjectAssets();
+			} catch (error) {
+				setAssetError((error as Error).message);
+			} finally {
+				setImportingAsset(false);
+			}
+		}
+	}
+
+	async function chooseAsset() {
+		if (!story) {
+			return;
+		}
+
+		const twineElectron = (window as TwineElectronWindow).twineElectron;
+
+		if (!twineElectron?.chooseAssetFile) {
+			importAsset();
+			return;
+		}
+
+		setAssetError(undefined);
+		setImportingAsset(true);
+
+		try {
+			const sourcePath = await twineElectron.chooseAssetFile(
+				prefs.defaultAssetFolder || importPath || undefined
 			);
-			setImportPath('');
+
+			if (sourcePath) {
+				const copied =
+					projectMetadata?.rootPath && twineElectron.copyAssetToProject
+						? await twineElectron.copyAssetToProject(
+								projectMetadata.rootPath,
+								sourcePath
+							)
+						: undefined;
+
+				coreProjectHost.applyStoryCommand(
+					importAssetCommand(story.id, copied?.sourcePath ?? sourcePath, {
+						targetPath: copied?.targetPath
+					})
+				);
+				setImportPath('');
+				await refreshProjectAssets();
+			}
+		} catch (error) {
+			setAssetError((error as Error).message);
+		} finally {
+			setImportingAsset(false);
 		}
 	}
 
@@ -327,7 +470,7 @@ export const AssetsRoute: React.FC = () => {
 		history.push(sourceTarget(story, target));
 	}
 
-	function applyAssetEdit(event: React.FormEvent) {
+	async function applyAssetEdit(event: React.FormEvent) {
 		event.preventDefault();
 
 		if (!story || !assetEdit) {
@@ -340,19 +483,99 @@ export const AssetsRoute: React.FC = () => {
 			return;
 		}
 
-		if (assetEdit.mode === 'rename' && value !== assetEdit.path) {
-			coreProjectHost.applyStoryCommand(
-				renameAssetCommand(story.id, assetEdit.path, value)
-			);
+		setAssetError(undefined);
+
+		try {
+			if (assetEdit.mode === 'rename' && value !== assetEdit.path) {
+				const renamed =
+					projectRoot && twineElectron?.renameProjectAsset
+						? await twineElectron.renameProjectAsset(
+								projectRoot,
+								assetEdit.path,
+								value
+							)
+						: undefined;
+
+				coreProjectHost.applyStoryCommand(
+					renameAssetCommand(
+						story.id,
+						assetEdit.path,
+						renamed?.targetPath ?? value
+					)
+				);
+				setSelectedPath(renamed?.targetPath ?? value);
+			}
+
+			if (assetEdit.mode === 'replace') {
+				const replaced =
+					projectRoot && twineElectron?.replaceProjectAsset
+						? await twineElectron.replaceProjectAsset(
+								projectRoot,
+								assetEdit.path,
+								value
+							)
+						: undefined;
+
+				coreProjectHost.applyStoryCommand(
+					replaceAssetCommand(
+						story.id,
+						assetEdit.path,
+						replaced?.sourcePath ?? value
+					)
+				);
+			}
+
+			setAssetEdit(undefined);
+			await refreshProjectAssets();
+		} catch (error) {
+			setAssetError((error as Error).message);
+		}
+	}
+
+	async function deleteAsset(asset: AssetManagerViewModelEntry) {
+		if (!story) {
+			return;
 		}
 
-		if (assetEdit.mode === 'replace') {
+		setAssetError(undefined);
+
+		try {
+			if (projectRoot && twineElectron?.deleteProjectAsset) {
+				await twineElectron.deleteProjectAsset(projectRoot, asset.path);
+			}
+
 			coreProjectHost.applyStoryCommand(
-				replaceAssetCommand(story.id, assetEdit.path, value)
+				deleteAssetCommand(story.id, asset.path, true)
 			);
+			setSelectedPath(undefined);
+			await refreshProjectAssets();
+		} catch (error) {
+			setAssetError((error as Error).message);
+		}
+	}
+
+	async function validateReferences() {
+		if (!story) {
+			return;
 		}
 
-		setAssetEdit(undefined);
+		await refreshProjectAssets();
+		coreProjectHost.applyStoryCommand(validateAssetReferencesCommand(story.id));
+	}
+
+	function revealAsset(asset: AssetManagerViewModelEntry) {
+		if (!story) {
+			return;
+		}
+
+		if (projectRoot && twineElectron?.revealPath) {
+			twineElectron.revealPath(
+				`${projectRoot.replace(/[\\/]+$/, '')}/${asset.path}`
+			);
+			return;
+		}
+
+		coreProjectHost.applyStoryCommand(revealAssetCommand(story.id, asset.path));
 	}
 
 	if (!story || !assets) {
@@ -429,14 +652,20 @@ export const AssetsRoute: React.FC = () => {
 					<Button
 						disabled={importPath.trim() === ''}
 						icon="upload"
+						loading={importingAsset}
 						onClick={importAsset}
 						size="sm"
 						variant="primary"
 					>
 						Import Asset
 					</Button>
-					<Button icon="folder-plus" size="sm" variant="ghost">
-						New Folder
+					<Button
+						icon="folder-open"
+						loading={importingAsset}
+						onClick={chooseAsset}
+						size="sm"
+					>
+						Choose Asset
 					</Button>
 					<Button
 						icon="search-off"
@@ -446,7 +675,37 @@ export const AssetsRoute: React.FC = () => {
 					>
 						Find Unused
 					</Button>
+					<div className="assets-route__inventory-status">
+						<Badge
+							dot
+							tone={
+								inventoryState === 'live'
+									? 'saved'
+									: inventoryState === 'error'
+										? 'error'
+										: inventoryState === 'loading'
+											? 'neutral'
+											: 'warn'
+							}
+						>
+							{inventoryState === 'live'
+								? 'Live folder'
+								: inventoryState === 'loading'
+									? 'Scanning'
+									: inventoryState === 'error'
+										? 'Scan failed'
+										: 'Reference fallback'}
+						</Badge>
+						<span>{projectAssets.length} files</span>
+						<span>{assets.referenceCount} refs</span>
+					</div>
 				</div>
+				{assetError && (
+					<div className="assets-route__error">
+						<TablerIcon icon="alert-octagon" />
+						<span>{assetError}</span>
+					</div>
+				)}
 				<div className="assets-route__toolbar">
 					<Input
 						aria-label="Search assets"
@@ -515,7 +774,8 @@ export const AssetsRoute: React.FC = () => {
 									</span>
 								</span>
 								<span className="assets-route__card-meta">
-									{asset.referenceCount} refs
+									<span>{assetStatusLabel(asset)}</span>
+									<span>{asset.referenceCount} refs</span>
 								</span>
 							</button>
 						))
@@ -554,6 +814,18 @@ export const AssetsRoute: React.FC = () => {
 										Unused
 									</Badge>
 								)}
+								<Badge
+									dot
+									tone={
+										selectedAsset.exists === true
+											? 'saved'
+											: selectedAsset.exists === false
+												? 'error'
+												: 'warn'
+									}
+								>
+									{assetSourceLabel(selectedAsset)}
+								</Badge>
 								<Badge dot tone={selectedAsset.publish.copy ? 'saved' : 'warn'}>
 									{selectedAsset.publish.copy ? 'Publish' : 'Do not publish'}
 								</Badge>
@@ -572,8 +844,16 @@ export const AssetsRoute: React.FC = () => {
 								<b>{bytesLabel(selectedAsset.sizeBytes)}</b>
 							</div>
 							<div className="assets-route__field">
+								<span>Modified</span>
+								<b>{modifiedLabel(selectedAsset.inventory.modifiedAt)}</b>
+							</div>
+							<div className="assets-route__field">
 								<span>References</span>
 								<b>{selectedAsset.referenceCount}</b>
+							</div>
+							<div className="assets-route__field">
+								<span>Publish Rule</span>
+								<b>{selectedAsset.publish.reason}</b>
 							</div>
 							<div className="assets-route__section-title">Insert Snippet</div>
 							<div className="assets-route__snippet">
@@ -632,11 +912,7 @@ export const AssetsRoute: React.FC = () => {
 								<Button
 									block
 									icon="folder-open"
-									onClick={() =>
-										coreProjectHost.applyStoryCommand(
-											revealAssetCommand(story.id, selectedAsset.path)
-										)
-									}
+									onClick={() => revealAsset(selectedAsset)}
 									size="sm"
 									variant="ghost"
 								>
@@ -675,11 +951,7 @@ export const AssetsRoute: React.FC = () => {
 								<Button
 									block
 									icon="trash"
-									onClick={() =>
-										coreProjectHost.applyStoryCommand(
-											deleteAssetCommand(story.id, selectedAsset.path, true)
-										)
-									}
+									onClick={() => deleteAsset(selectedAsset)}
 									size="sm"
 									variant="danger"
 								>
@@ -688,11 +960,7 @@ export const AssetsRoute: React.FC = () => {
 								<Button
 									block
 									icon="refresh"
-									onClick={() =>
-										coreProjectHost.applyStoryCommand(
-											validateAssetReferencesCommand(story.id)
-										)
-									}
+									onClick={validateReferences}
 									size="sm"
 									variant="ghost"
 								>
@@ -710,13 +978,13 @@ export const AssetsRoute: React.FC = () => {
 										}
 										block
 										icon={assetEdit.mode === 'rename' ? 'edit' : 'refresh'}
-										onChange={event =>
+										onChange={event => {
+											const {value} = event.target;
+
 											setAssetEdit(current =>
-												current
-													? {...current, value: event.target.value}
-													: current
-											)
-										}
+												current ? {...current, value} : current
+											);
+										}}
 										placeholder={
 											assetEdit.mode === 'rename'
 												? 'New asset path'

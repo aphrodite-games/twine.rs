@@ -84,6 +84,12 @@ describe('<BuildRoute>', () => {
 		expect(
 			screen.getByRole('button', {name: /Export HTML/})
 		).toBeInTheDocument();
+		expect(
+			screen.getByRole('button', {name: /Compatibility Export/})
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole('button', {name: /Inspect Source/})
+		).toBeInTheDocument();
 		expect(screen.getByRole('button', {name: /Package/})).toBeInTheDocument();
 		expect(screen.getByText('Format Capabilities')).toBeInTheDocument();
 		expect(screen.getByText('Fidelity Boundary')).toBeInTheDocument();
@@ -113,6 +119,21 @@ describe('<BuildRoute>', () => {
 			)
 		);
 		expect(screen.getByText('Saved Moon Castle.html.')).toBeInTheDocument();
+	});
+
+	it('saves inspection reports for inspection targets', async () => {
+		renderComponent();
+
+		fireEvent.click(screen.getByRole('button', {name: /Inspect Source/}));
+		fireEvent.click(screen.getByRole('button', {name: 'Build and Save'}));
+
+		await waitFor(() =>
+			expect(saveFile).toHaveBeenCalledWith(
+				expect.stringContaining('Source inspection for Moon Castle'),
+				'Moon Castle.source-inspection.txt',
+				'text/plain;charset=utf-8'
+			)
+		);
 	});
 
 	it('runs preview targets after preparing their package', async () => {

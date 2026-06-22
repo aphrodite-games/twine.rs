@@ -42,3 +42,10 @@
 		--dur-4: 0ms; /* @kind other */
 	}
 }
+
+body[data-reduced-motion='true'] {
+	--dur-1: 0ms; /* @kind other */
+	--dur-2: 0ms; /* @kind other */
+	--dur-3: 0ms; /* @kind other */
+	--dur-4: 0ms; /* @kind other */
+}

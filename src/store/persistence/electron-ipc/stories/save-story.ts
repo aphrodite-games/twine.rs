@@ -7,6 +7,26 @@ import {
 } from '../../../story-formats';
 import {getAppInfo} from '../../../../util/app-info';
 import {fetchStoryFormatProperties} from '../../../../util/story-format/fetch-properties';
+import {loadProjectMetadata} from '../../../project-metadata';
+
+async function saveNativeProjectFolder(
+	twineElectron: NonNullable<TwineElectronWindow['twineElectron']>,
+	story: Story
+) {
+	const projectMetadata = loadProjectMetadata(story.id);
+
+	if (projectMetadata?.rootPath && twineElectron.saveProjectFolder) {
+		try {
+			await twineElectron.saveProjectFolder(projectMetadata.rootPath, story);
+		} catch (error) {
+			console.warn(
+				`Could not update native project folder (${
+					(error as Error).message
+				}). Story HTML save was still sent.`
+			);
+		}
+	}
+}
 
 /**
  * Sends an IPC message to save a story to disk, ideally in published form.
@@ -18,6 +38,8 @@ export async function saveStory(story: Story, formats: StoryFormatsState) {
 		throw new Error('Electron bridge is not present on window.');
 	}
 
+	let storyHtml: string;
+
 	try {
 		const format = formatWithNameAndVersion(
 			formats,
@@ -26,21 +48,18 @@ export async function saveStory(story: Story, formats: StoryFormatsState) {
 		);
 
 		if (format.loadState === 'loaded') {
-			twineElectron.saveStoryHtml(
+			storyHtml = publishStoryWithFormat(
 				story,
-				publishStoryWithFormat(story, format.properties.source, getAppInfo(), {
-					startOptional: true
-				})
+				format.properties.source,
+				getAppInfo(),
+				{startOptional: true}
 			);
 		} else {
 			const {source} = await fetchStoryFormatProperties(format.url);
 
-			twineElectron.saveStoryHtml(
-				story,
-				publishStoryWithFormat(story, source, getAppInfo(), {
-					startOptional: true
-				})
-			);
+			storyHtml = publishStoryWithFormat(story, source, getAppInfo(), {
+				startOptional: true
+			});
 		}
 	} catch (error) {
 		console.warn(
@@ -48,9 +67,9 @@ export async function saveStory(story: Story, formats: StoryFormatsState) {
 				(error as Error).message
 			}). Trying to save story data only.`
 		);
-		twineElectron.saveStoryHtml(
-			story,
-			publishStory(story, getAppInfo(), {startOptional: true})
-		);
+		storyHtml = publishStory(story, getAppInfo(), {startOptional: true});
 	}
+
+	twineElectron.saveStoryHtml(story, storyHtml);
+	await saveNativeProjectFolder(twineElectron, story);
 }

@@ -125,9 +125,11 @@ describe('M6 build package', () => {
 			target: 'package'
 		});
 		const manifest = JSON.parse(result.files[0].contents);
+		const archive = JSON.parse(result.files[1].contents);
 
 		expect(result.files.map(file => file.kind)).toEqual([
 			'package-manifest',
+			'archive',
 			'html',
 			'json',
 			'twee'
@@ -141,12 +143,65 @@ describe('M6 build package', () => {
 		expect(manifest.assets).toEqual([
 			expect.objectContaining({outputPath: 'assets/cover.png'})
 		]);
+		expect(archive).toEqual(
+			expect.objectContaining({
+				type: 'twine.rs/project-archive',
+				files: expect.arrayContaining([
+					expect.objectContaining({
+						contents: expect.stringContaining('twine.rs/story-graph/v1')
+					})
+				])
+			})
+		);
 		expect(result.report.outputs.map(output => output.kind)).toEqual([
 			'package-manifest',
+			'archive',
 			'html',
 			'json',
 			'twee'
 		]);
+	});
+
+	it('builds compatibility exports without twine.rs StoryData graph metadata', () => {
+		const result = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+			formatProperties: fakeStoryFormatProperties(),
+			target: 'compatibility-export'
+		});
+
+		expect(result.files.map(file => file.kind)).toEqual(['html', 'twee']);
+		expect(result.files[0].contents).not.toContain(
+			'data-twine-rs-story-graph'
+		);
+		expect(result.files[1].contents).not.toContain('"twine.rs"');
+		expect(result.report.fidelity.omits).toContain(
+			'twine.rs StoryData graph metadata carrier'
+		);
+	});
+
+	it('builds source and HTML inspection reports', () => {
+		const sourceInspection = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+			formatProperties: fakeStoryFormatProperties(),
+			target: 'inspect-source'
+		});
+		const htmlInspection = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+			formatProperties: fakeStoryFormatProperties(),
+			target: 'inspect-html'
+		});
+
+		expect(sourceInspection.files[0]).toEqual(
+			expect.objectContaining({
+				kind: 'inspection',
+				role: 'primary',
+				contents: expect.stringContaining('Source inspection')
+			})
+		);
+		expect(htmlInspection.files[0]).toEqual(
+			expect.objectContaining({
+				kind: 'inspection',
+				role: 'primary',
+				contents: expect.stringContaining('HTML inspection')
+			})
+		);
 	});
 
 	it('blocks publish packages when dev-only format code would ship', () => {
@@ -167,6 +222,13 @@ describe('M6 build package', () => {
 			createStoryBuildPackage(story, fakeAppInfo(), {
 				formatProperties: properties,
 				target: 'export-html'
+			})
+		).toThrow('not publish-safe');
+
+		expect(() =>
+			createStoryBuildPackage(story, fakeAppInfo(), {
+				formatProperties: properties,
+				target: 'compatibility-export'
 			})
 		).toThrow('not publish-safe');
 

@@ -12,11 +12,29 @@ import jsonp from 'jsonp';
 import {Story} from '../../store/stories/stories.types';
 
 contextBridge.exposeInMainWorld('twineElectron', {
+	chooseAssetFile(defaultPath?: string) {
+		return ipcRenderer.invoke('choose-asset-file', defaultPath);
+	},
+	chooseStoryLibraryFolder() {
+		return ipcRenderer.invoke('choose-story-library-folder');
+	},
 	copyText(text: string) {
 		ipcRenderer.send('copy-text', text);
 	},
+	copyAssetToProject(rootPath: string, sourcePath: string) {
+		return ipcRenderer.invoke('copy-asset-to-project', rootPath, sourcePath);
+	},
+	createProjectFolder(story: Story, preferredParent?: string) {
+		return ipcRenderer.invoke('create-project-folder', story, preferredParent);
+	},
+	deleteProjectAsset(rootPath: string, path: string) {
+		return ipcRenderer.invoke('delete-project-asset', rootPath, path);
+	},
 	deleteStory(story: Story) {
 		ipcRenderer.send('delete-story', story);
+	},
+	getStoryLibraryFolder() {
+		return ipcRenderer.invoke('get-story-library-folder');
 	},
 	loadPrefs() {
 		return ipcRenderer.invoke('load-prefs');
@@ -26,6 +44,9 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	},
 	loadStoryFormats() {
 		return ipcRenderer.invoke('load-story-formats');
+	},
+	listProjectAssets(rootPath: string) {
+		return ipcRenderer.invoke('list-project-assets', rootPath);
 	},
 	jsonp(url: string, options: {name?: string; timeout?: number}, callback: any) {
 		return jsonp(url, options, callback);
@@ -39,14 +60,34 @@ contextBridge.exposeInMainWorld('twineElectron', {
 	openWithScratchPackage(data: string, filename: string, assets: unknown[]) {
 		ipcRenderer.send('open-with-scratch-package', data, filename, assets);
 	},
+	openProjectFolder() {
+		return ipcRenderer.invoke('open-project-folder');
+	},
+	revealStoryLibraryFolder() {
+		return ipcRenderer.invoke('reveal-story-library-folder');
+	},
 	revealPath(path: string) {
 		ipcRenderer.send('reveal-path', path);
+	},
+	renameProjectAsset(rootPath: string, oldPath: string, newPath: string) {
+		return ipcRenderer.invoke('rename-project-asset', rootPath, oldPath, newPath);
 	},
 	renameStory(oldStory: Story, newStory: Story) {
 		ipcRenderer.send('rename-story', oldStory, newStory);
 	},
+	replaceProjectAsset(rootPath: string, path: string, sourcePath: string) {
+		return ipcRenderer.invoke(
+			'replace-project-asset',
+			rootPath,
+			path,
+			sourcePath
+		);
+	},
 	saveJson(filename: string, data: any) {
 		ipcRenderer.send('save-json', filename, data);
+	},
+	saveProjectFolder(rootPath: string, story: Story) {
+		return ipcRenderer.invoke('save-project-folder', rootPath, story);
 	},
 	saveStoryHtml(story: Story, data: string) {
 		ipcRenderer.send('save-story-html', story, data);

@@ -41,6 +41,7 @@ describe('<StoryProofRoute>', () => {
 				'mock-proofed-story'
 			)
 		);
+		expect(screen.getByText('Proof')).toBeInTheDocument();
 		expect(proofStory.mock.calls).toEqual([['123']]);
 	});
 

@@ -159,6 +159,11 @@ describe('chooseStoryDirectory()', () => {
 			]);
 		});
 
+		it('returns and tracks the chosen path immediately', async () => {
+			await expect(chooseStoryDirectoryPath()).resolves.toBe('mock-new-path');
+			expect(getStoryDirectoryPath()).toBe('mock-new-path');
+		});
+
 		it('shows the relaunch dialog', async () => {
 			await chooseStoryDirectoryPath();
 			expect(showRelaunchDialogMock).toBeCalledTimes(1);

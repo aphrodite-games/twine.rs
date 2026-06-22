@@ -6,6 +6,7 @@ import {
 	Button,
 	IconButton,
 	PassageNode,
+	Select,
 	SegmentedControl,
 	TablerIcon
 } from '../../components/design-system';
@@ -23,7 +24,7 @@ import {Passage, Story} from '../../store/stories';
 import {Point, rectsIntersect} from '../../util/geometry';
 
 export interface StoryGraphPanelProps {
-	onCreate: (point: Point) => void;
+	onCreate: (point: Point, size?: {height: number; width: number}) => void;
 	onDeselect: (passage: Passage) => void;
 	onEdit: (passage: Passage) => void;
 	onSelect: (passage: Passage, exclusive: boolean) => void;
@@ -34,6 +35,19 @@ export interface StoryGraphPanelProps {
 }
 
 type GraphDensity = 'structure' | 'names' | 'excerpt';
+type GraphOrientation = 'right' | 'down' | 'left' | 'up';
+type GraphSizePreset = 'small' | 'medium' | 'large' | 'tall' | 'wide';
+
+const graphSizePresets: Record<
+	GraphSizePreset,
+	{height: number; label: string; width: number}
+> = {
+	small: {height: 92, label: 'Small', width: 150},
+	medium: {height: 110, label: 'Medium', width: 184},
+	large: {height: 148, label: 'Large', width: 240},
+	tall: {height: 190, label: 'Tall', width: 184},
+	wide: {height: 110, label: 'Wide', width: 292}
+};
 
 interface DragState {
 	ids: string[];
@@ -41,6 +55,14 @@ interface DragState {
 	startLeft: number;
 	startTop: number;
 	top: number;
+}
+
+interface ResizeState {
+	currentHeight: number;
+	currentWidth: number;
+	height: number;
+	ids: string[];
+	width: number;
 }
 
 interface ViewportState {
@@ -54,7 +76,7 @@ const minimapSize = {height: 120, width: 170};
 const nodeVisualSize = {height: 110, width: 184};
 const canvasPad = 900;
 const graphInteractiveSelector =
-	'.story-edit-graph-node, .story-edit-graph-toolbar, .story-edit-graph-status, .story-edit-graph-minimap';
+	'.story-edit-graph-node, .story-edit-graph-toolbar, .story-edit-graph-status, .story-edit-graph-minimap, .story-edit-graph-card-tools';
 
 function excerpt(text: string) {
 	const compact = text.replace(/\s+/g, ' ').trim();
@@ -83,7 +105,163 @@ function passageRect(passage: Passage): CoreRect {
 	};
 }
 
-function edgePath(edge: CoreGraphEdge, nodeById: Map<string, CoreGraphNode>) {
+function orientationLabel(orientation: GraphOrientation) {
+	switch (orientation) {
+		case 'down':
+			return 'Top to Bottom';
+		case 'left':
+			return 'Right to Left';
+		case 'up':
+			return 'Bottom to Top';
+		default:
+			return 'Left to Right';
+	}
+}
+
+function nextOrientation(orientation: GraphOrientation): GraphOrientation {
+	switch (orientation) {
+		case 'right':
+			return 'down';
+		case 'down':
+			return 'left';
+		case 'left':
+			return 'up';
+		default:
+			return 'right';
+	}
+}
+
+function displayRect(
+	rect: CoreRect,
+	orientation: GraphOrientation,
+	bounds: CoreRect | null
+): CoreRect {
+	if (!bounds) {
+		return rect;
+	}
+
+	const localLeft = rect.left - bounds.left;
+	const localTop = rect.top - bounds.top;
+	const localRight = localLeft + rect.width;
+	const localBottom = localTop + rect.height;
+
+	switch (orientation) {
+		case 'down':
+			return {
+				height: rect.width,
+				left: bounds.left + localTop,
+				top: bounds.top + localLeft,
+				width: rect.height
+			};
+		case 'left':
+			return {
+				height: rect.height,
+				left: bounds.left + (bounds.width - localRight),
+				top: rect.top,
+				width: rect.width
+			};
+		case 'up':
+			return {
+				height: rect.width,
+				left: bounds.left + (bounds.height - localBottom),
+				top: bounds.top + (bounds.width - localRight),
+				width: rect.height
+			};
+		default:
+			return rect;
+	}
+}
+
+function displayPointToLogical(
+	point: Point,
+	orientation: GraphOrientation,
+	bounds: CoreRect | null
+): Point {
+	if (!bounds) {
+		return point;
+	}
+
+	const localLeft = point.left - bounds.left;
+	const localTop = point.top - bounds.top;
+
+	switch (orientation) {
+		case 'down':
+			return {
+				left: bounds.left + localTop,
+				top: bounds.top + localLeft
+			};
+		case 'left':
+			return {
+				left: bounds.left + (bounds.width - localLeft),
+				top: point.top
+			};
+		case 'up':
+			return {
+				left: bounds.left + (bounds.width - localTop),
+				top: bounds.top + (bounds.height - localLeft)
+			};
+		default:
+			return point;
+	}
+}
+
+function orientedBounds(
+	bounds: CoreRect | null,
+	orientation: GraphOrientation
+): CoreRect | null {
+	if (!bounds) {
+		return bounds;
+	}
+
+	return orientation === 'down' || orientation === 'up'
+		? {...bounds, height: bounds.width, width: bounds.height}
+		: bounds;
+}
+
+function selectedPresetForSize(
+	width: number,
+	height: number
+): GraphSizePreset | undefined {
+	const entry = (Object.entries(graphSizePresets) as Array<
+		[GraphSizePreset, (typeof graphSizePresets)[GraphSizePreset]]
+	>).find(([, preset]) => preset.width === width && preset.height === height);
+
+	return entry?.[0];
+}
+
+function displaySizeLimits(orientation: GraphOrientation) {
+	return orientation === 'down' || orientation === 'up'
+		? {height: 110, width: 74}
+		: {height: 74, width: 110};
+}
+
+function logicalSizeFromDisplaySize(
+	size: {height: number; width: number},
+	orientation: GraphOrientation
+) {
+	return orientation === 'down' || orientation === 'up'
+		? {height: size.width, width: size.height}
+		: size;
+}
+
+function displayDeltaToLogical(
+	deltaLeft: number,
+	deltaTop: number,
+	orientation: GraphOrientation
+) {
+	switch (orientation) {
+		case 'down':
+			return {left: deltaTop, top: deltaLeft};
+		case 'left':
+			return {left: -deltaLeft, top: deltaTop};
+		case 'up':
+			return {left: -deltaTop, top: -deltaLeft};
+		default:
+			return {left: deltaLeft, top: deltaTop};
+	}
+}
+
+function edgeCurve(edge: CoreGraphEdge, nodeById: Map<string, CoreGraphNode>) {
 	const source = visualRect(
 		nodeById.get(edge.sourceId)?.bounds ?? edge.sourceBounds
 	);
@@ -95,14 +273,32 @@ function edgePath(edge: CoreGraphEdge, nodeById: Map<string, CoreGraphNode>) {
 		const right = sourceRight + 42;
 		const bottom = source.top + source.height - 18;
 
-		return `M ${sourceRight - 14} ${top} C ${right} ${top} ${right} ${bottom} ${sourceRight - 14} ${bottom}`;
+		return {
+			c1x: right,
+			c1y: top,
+			c2x: right,
+			c2y: bottom,
+			tx: sourceRight - 14,
+			ty: bottom,
+			x: sourceRight - 14,
+			y: top
+		};
 	}
 
 	if (!edge.targetId || !edge.targetBounds) {
 		const targetLeft = sourceRight + 92;
 		const targetTop = Math.max(source.top - 34, 14);
 
-		return `M ${sourceRight} ${sourceMiddle} C ${sourceRight + 52} ${sourceMiddle} ${targetLeft - 20} ${targetTop} ${targetLeft} ${targetTop}`;
+		return {
+			c1x: sourceRight + 52,
+			c1y: sourceMiddle,
+			c2x: targetLeft - 20,
+			c2y: targetTop,
+			tx: targetLeft,
+			ty: targetTop,
+			x: sourceRight,
+			y: sourceMiddle
+		};
 	}
 
 	const target = visualRect(
@@ -112,8 +308,131 @@ function edgePath(edge: CoreGraphEdge, nodeById: Map<string, CoreGraphNode>) {
 	const targetMiddle = target.top + target.height / 2;
 	const bend = Math.max(Math.abs(targetLeft - sourceRight) * 0.45, 70);
 
-	return `M ${sourceRight} ${sourceMiddle} C ${sourceRight + bend} ${sourceMiddle} ${targetLeft - bend} ${targetMiddle} ${targetLeft} ${targetMiddle}`;
+	return {
+		c1x: sourceRight + bend,
+		c1y: sourceMiddle,
+		c2x: targetLeft - bend,
+		c2y: targetMiddle,
+		tx: targetLeft,
+		ty: targetMiddle,
+		x: sourceRight,
+		y: sourceMiddle
+	};
 }
+
+function drawArrow(
+	context: CanvasRenderingContext2D,
+	fromX: number,
+	fromY: number,
+	toX: number,
+	toY: number
+) {
+	const angle = Math.atan2(toY - fromY, toX - fromX);
+	const size = 8;
+
+	context.beginPath();
+	context.moveTo(toX, toY);
+	context.lineTo(
+		toX - size * Math.cos(angle - Math.PI / 6),
+		toY - size * Math.sin(angle - Math.PI / 6)
+	);
+	context.lineTo(
+		toX - size * Math.cos(angle + Math.PI / 6),
+		toY - size * Math.sin(angle + Math.PI / 6)
+	);
+	context.closePath();
+	context.fill();
+}
+
+interface GraphEdgesCanvasProps {
+	canvasSize: {height: number; width: number};
+	edges: CoreGraphEdge[];
+	nodeById: Map<string, CoreGraphNode>;
+}
+
+const GraphEdgesCanvas: React.FC<GraphEdgesCanvasProps> = ({
+	canvasSize,
+	edges,
+	nodeById
+}) => {
+	const canvasRef = React.useRef<HTMLCanvasElement>(null);
+	const edgeKinds = React.useMemo(
+		() => Array.from(new Set(edges.map(edge => edge.kind))).join(' '),
+		[edges]
+	);
+
+	React.useEffect(() => {
+		const canvas = canvasRef.current;
+
+		if (!canvas) {
+			return;
+		}
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			return;
+		}
+
+		const pixelRatio = window.devicePixelRatio || 1;
+
+		canvas.width = Math.max(1, Math.ceil(canvasSize.width * pixelRatio));
+		canvas.height = Math.max(1, Math.ceil(canvasSize.height * pixelRatio));
+		context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+		context.clearRect(0, 0, canvasSize.width, canvasSize.height);
+		context.lineCap = 'round';
+		context.lineJoin = 'round';
+		context.lineWidth = 2;
+
+		const styles = getComputedStyle(canvas);
+		const colors = {
+			broken:
+				styles.getPropertyValue('--sem-error').trim() || 'rgb(214, 85, 74)',
+			resolved:
+				styles.getPropertyValue('--sem-link').trim() || 'rgb(92, 151, 255)',
+			selfLink:
+				styles.getPropertyValue('--sem-generated').trim() ||
+				'rgb(92, 180, 220)'
+		};
+
+		for (const edge of edges) {
+			const curve = edgeCurve(edge, nodeById);
+			const color = colors[edge.kind] ?? colors.resolved;
+
+			context.strokeStyle = color;
+			context.fillStyle = color;
+			context.setLineDash(edge.kind === 'broken' ? [6, 5] : []);
+			context.beginPath();
+			context.moveTo(curve.x, curve.y);
+			context.bezierCurveTo(
+				curve.c1x,
+				curve.c1y,
+				curve.c2x,
+				curve.c2y,
+				curve.tx,
+				curve.ty
+			);
+			context.stroke();
+			context.setLineDash([]);
+			drawArrow(context, curve.c2x, curve.c2y, curve.tx, curve.ty);
+		}
+	}, [canvasSize.height, canvasSize.width, edges, nodeById]);
+
+	return (
+		<canvas
+			aria-hidden
+			className="story-edit-graph-edges"
+			data-edge-count={edges.length}
+			data-edge-kinds={edgeKinds}
+			data-testid="story-graph-edges-canvas"
+			ref={canvasRef}
+			style={{
+				height: canvasSize.height,
+				width: canvasSize.width
+			}}
+		/>
+	);
+};
 
 function layoutBadgeTone(state: CoreGraphLayoutState) {
 	return state === 'saved'
@@ -193,6 +512,15 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	} = props;
 	const host = useCoreProjectHost();
 	const [density, setDensity] = React.useState<GraphDensity>('excerpt');
+	const [orientation, setOrientation] =
+		React.useState<GraphOrientation>('right');
+	const [defaultSize, setDefaultSize] = React.useState<GraphSizePreset>(() => {
+		const saved = window.localStorage.getItem('twine-rs-graph-default-size');
+
+		return saved && saved in graphSizePresets
+			? (saved as GraphSizePreset)
+			: 'medium';
+	});
 	const [focusSelection, setFocusSelection] = React.useState(false);
 	const [layers, setLayers] = React.useState<CoreLinkLayerOptions>({
 		broken: true,
@@ -200,6 +528,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		selfLinks: true
 	});
 	const [drag, setDrag] = React.useState<DragState>();
+	const [resize, setResize] = React.useState<ResizeState>();
 	const [viewport, setViewport] = React.useState<ViewportState>({
 		height: 1,
 		left: 0,
@@ -248,6 +577,24 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	const selectedPassage = selectedPassageId
 		? story.passages.find(passage => passage.id === selectedPassageId)
 		: undefined;
+	const selectedPassages = React.useMemo(
+		() =>
+			selectedPassageIds
+				.map(id => story.passages.find(passage => passage.id === id))
+				.filter((passage): passage is Passage => !!passage),
+		[selectedPassageIds, story.passages]
+	);
+	const defaultSizePreset = graphSizePresets[defaultSize];
+	const currentSizePreset = selectedPassages[0]
+		? selectedPresetForSize(selectedPassages[0].width, selectedPassages[0].height)
+		: defaultSize;
+	const currentSizeLabel = currentSizePreset
+		? graphSizePresets[currentSizePreset].label
+		: 'Custom';
+	const defaultCardSize = {
+		height: defaultSizePreset.height,
+		width: defaultSizePreset.width
+	};
 	const measuredViewport =
 		viewport.height > 1 && viewport.width > 1 ? viewport : null;
 	const selectedPassageInViewport =
@@ -255,7 +602,9 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		!measuredViewport ||
 		rectsIntersect(visualRect(passageRect(selectedPassage)), measuredViewport);
 	const queryViewport =
-		focusSelection || !selectedPassageInViewport ? null : measuredViewport;
+		focusSelection || !selectedPassageInViewport || orientation !== 'right'
+			? null
+			: measuredViewport;
 	const projection = React.useMemo(
 		() =>
 			host.queryGraphProjection(story.id, {
@@ -284,9 +633,40 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		() => new Map(projection.nodes.map(node => [node.id, node])),
 		[projection.nodes]
 	);
+	const displayBounds = React.useMemo(
+		() => orientedBounds(projection.bounds, orientation),
+		[orientation, projection.bounds]
+	);
+	const displayNodes = React.useMemo(
+		() =>
+			projection.nodes.map(node => ({
+				...node,
+				bounds: displayRect(node.bounds, orientation, projection.bounds)
+			})),
+		[orientation, projection.bounds, projection.nodes]
+	);
+	const displayNodeById = React.useMemo(
+		() => new Map(displayNodes.map(node => [node.id, node])),
+		[displayNodes]
+	);
+	const displayEdges = React.useMemo(
+		() =>
+			projection.edges.map(edge => ({
+				...edge,
+				sourceBounds: displayRect(
+					edge.sourceBounds,
+					orientation,
+					projection.bounds
+				),
+				targetBounds: edge.targetBounds
+					? displayRect(edge.targetBounds, orientation, projection.bounds)
+					: edge.targetBounds
+			})),
+		[orientation, projection.bounds, projection.edges]
+	);
 	const liveNodeById = React.useMemo(() => {
 		if (!drag) {
-			return nodeById;
+			return displayNodeById;
 		}
 
 		const deltaLeft = (drag.left - drag.startLeft) / visibleZoom;
@@ -294,7 +674,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		const dragIds = new Set(drag.ids);
 
 		return new Map(
-			projection.nodes.map(node => [
+			displayNodes.map(node => [
 				node.id,
 				dragIds.has(node.id)
 					? {
@@ -308,9 +688,9 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 					: node
 			])
 		);
-	}, [drag, nodeById, projection.nodes, visibleZoom]);
+	}, [displayNodeById, displayNodes, drag, visibleZoom]);
 	const canvasSize = React.useMemo(() => {
-		const bounds = projection.bounds;
+		const bounds = displayBounds;
 
 		return {
 			height: Math.max(
@@ -322,10 +702,10 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				(bounds ? bounds.left + bounds.width : 0) + canvasPad / visibleZoom
 			)
 		};
-	}, [projection.bounds, viewport.height, viewport.width, visibleZoom]);
+	}, [displayBounds, viewport.height, viewport.width, visibleZoom]);
 	const minimap = React.useMemo(
-		() => minimapTransform(projection.bounds),
-		[projection.bounds]
+		() => minimapTransform(displayBounds),
+		[displayBounds]
 	);
 
 	const updateViewport = React.useCallback(() => {
@@ -368,9 +748,13 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	}, [persistedSelectionKey]);
 
 	React.useEffect(() => {
+		window.localStorage.setItem('twine-rs-graph-default-size', defaultSize);
+	}, [defaultSize]);
+
+	React.useEffect(() => {
 		const element = viewportRef.current;
 		const node = selectedPassageId
-			? nodeById.get(selectedPassageId)
+			? displayNodeById.get(selectedPassageId)
 			: undefined;
 
 		if (!selectedPassageId) {
@@ -403,7 +787,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			element.scrollLeft = Math.max(left, 0);
 			element.scrollTop = Math.max(top, 0);
 		}
-	}, [nodeById, selectedPassageId, visibleZoom]);
+	}, [displayNodeById, selectedPassageId, visibleZoom]);
 
 	function pointFromEvent(
 		event: React.MouseEvent<HTMLElement>
@@ -427,7 +811,10 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		const point = pointFromEvent(event);
 
 		if (point) {
-			onCreate(point);
+			onCreate(
+				displayPointToLogical(point, orientation, projection.bounds),
+				defaultCardSize
+			);
 		}
 	}
 
@@ -436,7 +823,10 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 
 		if (point && !panRef.current?.moved) {
 			event.preventDefault();
-			onCreate(point);
+			onCreate(
+				displayPointToLogical(point, orientation, projection.bounds),
+				defaultCardSize
+			);
 		}
 	}
 
@@ -506,7 +896,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		const viewportElement = viewportRef.current;
 		const minimapElement = minimapRef.current;
 
-		if (!viewportElement || !minimapElement || !projection.bounds) {
+		if (!viewportElement || !minimapElement || !displayBounds) {
 			return;
 		}
 
@@ -645,8 +1035,13 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				return undefined;
 			}
 
-			const deltaLeft = (current.left - current.startLeft) / zoom;
-			const deltaTop = (current.top - current.startTop) / zoom;
+			const displayDeltaLeft = (current.left - current.startLeft) / zoom;
+			const displayDeltaTop = (current.top - current.startTop) / zoom;
+			const {left: deltaLeft, top: deltaTop} = displayDeltaToLogical(
+				displayDeltaLeft,
+				displayDeltaTop,
+				orientation
+			);
 
 			if (Math.abs(deltaLeft) >= 1 || Math.abs(deltaTop) >= 1) {
 				const moves = current.ids
@@ -670,6 +1065,112 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			window.setTimeout(() => {
 				recentlyDragged.current = false;
 			}, 0);
+			return undefined;
+		});
+	}
+
+	function applySizeToSelection(size: {height: number; width: number}) {
+		if (selectedPassages.length === 0) {
+			return;
+		}
+
+		host.applyStoryCommand(
+			movePassagesCommand(
+				story.id,
+				selectedPassages.map(passage => ({
+					bounds: {
+						...passageRect(passage),
+						height: size.height,
+						width: size.width
+					},
+					passageId: passage.id
+				}))
+			)
+		);
+	}
+
+	function handleDefaultSizeChange(value: string) {
+		const preset = value as GraphSizePreset;
+
+		setDefaultSize(preset);
+	}
+
+	function handleApplyDefaultSize() {
+		applySizeToSelection(graphSizePresets[defaultSize]);
+	}
+
+	function handleResizeStart(node: CoreGraphNode) {
+		const ids =
+			selectedIdSet.has(node.id) && selectedIdSet.size > 0
+				? Array.from(selectedIdSet)
+				: [node.id];
+		const bounds = displayNodeById.get(node.id)?.bounds ?? node.bounds;
+
+		setResize({
+			currentHeight: bounds.height,
+			currentWidth: bounds.width,
+			height: bounds.height,
+			ids,
+			width: bounds.width
+		});
+	}
+
+	function handleResize(data: DraggableData) {
+		setResize(current => {
+			if (!current) {
+				return current;
+			}
+
+			const minimum = displaySizeLimits(orientation);
+			const width = Math.max(
+				minimum.width,
+				current.width + data.x / visibleZoom
+			);
+			const height = Math.max(
+				minimum.height,
+				current.height + data.y / visibleZoom
+			);
+
+			return {
+				...current,
+				currentHeight: Math.round(height),
+				currentWidth: Math.round(width)
+			};
+		});
+	}
+
+	function handleResizeStop() {
+		setResize(current => {
+			if (!current) {
+				return undefined;
+			}
+
+			const moves = current.ids
+				.map(id => story.passages.find(passage => passage.id === id))
+				.filter((passage): passage is Passage => !!passage)
+				.map(passage => {
+					const size = logicalSizeFromDisplaySize(
+						{
+							height: current.currentHeight,
+							width: current.currentWidth
+						},
+						orientation
+					);
+
+					return {
+						bounds: {
+							...passageRect(passage),
+							height: size.height,
+							width: size.width
+						},
+						passageId: passage.id
+					};
+				});
+
+			if (moves.length > 0) {
+				host.applyStoryCommand(movePassagesCommand(story.id, moves));
+			}
+
 			return undefined;
 		});
 	}
@@ -718,6 +1219,18 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			: {left: 0, top: 0};
 	}
 
+	function nodeDisplayBounds(node: CoreGraphNode) {
+		const offset = nodeDragOffset(node);
+		const activeResize = resize?.ids.includes(node.id) ? resize : undefined;
+
+		return {
+			height: activeResize ? activeResize.currentHeight : node.bounds.height,
+			left: node.bounds.left + offset.left,
+			top: node.bounds.top + offset.top,
+			width: activeResize ? activeResize.currentWidth : node.bounds.width
+		};
+	}
+
 	return (
 		<section className="story-edit-graph-layer" aria-label="Story graph">
 			<div
@@ -739,39 +1252,15 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 						width: canvasSize.width
 					}}
 				>
-					<svg
-						aria-hidden
-						className="story-edit-graph-edges"
-						height={canvasSize.height}
-						width={canvasSize.width}
-					>
-						<defs>
-							<marker
-								id="story-edit-graph-arrow"
-								markerHeight="8"
-								markerWidth="8"
-								orient="auto"
-								refX="8"
-								refY="4"
-								viewBox="0 0 8 8"
-							>
-								<path d="M 0 0 L 8 4 L 0 8 z" />
-							</marker>
-						</defs>
-						{projection.edges.map((edge, index) => (
-							<path
-								className={`story-edit-graph-edge story-edit-graph-edge--${edge.kind}`}
-								d={edgePath(edge, liveNodeById)}
-								data-kind={edge.kind}
-								key={`${edge.sourceId}:${edge.targetId ?? 'broken'}:${edge.targetName}:${index}`}
-								markerEnd="url(#story-edit-graph-arrow)"
-							/>
-						))}
-					</svg>
+					<GraphEdgesCanvas
+						canvasSize={canvasSize}
+						edges={displayEdges}
+						nodeById={liveNodeById}
+					/>
 					<div className="story-edit-graph-nodes">
-						{projection.nodes.map(node => {
+						{displayNodes.map(node => {
 							const passage = passageForNode(story, node);
-							const offset = nodeDragOffset(node);
+							const bounds = nodeDisplayBounds(node);
 							const tagColors = node.tags.map(
 								tag => story.tagColors[tag] ?? 'blue'
 							);
@@ -783,6 +1272,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 
 							return (
 								<DraggableCore
+									cancel=".story-edit-graph-node__resize"
 									key={node.id}
 									onDrag={(event, data) => handleDrag(data)}
 									onStart={(event, data) => handleDragStart(node, event, data)}
@@ -795,8 +1285,10 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 										data-selected={selectedIdSet.has(node.id)}
 										onPointerDown={event => handleNodePointerDown(node, event)}
 										style={{
-											left: node.bounds.left + offset.left,
-											top: node.bounds.top + offset.top
+											height: bounds.height,
+											left: bounds.left,
+											top: bounds.top,
+											width: bounds.width
 										}}
 									>
 										<PassageNode
@@ -819,9 +1311,31 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 											onDoubleClick={() => handleNodeDoubleClick(node)}
 											selected={selectedIdSet.has(node.id)}
 											start={node.isStart}
+											style={{
+												height: bounds.height,
+												width: bounds.width
+											}}
 											tags={density === 'structure' ? [] : tagColors}
 											title={node.name}
 										/>
+										{selectedIdSet.has(node.id) && (
+											<DraggableCore
+												onDrag={(event, data) => handleResize(data)}
+												onStart={() => handleResizeStart(node)}
+												onStop={handleResizeStop}
+											>
+												<button
+													aria-label={`Resize ${node.name}`}
+													className="story-edit-graph-node__resize"
+													onClick={event => event.stopPropagation()}
+													onDoubleClick={event => event.stopPropagation()}
+													onPointerDown={event => event.stopPropagation()}
+													type="button"
+												>
+													<TablerIcon icon="arrows-diagonal" />
+												</button>
+											</DraggableCore>
+										)}
 									</div>
 								</DraggableCore>
 							);
@@ -889,6 +1403,48 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 					size="sm"
 					value={density}
 				/>
+				<div className="story-edit-graph-toolbar-group story-edit-graph-toolbar-group--size">
+					<Select
+						ariaLabel="Default card size"
+						onChange={handleDefaultSizeChange}
+						options={(Object.entries(graphSizePresets) as Array<
+							[GraphSizePreset, (typeof graphSizePresets)[GraphSizePreset]]
+						>).map(([value, preset]) => ({
+							label: preset.label,
+							value
+						}))}
+						size="sm"
+						value={defaultSize}
+					/>
+					<Button
+						disabled={selectedPassages.length === 0}
+						icon="resize"
+						onClick={handleApplyDefaultSize}
+						size="sm"
+						variant="ghost"
+					>
+						Apply
+					</Button>
+					<span className="story-edit-graph-toolbar-hint">
+						{selectedPassages.length > 1
+							? `${selectedPassages.length} selected`
+							: currentSizeLabel}
+					</span>
+				</div>
+				<div className="story-edit-graph-toolbar-group">
+					<IconButton
+						icon="rotate-clockwise"
+						label={`Rotate view: ${orientationLabel(orientation)}`}
+						onClick={() =>
+							setOrientation(current => nextOrientation(current))
+						}
+						size="sm"
+						tooltipPosition="bottom"
+					/>
+					<span className="story-edit-graph-toolbar-hint">
+						{orientationLabel(orientation)}
+					</span>
+				</div>
 			</div>
 			<div className="story-edit-graph-status">
 				<Badge mono tone={layoutBadgeTone(projection.layoutState)}>
@@ -919,7 +1475,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 					Save Layout
 				</Button>
 			</div>
-			{projection.bounds && (
+			{displayBounds && (
 				<div
 					aria-hidden
 					className="story-edit-graph-minimap"
@@ -932,7 +1488,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 					ref={minimapRef}
 				>
 					<div className="story-edit-graph-minimap__surface">
-						{projection.nodes.map(node => (
+						{displayNodes.map(node => (
 							<span
 								className={classNames(
 									'story-edit-graph-minimap__node',

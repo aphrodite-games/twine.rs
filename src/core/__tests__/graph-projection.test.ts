@@ -101,6 +101,33 @@ describe('storyToCoreGraphProjection', () => {
 			})
 		]);
 	});
+
+	it('keeps large graph projections bounded by the requested viewport', () => {
+		const story = fakeStory(0);
+
+		story.passages = Array.from({length: 10000}, (_, index) => ({
+			height: 100,
+			highlighted: false,
+			id: `passage-${index}`,
+			left: (index % 100) * 220,
+			name: `Passage ${index}`,
+			selected: false,
+			story: story.id,
+			tags: [],
+			text: index < 9999 ? `[[Passage ${index + 1}]]` : '',
+			top: Math.floor(index / 100) * 150,
+			width: 160
+		}));
+		story.startPassage = 'passage-0';
+
+		const projection = storyToCoreGraphProjection(story, {
+			viewport: {height: 500, left: 0, top: 0, width: 500}
+		});
+
+		expect(projection.stats.passages).toBe(10000);
+		expect(projection.nodes.length).toBeLessThan(50);
+		expect(projection.edges.length).toBeLessThan(80);
+	});
 });
 
 describe('saveGeneratedGraphLayout', () => {

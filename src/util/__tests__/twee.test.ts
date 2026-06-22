@@ -498,6 +498,80 @@ describe('storyFromTwee()', () => {
 		]);
 		oldWarn.mockRestore();
 	});
+
+	it('imports StoryData graph metadata over normal passage positions', () => {
+		const oldWarn = jest.spyOn(console, 'warn').mockReturnValue();
+		const source = `:: StoryData\n${JSON.stringify({
+			'twine.rs': {
+				storyGraph: {
+					schema: 'twine.rs/story-graph/v1',
+					kind: 'storyGraph',
+					graph: {
+						passages: {
+							'old-id': {
+								id: 'old-id',
+								name: 'Start',
+								bounds: {
+									height: 160,
+									left: 320,
+									top: 240,
+									width: 220
+								}
+							}
+						}
+					}
+				}
+			}
+		})}\n\n:: Start {"position":"0,0","size":"100,100"}\nText`;
+
+		const result = storyFromTwee(source);
+
+		expect(result.passages).toHaveLength(1);
+		expect(result.passages[0]).toEqual(
+			expect.objectContaining({
+				height: 160,
+				left: 320,
+				name: 'Start',
+				top: 240,
+				width: 220
+			})
+		);
+		oldWarn.mockRestore();
+	});
+
+	it('imports legacy StoryGraph metadata without keeping it as content', () => {
+		const oldWarn = jest.spyOn(console, 'warn').mockReturnValue();
+		const source = `:: Start {"position":"0,0","size":"100,100"}\nText\n\n:: StoryGraph [metadata]\n${JSON.stringify(
+			{
+				schema: 'twine.rs/story-graph',
+				version: 1,
+				layout: [
+					{
+						height: 160,
+						left: 320,
+						name: 'Start',
+						passageId: 'old-id',
+						top: 240,
+						width: 220
+					}
+				]
+			}
+		)}`;
+
+		const result = storyFromTwee(source);
+
+		expect(result.passages).toHaveLength(1);
+		expect(result.passages[0]).toEqual(
+			expect.objectContaining({
+				height: 160,
+				left: 320,
+				name: 'Start',
+				top: 240,
+				width: 220
+			})
+		);
+		oldWarn.mockRestore();
+	});
 });
 
 describe('storyToTwee()', () => {
@@ -601,6 +675,25 @@ describe('storyToTwee()', () => {
 		story.stylesheet = 'test-stylesheet';
 		expect(storyToTwee(story)).toMatch(
 			`:: StoryStylesheet 1 [stylesheet]\n${story.stylesheet}`
+		);
+	});
+
+	it('adds twine.rs graph metadata to StoryData only when requested', () => {
+		story.passages = [fakePassage({name: 'Start', left: 12, top: 34})];
+
+		expect(storyToTwee(story)).not.toContain(':: StoryGraph [metadata]');
+		expect(storyToTwee(story)).not.toContain('"twine.rs"');
+		expect(storyToTwee(story, {includeStoryGraph: true})).not.toContain(
+			':: StoryGraph [metadata]'
+		);
+		expect(storyToTwee(story, {includeStoryGraph: true})).toContain(
+			'"twine.rs": {'
+		);
+		expect(storyToTwee(story, {includeStoryGraph: true})).toContain(
+			'"schema": "twine.rs/story-graph/v1"'
+		);
+		expect(storyToTwee(story, {includeStoryGraph: true})).toContain(
+			'"passagePositions": "mirrored-to-standard-metadata"'
 		);
 	});
 });

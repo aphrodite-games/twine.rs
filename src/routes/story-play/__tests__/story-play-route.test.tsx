@@ -41,6 +41,8 @@ describe('<StoryPlayRoute>', () => {
 				'mock-published-story'
 			)
 		);
+		expect(screen.getByText('Play')).toBeInTheDocument();
+		expect(screen.getByRole('button', {name: 'Source'})).toBeInTheDocument();
 		expect(publishStory.mock.calls).toEqual([['123', {buildTarget: 'play'}]]);
 	});
 

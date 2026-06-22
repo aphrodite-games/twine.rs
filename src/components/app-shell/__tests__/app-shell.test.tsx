@@ -146,6 +146,16 @@ describe('AppShell', () => {
 		expect(screen.getByText('Story Formats')).toBeInTheDocument();
 	});
 
+	it('marks the Settings surface in shell navigation', () => {
+		renderShell(story, '/settings');
+
+		expect(screen.getByTitle('Settings')).toHaveAttribute(
+			'aria-current',
+			'page'
+		);
+		expect(screen.getAllByText('Settings').length).toBeGreaterThanOrEqual(1);
+	});
+
 	it('reports persistence errors in the status bar', async () => {
 		renderShell(story);
 

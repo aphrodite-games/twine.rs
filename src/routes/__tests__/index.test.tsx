@@ -12,6 +12,7 @@ jest.mock('../build/build-route');
 jest.mock('../contents/contents-route');
 jest.mock('../diagnostics/diagnostics-route');
 jest.mock('../new-project/new-project-route');
+jest.mock('../settings/settings-route');
 jest.mock('../story-formats/story-formats-route');
 jest.mock('../story-play/story-play-route');
 jest.mock('../story-proof/story-proof-route');
@@ -86,6 +87,11 @@ describe('<Routes>', () => {
 			expect(
 				screen.getByTestId('mock-story-formats-route')
 			).toBeInTheDocument();
+		});
+
+		it('renders the settings route at /settings', () => {
+			renderAtRoute('/settings');
+			expect(screen.getByTestId('mock-settings-route')).toBeInTheDocument();
 		});
 
 		it('renders the story proof route at /stories/:id/proof', () => {

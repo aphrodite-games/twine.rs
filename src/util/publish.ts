@@ -3,6 +3,10 @@ import type {CoreAssetInventoryEntry} from '../core/bindings/CoreAssetInventoryE
 import {Passage, Story} from '../store/stories';
 import {AppInfo} from './app-info';
 import {i18n} from './i18n';
+import {
+	storyGraphMetadata,
+	TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE
+} from './story-graph-metadata';
 
 export interface PublishOptions {
 	/**
@@ -16,6 +20,13 @@ export interface PublishOptions {
 	 * of the published `<tw-storydata>` tag.
 	 */
 	formatOptions?: string;
+
+	/**
+	 * Adds twine.rs graph metadata to StoryData for project-fidelity packages.
+	 * Normal Twine compatibility exports leave this omitted by default while
+	 * preserving standard passage position/size metadata.
+	 */
+	includeStoryGraph?: boolean;
 
 	/**
 	 * ID of the passage to start the story at. This overrides what is set at the
@@ -93,7 +104,13 @@ export function publishPassage(passage: Passage, localId: number) {
 export function publishStory(
 	story: Story,
 	appInfo: AppInfo,
-	{assetInventory, formatOptions, startId, startOptional}: PublishOptions = {}
+	{
+		assetInventory,
+		formatOptions,
+		includeStoryGraph,
+		startId,
+		startOptional
+	}: PublishOptions = {}
 ) {
 	assertAssetInventoryPublishable(assetInventory);
 
@@ -147,7 +164,13 @@ export function publishStory(
 		`ifid="${escape(story.ifid)}" ` +
 		`options="${escape(formatOptions)}" ` +
 		`tags="${escape(story.tags.join(' '))}" ` +
-		`zoom="${escape(story.zoom.toString())}" hidden>` +
+		`zoom="${escape(story.zoom.toString())}"` +
+		(includeStoryGraph
+			? ` ${TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE}="${escape(
+					JSON.stringify(storyGraphMetadata(story))
+				)}"`
+			: '') +
+		` hidden>` +
 		`<style role="stylesheet" id="twine-user-stylesheet" ` +
 		`type="text/twine-css">` +
 		story.stylesheet +

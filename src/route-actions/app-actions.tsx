@@ -2,7 +2,7 @@ import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {useHistory} from 'react-router-dom';
 import {IconButton} from '../components/design-system';
-import {AboutTwineDialog, AppPrefsDialog, useDialogsContext} from '../dialogs';
+import {AboutTwineDialog, useDialogsContext} from '../dialogs';
 
 export const AppActions: React.FC = () => {
 	const {dispatch} = useDialogsContext();
@@ -12,9 +12,10 @@ export const AppActions: React.FC = () => {
 	return (
 		<div className="route-action-group">
 			<IconButton
+				disabled={history.location.pathname === '/settings'}
 				icon="settings"
 				label={t('routeActions.app.preferences')}
-				onClick={() => dispatch({type: 'addDialog', component: AppPrefsDialog})}
+				onClick={() => history.push('/settings')}
 			/>
 			<IconButton
 				disabled={history.location.pathname === '/formats'}

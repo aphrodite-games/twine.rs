@@ -18,9 +18,12 @@ import {
 	createStory,
 	importStories as importStoriesAction,
 	passageDefaults,
+	storyDefaults,
 	Story,
 	useStoriesContext
 } from '../../store/stories';
+import type {TwineElectronWindow} from '../../electron/shared';
+import {saveProjectMetadata} from '../../store/project-metadata';
 import {useStoryFormatsContext} from '../../store/story-formats';
 import {useStoriesRepair} from '../../store/use-stories-repair';
 import {importStories as importStoriesFromHtml} from '../../util/import';
@@ -64,8 +67,8 @@ function projectSlug(name: string) {
 	return slug || 'untitled-story';
 }
 
-function projectFolder(name: string) {
-	return `~/Documents/stories/${projectSlug(name)}`;
+function projectFolder(name: string, parent?: string) {
+	return `${parent || '~/Documents/Twine/Stories'}/${projectSlug(name)}.twine.rs`;
 }
 
 function projectPreviewFiles(sourceLayout: SourceLayout, graphLayout: boolean) {
@@ -123,6 +126,32 @@ function parseStoryFile(file: File, source: string) {
 	return [storyFromTwee(source)];
 }
 
+function desktopBridge() {
+	return (window as TwineElectronWindow).twineElectron;
+}
+
+async function persistNativeProjectFolder(story: Story, preferredParent?: string) {
+	const twineElectron = desktopBridge();
+
+	if (!twineElectron?.createProjectFolder) {
+		saveProjectMetadata(story.id, {
+			status: 'local-only',
+			storageKind: 'web-local'
+		});
+		return undefined;
+	}
+
+	const result = await twineElectron.createProjectFolder(story, preferredParent);
+
+	saveProjectMetadata(story.id, {
+		rootPath: result.rootPath,
+		status: 'file-backed',
+		storageKind: 'electron-project-folder'
+	});
+
+	return result;
+}
+
 export const NewProjectRoute: React.FC = () => {
 	const history = useHistory();
 	const location = useLocation();
@@ -143,6 +172,7 @@ export const NewProjectRoute: React.FC = () => {
 		React.useState<SourceLayout>('single');
 	const [initialMode, setInitialMode] = React.useState<StoryEditMode>('graph');
 	const [graphLayout, setGraphLayout] = React.useState(true);
+	const [storyLibraryFolder, setStoryLibraryFolder] = React.useState('');
 	const [error, setError] = React.useState<string>();
 	const [importQueue, setImportQueue] = React.useState<ImportQueue>();
 	const [importing, setImporting] = React.useState(false);
@@ -161,6 +191,24 @@ export const NewProjectRoute: React.FC = () => {
 		() => projectPreviewFiles(sourceLayout, graphLayout),
 		[graphLayout, sourceLayout]
 	);
+	const projectParent = prefs.defaultProjectFolder || storyLibraryFolder;
+
+	React.useEffect(() => {
+		let cancelled = false;
+
+		desktopBridge()
+			?.getStoryLibraryFolder?.()
+			.then(path => {
+				if (!cancelled) {
+					setStoryLibraryFolder(path);
+				}
+			})
+			.catch(() => undefined);
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	React.useEffect(() => {
 		const nextTab = pathname.endsWith('/import') ? 'import' : 'create';
@@ -177,7 +225,7 @@ export const NewProjectRoute: React.FC = () => {
 		);
 	}
 
-	function handleCreate(event: React.FormEvent) {
+	async function handleCreate(event: React.FormEvent) {
 		event.preventDefault();
 		setError(undefined);
 
@@ -188,31 +236,53 @@ export const NewProjectRoute: React.FC = () => {
 		const defaults = passageDefaults();
 
 		try {
+			if (storyName === '') {
+				throw new Error('Story name cannot be empty');
+			}
+
+			if (
+				stories.some(story => story.name.toLowerCase() === storyName.toLowerCase())
+			) {
+				throw new Error(`There is already a story named "${storyName}"`);
+			}
+
+			const story: Story = {
+				...storyDefaults(),
+				id: storyId,
+				ifid: uuid().toUpperCase(),
+				lastUpdate: new Date(),
+				name: storyName,
+				passages: [
+					{
+						...defaults,
+						height: graphLayout ? 140 : defaults.height,
+						id: passageId,
+						left: graphLayout ? 96 : defaults.left,
+						name: passageName,
+						selected: true,
+						story: storyId,
+						text:
+							sourceLayout === 'multi'
+								? `[[${passageName} Notes]]`
+								: defaults.text,
+						top: graphLayout ? 88 : defaults.top,
+						width: graphLayout ? 180 : defaults.width
+					}
+				],
+				selected: true,
+				startPassage: passageId,
+				storyFormat: selectedFormat.name,
+				storyFormatVersion: selectedFormat.version
+			};
+
+			await persistNativeProjectFolder(
+				story,
+				prefs.defaultProjectFolder || undefined
+			);
+
 			dispatch(
 				createStory(stories, prefs, {
-					id: storyId,
-					name: storyName,
-					passages: [
-						{
-							...defaults,
-							height: graphLayout ? 140 : defaults.height,
-							id: passageId,
-							left: graphLayout ? 96 : defaults.left,
-							name: passageName,
-							selected: true,
-							story: '',
-							text:
-								sourceLayout === 'multi'
-									? `[[${passageName} Notes]]`
-									: defaults.text,
-							top: graphLayout ? 88 : defaults.top,
-							width: graphLayout ? 180 : defaults.width
-						}
-					],
-					selected: true,
-					startPassage: passageId,
-					storyFormat: selectedFormat.name,
-					storyFormatVersion: selectedFormat.version
+					...story
 				})
 			);
 
@@ -276,7 +346,7 @@ export const NewProjectRoute: React.FC = () => {
 		});
 	}
 
-	function handleImport() {
+	async function handleImport() {
 		if (!importQueue) {
 			return;
 		}
@@ -289,9 +359,50 @@ export const NewProjectRoute: React.FC = () => {
 			return;
 		}
 
-		dispatch(importStoriesAction(selectedStories, stories));
-		repairStories();
-		history.push('/');
+		try {
+			await Promise.all(
+				selectedStories.map(story =>
+					persistNativeProjectFolder(
+						story,
+						prefs.defaultProjectFolder || undefined
+					)
+				)
+			);
+			dispatch(importStoriesAction(selectedStories, stories));
+			repairStories();
+			history.push('/');
+		} catch (error) {
+			setImportError((error as Error).message);
+		}
+	}
+
+	async function handleOpenProjectFolder() {
+		setImportError(undefined);
+		setImporting(true);
+
+		try {
+			const result = await desktopBridge()?.openProjectFolder?.();
+
+			if (!result?.stories.length) {
+				return;
+			}
+
+			for (const story of result.stories) {
+				saveProjectMetadata(story.id, {
+					rootPath: result.rootPath,
+					status: 'file-backed',
+					storageKind: 'electron-project-folder'
+				});
+			}
+
+			dispatch(importStoriesAction(result.stories, stories));
+			repairStories();
+			history.push('/');
+		} catch (error) {
+			setImportError((error as Error).message);
+		} finally {
+			setImporting(false);
+		}
 	}
 
 	return (
@@ -337,7 +448,7 @@ export const NewProjectRoute: React.FC = () => {
 										label="Project folder"
 										mono
 										readOnly
-										value={projectFolder(projectName)}
+										value={projectFolder(projectName, projectParent)}
 									/>
 									<Input
 										block
@@ -418,7 +529,7 @@ export const NewProjectRoute: React.FC = () => {
 							pad
 						>
 							<div className="new-project-route__preview-path">
-								{projectFolder(projectName)}
+								{projectFolder(projectName, projectParent)}
 							</div>
 							<ol className="new-project-route__file-tree">
 								{previewFiles.map((file, index) => (
@@ -458,6 +569,13 @@ export const NewProjectRoute: React.FC = () => {
 									variant="primary"
 								>
 									Choose File
+								</Button>
+								<Button
+									icon="folder"
+									loading={importing}
+									onClick={handleOpenProjectFolder}
+								>
+									Open Project Folder
 								</Button>
 								<span>.html, .twee, .tw</span>
 							</div>

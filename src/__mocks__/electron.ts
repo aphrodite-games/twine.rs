@@ -41,6 +41,12 @@ export const ipcMain = {
 	on: jest.fn()
 };
 
+export const nativeImage = {
+	createFromPath: jest.fn(() => ({
+		getSize: jest.fn(() => ({height: 480, width: 640}))
+	}))
+};
+
 export const screen = {
 	getPrimaryDisplay() {
 		return {workAreaSize: {height: 480, width: 640}};

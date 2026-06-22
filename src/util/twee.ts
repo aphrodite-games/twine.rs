@@ -2,6 +2,11 @@ import {v4 as uuid} from '@lukeed/uuid';
 import sortBy from 'lodash/sortBy';
 import {Passage, passageDefaults, Story, storyDefaults} from '../store/stories';
 import {unusedName} from './unused-name';
+import {
+	addStoryGraphToStoryData,
+	applyStoryGraphMetadataToStory,
+	storyGraphFromStoryData
+} from './story-graph-metadata';
 
 const linebreakRegExp = /\r?\n/;
 
@@ -136,6 +141,8 @@ export function passageFromTwee(source: string): Omit<Passage, 'story'> {
  */
 export function storyFromTwee(source: string) {
 	const id = uuid();
+	let legacyStoryGraphMetadata: unknown;
+	let storyDataGraphMetadata: unknown;
 
 	const story: Story = {
 		...storyDefaults(),
@@ -204,6 +211,7 @@ export function storyFromTwee(source: string) {
 		story.passages.splice(dataPassageIndex, 1);
 
 		try {
+			const storyData = JSON.parse(dataPassage.text);
 			const {
 				ifid,
 				format,
@@ -211,7 +219,9 @@ export function storyFromTwee(source: string) {
 				start,
 				'tag-colors': tagColors,
 				zoom
-			} = JSON.parse(dataPassage.text);
+			} = storyData;
+
+			storyDataGraphMetadata = storyGraphFromStoryData(storyData);
 
 			if (typeof ifid === 'string') {
 				story.ifid = ifid;
@@ -257,6 +267,27 @@ export function storyFromTwee(source: string) {
 		console.warn('No StoryData passage is present in Twee');
 	}
 
+	const storyGraphPassageIndex = story.passages.findIndex(
+		passage => passage.name === 'StoryGraph' && passage.tags.includes('metadata')
+	);
+
+	if (storyGraphPassageIndex !== -1) {
+		const storyGraphPassage = story.passages[storyGraphPassageIndex];
+
+		story.passages.splice(storyGraphPassageIndex, 1);
+
+		try {
+			legacyStoryGraphMetadata = JSON.parse(storyGraphPassage.text);
+		} catch (error) {
+			console.warn(`Couldn't parse StoryGraph metadata: ${storyGraphPassage.text}`);
+		}
+	}
+
+	applyStoryGraphMetadataToStory(
+		story,
+		storyDataGraphMetadata ?? legacyStoryGraphMetadata
+	);
+
 	// Detect old Twee format, which would have no passage metadata, and put
 	// passages in a grid.
 
@@ -271,22 +302,33 @@ export function storyFromTwee(source: string) {
 	return story;
 }
 
+export interface StoryToTweeOptions {
+	/**
+	 * Adds twine.rs graph metadata to StoryData for project-fidelity round trips.
+	 * Standard passage position/size metadata is still emitted for compatibility.
+	 */
+	includeStoryGraph?: boolean;
+}
+
 /**
  * Converts a story to Twee.
  */
-export function storyToTwee(story: Story) {
+export function storyToTwee(story: Story, options: StoryToTweeOptions = {}) {
 	const storyTitle = `:: StoryTitle\n${escapeForTweeText(story.name)}`;
 	const startPassage = story.passages.find(p => p.id === story.startPassage);
+	const storyDataPayload: Record<string, unknown> = {
+		ifid: story.ifid,
+		format: story.storyFormat,
+		'format-version': story.storyFormatVersion,
+		start: startPassage?.name,
+		'tag-colors':
+			Object.keys(story.tagColors).length > 0 ? story.tagColors : undefined,
+		zoom: story.zoom
+	};
 	const storyData = `:: StoryData\n${JSON.stringify(
-		{
-			ifid: story.ifid,
-			format: story.storyFormat,
-			'format-version': story.storyFormatVersion,
-			start: startPassage?.name,
-			'tag-colors':
-				Object.keys(story.tagColors).length > 0 ? story.tagColors : undefined,
-			zoom: story.zoom
-		},
+		options.includeStoryGraph
+			? addStoryGraphToStoryData(storyDataPayload, story)
+			: storyDataPayload,
 		null,
 		2
 	)}`;

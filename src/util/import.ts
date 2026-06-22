@@ -8,6 +8,11 @@
 import {v4 as uuid} from '@lukeed/uuid';
 import defaults from 'lodash/defaults';
 import {passageDefaults, storyDefaults, Passage, Story} from '../store/stories';
+import {
+	applyStoryGraphMetadataToStory,
+	parseStoryGraphHtmlAttribute,
+	TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE
+} from './story-graph-metadata';
 
 /**
  * An imported story, which may contain incomplete or malformed data.
@@ -137,6 +142,9 @@ export function importStories(
 
 	return query(nodes, selectors.storyData).map(storyEl => {
 		const importedStory = domToObject(storyEl);
+		const storyGraphMetadata = parseStoryGraphHtmlAttribute(
+			storyEl.getAttribute(TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE)
+		);
 
 		// Merge in defaults. We can't use object spreads here because undefined
 		// values would override defaults.
@@ -155,6 +163,7 @@ export function importStories(
 		story.passages = story.passages.map(passage =>
 			defaults(passage, passageDefaults(), {story: story.id})
 		);
+		applyStoryGraphMetadataToStory(story, storyGraphMetadata);
 
 		return story;
 	});

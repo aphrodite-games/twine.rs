@@ -53,16 +53,17 @@ export function createPassageCommand(
 export function createUntitledPassageCommand(
 	story: Story,
 	centerX: number,
-	centerY: number
+	centerY: number,
+	size: {height: number; width: number} = {height: 100, width: 100}
 ): StoryCommand {
 	const {props} = createUntitledPassage(story, centerX, centerY);
 
 	return createPassageCommand(story.id, {
 		layout: {
-			height: props.height ?? 100,
+			height: size.height,
 			left: props.left ?? 0,
 			top: props.top ?? 0,
-			width: props.width ?? 100
+			width: size.width
 		},
 		name: props.name,
 		tags: props.tags,

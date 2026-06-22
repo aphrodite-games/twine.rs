@@ -11,25 +11,32 @@ import {
 	publishStory,
 	publishStoryWithFormat
 } from '../../../../../util/publish';
+import {saveProjectMetadata} from '../../../../project-metadata';
 import * as fetchStoryFormatProperties from '../../../../../util/story-format/fetch-properties';
 import {saveStory} from '../save-story';
 
 describe('saveStory()', () => {
 	let formatsState: StoryFormatsState;
+	let saveProjectFolder: jest.SpyInstance;
 	let saveStoryHtml: jest.SpyInstance;
 	let story: Story;
 
 	beforeEach(() => {
 		formatsState = [fakeLoadedStoryFormat()];
+		saveProjectFolder = jest.fn(async () => undefined);
 		saveStoryHtml = jest.fn();
 		story = fakeStory();
 		story.storyFormat = formatsState[0].name;
 		story.storyFormatVersion = formatsState[0].version;
-		(window as any).twineElectron = {saveStoryHtml};
+		window.localStorage.clear();
+		(window as any).twineElectron = {saveProjectFolder, saveStoryHtml};
 		jest.spyOn(console, 'warn').mockReturnValue();
 	});
 
-	afterEach(() => delete (window as TwineElectronWindow).twineElectron);
+	afterEach(() => {
+		window.localStorage.clear();
+		delete (window as TwineElectronWindow).twineElectron;
+	});
 
 	it('calls saveStoryHtml on the twineElectron global', async () => {
 		await saveStory(story, formatsState);
@@ -44,6 +51,36 @@ describe('saveStory()', () => {
 				)
 			]
 		]);
+	});
+
+	it('updates a remembered native project folder after saving story HTML', async () => {
+		saveProjectMetadata(story.id, {
+			rootPath: '/native/moon-castle.twine.rs',
+			status: 'file-backed',
+			storageKind: 'electron-project-folder'
+		});
+
+		await saveStory(story, formatsState);
+
+		expect(saveProjectFolder).toHaveBeenCalledWith(
+			'/native/moon-castle.twine.rs',
+			story
+		);
+	});
+
+	it('does not fail the HTML save if the native project folder cannot be refreshed', async () => {
+		saveProjectFolder.mockRejectedValue(new Error('Permission denied'));
+		saveProjectMetadata(story.id, {
+			rootPath: '/native/moon-castle.twine.rs',
+			status: 'file-backed',
+			storageKind: 'electron-project-folder'
+		});
+
+		await expect(saveStory(story, formatsState)).resolves.toBeUndefined();
+		expect(saveStoryHtml).toHaveBeenCalled();
+		expect(console.warn).toHaveBeenCalledWith(
+			expect.stringContaining('Could not update native project folder')
+		);
 	});
 
 	it("loads the story's format if needed", async () => {
