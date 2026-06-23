@@ -72,14 +72,10 @@ describe('addPassageEditors', () => {
 		]);
 	});
 
-	it('clamps the size of the editor stack to the limit specified', () => {
+	it('keeps every open editor when adding passages to an existing stack', () => {
 		const dispatch = jest.fn();
 
-		addPassageEditors(
-			'test-story-id',
-			['test-passage-id'],
-			3
-		)(dispatch, () => [
+		addPassageEditors('test-story-id', ['test-passage-id'])(dispatch, () => [
 			{
 				collapsed: false,
 				component: PassageEditStack,
@@ -103,7 +99,8 @@ describe('addPassageEditors', () => {
 						passageIds: [
 							'test-passage-id',
 							'existing-passage-id-1',
-							'existing-passage-id-2'
+							'existing-passage-id-2',
+							'existing-passage-id-3'
 						],
 						storyId: 'test-story-id'
 					},

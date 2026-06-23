@@ -13,9 +13,17 @@ import {NewProjectRoute} from '../new-project-route';
 
 describe('<NewProjectRoute>', () => {
 	function renderComponent(path = '/new-project') {
-		const format = fakeLoadedStoryFormat(
+		const harloweFormat = fakeLoadedStoryFormat(
 			{name: 'Harlowe', version: '3.3.9'},
 			{name: 'Harlowe', version: '3.3.9'}
+		);
+		const sugarCubeFormat = fakeLoadedStoryFormat(
+			{name: 'SugarCube', version: '2.37.3'},
+			{name: 'SugarCube', version: '2.37.3'}
+		);
+		const sugarCubeLegacyFormat = fakeLoadedStoryFormat(
+			{name: 'SugarCube', version: '2.35.0'},
+			{name: 'SugarCube', version: '2.35.0'}
 		);
 		const history = createMemoryHistory({initialEntries: [path]});
 		const result = render(
@@ -23,7 +31,7 @@ describe('<NewProjectRoute>', () => {
 				<FakeStateProvider
 					prefs={{storyFormat: {name: 'Harlowe', version: '3.3.9'}}}
 					stories={[]}
-					storyFormats={[format]}
+					storyFormats={[harloweFormat, sugarCubeFormat, sugarCubeLegacyFormat]}
 				>
 					<NewProjectRoute />
 					<StoryInspector />
@@ -156,6 +164,106 @@ describe('<NewProjectRoute>', () => {
 			(window as any).twineElectron.discardProjectImport
 		).toHaveBeenCalledWith('import-1');
 		expect(history.location.pathname).toBe('/');
+	});
+
+	it('repairs a SugarCube zip before writing the imported project folder', async () => {
+		(window as any).twineElectron = {
+			copyProjectImportAssets: jest.fn(async () => []),
+			createProjectFolder: jest.fn(async story => ({
+				rootPath: `/native/${story.name}.twine.rs`,
+				stories: [story],
+				storyIds: [story.id]
+			})),
+			discardProjectImport: jest.fn(async () => undefined),
+			filePathForFile: jest.fn(() => '/imports/Trigaea.zip'),
+			prepareProjectImport: jest.fn(async () => ({
+				assets: [],
+				htmlFilePath: '/tmp/import/Trigaea.html',
+				htmlSource: `
+					<tw-storydata name="Trigaea" startnode="1" format="Harlowe" format-version="3.3.9" ifid="TRIGAEA" hidden>
+						<tw-passagedata pid="1" name="Start">&lt;&lt;set $visited to true&gt;&gt;</tw-passagedata>
+					</tw-storydata>
+				`,
+				id: 'import-1',
+				sourceKind: 'zip',
+				sourcePath: '/imports/Trigaea.zip'
+			}))
+		};
+		const zipFile = new File(['zip'], 'Trigaea.zip', {
+			type: 'application/zip'
+		});
+		const {container} = renderComponent('/new-project/import');
+		const importScreen = container.querySelector('.new-project-route__import');
+
+		fireEvent.drop(importScreen!, {
+			dataTransfer: {dropEffect: 'copy', files: [zipFile]}
+		});
+
+		await screen.findByText('Trigaea');
+		fireEvent.click(screen.getByRole('button', {name: /run import/i}));
+
+		await waitFor(() =>
+			expect(
+				(window as any).twineElectron.createProjectFolder
+			).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: 'Trigaea',
+					storyFormat: 'SugarCube',
+					storyFormatVersion: '2.37.3'
+				}),
+				undefined
+			)
+		);
+	});
+
+	it('preserves a matching SugarCube local/offline import version', async () => {
+		(window as any).twineElectron = {
+			copyProjectImportAssets: jest.fn(async () => []),
+			createProjectFolder: jest.fn(async story => ({
+				rootPath: `/native/${story.name}.twine.rs`,
+				stories: [story],
+				storyIds: [story.id]
+			})),
+			discardProjectImport: jest.fn(async () => undefined),
+			filePathForFile: jest.fn(() => '/imports/Trigaea.zip'),
+			prepareProjectImport: jest.fn(async () => ({
+				assets: [],
+				htmlFilePath: '/tmp/import/Trigaea.html',
+				htmlSource: `
+					<tw-storydata name="Trigaea" startnode="1" format="SugarCube 2 (local/offline)" format-version="2.35.0" ifid="TRIGAEA" hidden>
+						<tw-passagedata pid="1" name="Start">Welcome.</tw-passagedata>
+					</tw-storydata>
+				`,
+				id: 'import-1',
+				sourceKind: 'zip',
+				sourcePath: '/imports/Trigaea.zip'
+			}))
+		};
+		const zipFile = new File(['zip'], 'Trigaea.zip', {
+			type: 'application/zip'
+		});
+		const {container} = renderComponent('/new-project/import');
+		const importScreen = container.querySelector('.new-project-route__import');
+
+		fireEvent.drop(importScreen!, {
+			dataTransfer: {dropEffect: 'copy', files: [zipFile]}
+		});
+
+		await screen.findByText('Trigaea');
+		fireEvent.click(screen.getByRole('button', {name: /run import/i}));
+
+		await waitFor(() =>
+			expect(
+				(window as any).twineElectron.createProjectFolder
+			).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: 'Trigaea',
+					storyFormat: 'SugarCube',
+					storyFormatVersion: '2.35.0'
+				}),
+				undefined
+			)
+		);
 	});
 
 	it('opens native project folders from the import workspace', async () => {

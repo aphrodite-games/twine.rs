@@ -1,4 +1,13 @@
-import {copy, mkdirp, readdir, remove, stat, writeFile} from 'fs-extra';
+import {
+	copy,
+	ensureSymlink,
+	lstat,
+	mkdirp,
+	readdir,
+	remove,
+	stat,
+	writeFile
+} from 'fs-extra';
 import {
 	cleanScratchDirectory,
 	openWithScratchFile,
@@ -337,11 +346,72 @@ describe('openWithScratchFile', () => {
 
 describe('openWithScratchPackage', () => {
 	const copyMock = copy as jest.Mock;
+	const ensureSymlinkMock = ensureSymlink as jest.Mock;
+	const getAppPrefMock = getAppPref as jest.Mock;
+	const lstatMock = lstat as jest.Mock;
 	const mkdirpMock = mkdirp as jest.Mock;
 	const openMock = shell.openPath as jest.Mock;
+	const removeMock = remove as jest.Mock;
 	const writeFileMock = writeFile as jest.Mock;
 
-	it('copies assets into the scratch directory before opening the HTML', async () => {
+	it('links project asset folders into the scratch directory before opening the HTML', async () => {
+		await openWithScratchPackage('mock-data', 'mock-filename.html', [
+			{
+				outputPath: 'assets/cover.png',
+				sourcePath: '/mock/project/assets/cover.png'
+			},
+			{
+				outputPath: 'assets/images/title.png',
+				sourcePath: '/mock/project/assets/images/title.png'
+			},
+			{outputPath: 'assets/remote.png', sourcePath: null}
+		]);
+
+		expect(removeMock.mock.calls).toContainEqual([
+			expect.stringMatching(
+				/mock-electron-app-path-documents\/mock-electron-app-name\/electron\.scratchDirectoryName\/assets$/
+			)
+		]);
+		expect(ensureSymlinkMock.mock.calls).toEqual([
+			[
+				'/mock/project/assets',
+				expect.stringMatching(
+					/mock-electron-app-path-documents\/mock-electron-app-name\/electron\.scratchDirectoryName\/assets$/
+				),
+				expect.any(String)
+			]
+		]);
+		expect(copyMock).not.toHaveBeenCalled();
+		expect(writeFileMock).toHaveBeenCalledWith(
+			'mock-electron-app-path-documents/mock-electron-app-name/electron.scratchDirectoryName/mock-filename.html',
+			'mock-data',
+			'utf8'
+		);
+		expect(openMock.mock.calls[0]).toEqual([writeFileMock.mock.calls[0][0]]);
+	});
+
+	it('copies linkable assets when scratch asset strategy is copy', async () => {
+		getAppPrefMock.mockImplementation((name: AppPrefName) =>
+			name === 'scratchAssetStrategy' ? 'copy' : undefined
+		);
+
+		await openWithScratchPackage('mock-data', 'mock-filename.html', [
+			{
+				outputPath: 'assets/cover.png',
+				sourcePath: '/mock/project/assets/cover.png'
+			}
+		]);
+
+		expect(ensureSymlinkMock).not.toHaveBeenCalled();
+		expect(copyMock).toHaveBeenCalledWith(
+			'/mock/project/assets/cover.png',
+			expect.stringMatching(
+				/mock-electron-app-path-documents\/mock-electron-app-name\/electron\.scratchDirectoryName\/assets\/cover\.png$/
+			)
+		);
+	});
+
+	it('copies assets into the scratch directory when folder linking is not possible', async () => {
 		await openWithScratchPackage('mock-data', 'mock-filename.html', [
 			{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'},
 			{outputPath: 'assets/remote.png', sourcePath: null}
@@ -371,6 +441,52 @@ describe('openWithScratchPackage', () => {
 			'utf8'
 		);
 		expect(openMock.mock.calls[0]).toEqual([writeFileMock.mock.calls[0][0]]);
+	});
+
+	it('removes a stale scratch asset folder link before copying assets', async () => {
+		lstatMock.mockResolvedValueOnce({isSymbolicLink: () => true});
+
+		await openWithScratchPackage('mock-data', 'mock-filename.html', [
+			{outputPath: 'assets/cover.png', sourcePath: '/tmp/cover.png'}
+		]);
+
+		expect(removeMock.mock.calls).toContainEqual([
+			expect.stringMatching(
+				/mock-electron-app-path-documents\/mock-electron-app-name\/electron\.scratchDirectoryName\/assets$/
+			)
+		]);
+		expect(copyMock).toHaveBeenCalledWith(
+			'/tmp/cover.png',
+			expect.stringMatching(
+				/mock-electron-app-path-documents\/mock-electron-app-name\/electron\.scratchDirectoryName\/assets\/cover\.png$/
+			)
+		);
+	});
+
+	it('copies assets if folder linking fails', async () => {
+		ensureSymlinkMock.mockRejectedValueOnce(new Error('No symlink permission'));
+		const warnSpy = jest.spyOn(console, 'warn').mockReturnValue();
+
+		try {
+			await openWithScratchPackage('mock-data', 'mock-filename.html', [
+				{
+					outputPath: 'assets/cover.png',
+					sourcePath: '/mock/project/assets/cover.png'
+				}
+			]);
+		} finally {
+			warnSpy.mockRestore();
+		}
+
+		expect(ensureSymlinkMock).toHaveBeenCalled();
+		expect(copyMock.mock.calls).toEqual([
+			[
+				'/mock/project/assets/cover.png',
+				expect.stringMatching(
+					/mock-electron-app-path-documents\/mock-electron-app-name\/electron\.scratchDirectoryName\/assets\/cover\.png$/
+				)
+			]
+		]);
 	});
 
 	it('rejects unsafe asset output paths', async () => {

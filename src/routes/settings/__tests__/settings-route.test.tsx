@@ -32,6 +32,8 @@ describe('<SettingsRoute>', () => {
 		expect(screen.getByText('Workspace')).toBeInTheDocument();
 		expect(screen.getByText('Modes')).toBeInTheDocument();
 		expect(screen.getByText('Default card')).toBeInTheDocument();
+		expect(screen.getByText('Right-click creates passages')).toBeInTheDocument();
+		expect(screen.getByText('Code theme')).toBeInTheDocument();
 		expect(screen.getByText('Storage')).toBeInTheDocument();
 		expect(screen.getByText('Backups')).toBeInTheDocument();
 		expect(screen.getByText('Story Formats')).toBeInTheDocument();
@@ -56,8 +58,14 @@ describe('<SettingsRoute>', () => {
 		fireEvent.change(screen.getByLabelText('Project default'), {
 			target: {value: '/Users/test/Stories'}
 		});
+		fireEvent.change(screen.getByLabelText('Code editor theme'), {
+			target: {value: 'one-dark'}
+		});
+		fireEvent.click(screen.getByText('Right-click creates passages'));
 
 		expect(screen.getByDisplayValue('/Users/test/Stories')).toBeInTheDocument();
+		expect(screen.getByLabelText('Code editor theme')).toHaveValue('one-dark');
+		expect(screen.getByLabelText('Right-click creates passages')).not.toBeChecked();
 	});
 
 	it('loads and updates native platform settings', async () => {
@@ -72,6 +80,7 @@ describe('<SettingsRoute>', () => {
 			fullscreenPersistence: true,
 			lastWindowFullscreen: false,
 			linkHandlingMode: 'system',
+			scratchAssetStrategy: settings.scratchAssetStrategy ?? 'link',
 			storyLibraryFolderPath: '/native/library'
 		}));
 
@@ -87,6 +96,7 @@ describe('<SettingsRoute>', () => {
 				fullscreenPersistence: true,
 				lastWindowFullscreen: false,
 				linkHandlingMode: 'system',
+				scratchAssetStrategy: 'link',
 				storyLibraryFolderPath: '/native/library'
 			})),
 			getStoryLibraryFolder: jest.fn(async () => '/native/library'),
@@ -102,6 +112,7 @@ describe('<SettingsRoute>', () => {
 		expect(
 			await screen.findByDisplayValue('/native/library')
 		).toBeInTheDocument();
+		expect(screen.getByLabelText('Preview assets')).toHaveValue('link');
 
 		fireEvent.change(screen.getByLabelText('Backup reminder'), {
 			target: {value: '14'}
@@ -110,6 +121,16 @@ describe('<SettingsRoute>', () => {
 		await waitFor(() =>
 			expect(updatePlatformSettings).toHaveBeenCalledWith({
 				backupReminderDays: 14
+			})
+		);
+
+		fireEvent.change(screen.getByLabelText('Preview assets'), {
+			target: {value: 'copy'}
+		});
+
+		await waitFor(() =>
+			expect(updatePlatformSettings).toHaveBeenCalledWith({
+				scratchAssetStrategy: 'copy'
 			})
 		);
 	});

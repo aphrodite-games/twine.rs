@@ -114,23 +114,25 @@ describe('<ContentsRoute>', () => {
 		delete (window as any).twineElectron;
 	});
 
-	it('surfaces indexed passages, variables, assets, and diagnostic groups', () => {
+	it('surfaces indexed passages, variables, assets, and diagnostic groups', async () => {
 		renderComponent();
 
 		expect(screen.getByLabelText('Filter contents')).toBeInTheDocument();
 		expect(screen.getByText('Indexed Castle')).toBeInTheDocument();
 		expect(screen.getAllByText('Start').length).toBeGreaterThan(0);
-		expect(screen.getByText('$score')).toBeInTheDocument();
+		await waitFor(() => expect(screen.getByText('$score')).toBeInTheDocument());
 		expect(screen.getAllByText('assets/cover.png').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('Diagnostics').length).toBeGreaterThan(0);
 	});
 
-	it('filters the contents list by asset type', () => {
+	it('filters the contents list by asset type', async () => {
 		renderComponent();
 
 		fireEvent.click(screen.getByRole('button', {name: /Assets/}));
 
-		expect(screen.getAllByText('assets/cover.png').length).toBeGreaterThan(0);
+		await waitFor(() =>
+			expect(screen.getAllByText('assets/cover.png').length).toBeGreaterThan(0)
+		);
 		expect(screen.queryByText('$score')).not.toBeInTheDocument();
 	});
 

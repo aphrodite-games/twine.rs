@@ -66,11 +66,15 @@ describe('<DiagnosticsRoute>', () => {
 		mockTestStory.mockReset();
 	});
 
-	it('groups diagnostics and exposes source/graph reveal actions', () => {
+	it('groups diagnostics and exposes source/graph reveal actions', async () => {
 		renderComponent();
 
-		expect(screen.getByLabelText('Filter diagnostics')).toBeInTheDocument();
-		expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0);
+		expect(
+			await screen.findByLabelText('Filter diagnostics')
+		).toBeInTheDocument();
+		await waitFor(() =>
+			expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0)
+		);
 		expect(
 			screen.getAllByText(/Broken link to "Missing"/).length
 		).toBeGreaterThan(0);
@@ -88,7 +92,9 @@ describe('<DiagnosticsRoute>', () => {
 	it('dismisses and restores a specific validation diagnostic', async () => {
 		renderComponent();
 
-		expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0);
+		await waitFor(() =>
+			expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0)
+		);
 
 		fireEvent.click(screen.getByRole('button', {name: 'Dismiss Diagnostic'}));
 
@@ -118,7 +124,9 @@ describe('<DiagnosticsRoute>', () => {
 	it('runs executable quick fixes through the core host', async () => {
 		const {result} = renderComponent();
 
-		fireEvent.click(screen.getByRole('button', {name: 'Create "Missing"'}));
+		fireEvent.click(
+			await screen.findByRole('button', {name: 'Create "Missing"'})
+		);
 
 		await waitFor(() =>
 			expect(
@@ -127,10 +135,12 @@ describe('<DiagnosticsRoute>', () => {
 		);
 	});
 
-	it('tests the passage attached to the selected diagnostic', () => {
+	it('tests the passage attached to the selected diagnostic', async () => {
 		const {story} = renderComponent();
 
-		fireEvent.click(screen.getByRole('button', {name: 'Test From Here'}));
+		fireEvent.click(
+			await screen.findByRole('button', {name: 'Test From Here'})
+		);
 
 		expect(mockTestStory).toHaveBeenCalledWith(story.id, story.passages[0].id);
 	});

@@ -55,8 +55,12 @@ describe('<PassageTagsDialog>', () => {
 		story.passages[0].tags = ['mock-tag', 'mock-tag2'];
 		story.passages[1].tags = ['mock-tag'];
 		await renderComponent({storyId: story.id}, {stories: [story]});
-		expect(screen.getByTestId('mock-tag-editor-mock-tag')).toBeInTheDocument();
-		expect(screen.getByTestId('mock-tag-editor-mock-tag2')).toBeInTheDocument();
+		expect(
+			await screen.findByTestId('mock-tag-editor-mock-tag')
+		).toBeInTheDocument();
+		expect(
+			await screen.findByTestId('mock-tag-editor-mock-tag2')
+		).toBeInTheDocument();
 	});
 
 	it('shows how many passages use each tag', async () => {
@@ -65,7 +69,9 @@ describe('<PassageTagsDialog>', () => {
 		story.passages[0].tags = ['mock-tag'];
 		story.passages[1].tags = ['mock-tag'];
 		await renderComponent({storyId: story.id}, {stories: [story]});
-		expect(screen.getByText('dialogs.passageTags.count')).toBeInTheDocument();
+		expect(
+			await screen.findByText('dialogs.passageTags.count')
+		).toBeInTheDocument();
 	});
 
 	it('applies a core command if a tag is renamed', async () => {
@@ -80,7 +86,7 @@ describe('<PassageTagsDialog>', () => {
 		await renderComponent({storyId: story.id}, {dispatch, stories});
 		expect(dispatch).not.toHaveBeenCalled();
 		fireEvent.click(
-			within(screen.getByTestId('mock-tag-editor-mock-tag')).getByText(
+			within(await screen.findByTestId('mock-tag-editor-mock-tag')).getByText(
 				'onChangeName'
 			)
 		);
@@ -104,7 +110,7 @@ describe('<PassageTagsDialog>', () => {
 		await renderComponent({}, {dispatch});
 		expect(dispatch).not.toHaveBeenCalled();
 		fireEvent.click(
-			within(screen.getByTestId('mock-tag-editor-mock-tag')).getByText(
+			within(await screen.findByTestId('mock-tag-editor-mock-tag')).getByText(
 				'onChangeColor'
 			)
 		);
@@ -132,6 +138,7 @@ describe('<PassageTagsDialog>', () => {
 
 		story.passages[0].tags = ['mock-tag'];
 		await renderComponent({storyId: story.id}, {stories: [story]});
+		await screen.findByTestId('mock-tag-editor-mock-tag');
 		expect(
 			screen.queryByText('dialogs.storyTags.noTags')
 		).not.toBeInTheDocument();

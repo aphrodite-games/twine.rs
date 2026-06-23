@@ -1272,6 +1272,13 @@ impl ProjectSession {
         }
     }
 
+    pub fn new_at_revision(project: Project, next_transaction_id: u64) -> Self {
+        let mut session = Self::new(project);
+
+        session.set_revision(next_transaction_id);
+        session
+    }
+
     pub fn with_project_root(project: Project, project_root: impl Into<PathBuf>) -> Self {
         let mut session = Self::new(project);
 
@@ -1339,6 +1346,14 @@ impl ProjectSession {
 
     pub fn project(&self) -> &Project {
         &self.project
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.next_transaction_id
+    }
+
+    pub fn set_revision(&mut self, next_transaction_id: u64) {
+        self.next_transaction_id = next_transaction_id.max(1);
     }
 
     pub fn redo(&mut self) -> Option<PatchBatch> {
@@ -1716,7 +1731,7 @@ impl ProjectSession {
             .collect())
     }
 
-    fn graph_projection(
+    pub fn graph_projection(
         &mut self,
         story_id: &str,
         options: CoreGraphProjectionOptions,
@@ -2225,7 +2240,7 @@ impl ProjectSession {
         }])
     }
 
-    fn story_index(
+    pub fn story_index(
         &self,
         story_id: &str,
         options: CoreStoryIndexOptions,
@@ -3837,7 +3852,7 @@ fn symbols_in_source(
     while index < bytes.len() {
         let prefix = bytes[index];
 
-        if (prefix == b'$' || prefix == b'_')
+        if prefix == b'$'
             && (index == 0 || !is_identifier_byte(bytes[index.saturating_sub(1)]))
             && bytes
                 .get(index + 1)
@@ -3853,14 +3868,24 @@ fn symbols_in_source(
                 index += 1;
             }
 
+            while bytes.get(index) == Some(&b'.')
+                && bytes
+                    .get(index + 1)
+                    .is_some_and(|byte| is_identifier_start(*byte))
+            {
+                index += 2;
+                while bytes
+                    .get(index)
+                    .is_some_and(|byte| is_identifier_byte(*byte))
+                {
+                    index += 1;
+                }
+            }
+
             symbols.push(CoreSymbol {
                 end: index,
                 excerpt: excerpt_around(source, start, index - start),
-                kind: if prefix == b'$' {
-                    CoreSymbolKind::Variable
-                } else {
-                    CoreSymbolKind::TemporaryVariable
-                },
+                kind: CoreSymbolKind::Variable,
                 line: line_number_at(source, start),
                 name: source[start..index].to_owned(),
                 passage_id: passage_id.map(str::to_owned),
@@ -3870,39 +3895,6 @@ fn symbols_in_source(
                 start,
             });
             continue;
-        }
-
-        if (prefix == b'|' || prefix == b'?')
-            && bytes
-                .get(index + 1)
-                .is_some_and(|byte| is_identifier_start(*byte))
-        {
-            let start = index;
-
-            index += 2;
-            while bytes
-                .get(index)
-                .is_some_and(|byte| is_identifier_byte(*byte))
-            {
-                index += 1;
-            }
-
-            if prefix == b'?' || bytes.get(index) == Some(&b'>') {
-                let end = if prefix == b'|' { index + 1 } else { index };
-
-                symbols.push(CoreSymbol {
-                    end,
-                    excerpt: excerpt_around(source, start, end - start),
-                    kind: CoreSymbolKind::Hook,
-                    line: line_number_at(source, start),
-                    name: source[start..end].to_owned(),
-                    passage_id: passage_id.map(str::to_owned),
-                    scope: scope.clone(),
-                    source_id: source_id.to_owned(),
-                    source_name: source_name.to_owned(),
-                    start,
-                });
-            }
         }
 
         index += 1;
@@ -4879,6 +4871,38 @@ mod tests {
     }
 
     #[test]
+    fn sessions_can_be_seeded_at_a_renderer_revision() {
+        let mut session = ProjectSession::new_at_revision(session().project().clone(), 42);
+
+        assert_eq!(session.revision(), 42);
+
+        let batch = session
+            .apply(StoryCommand::UpdatePassageText {
+                story_id: "story-1".into(),
+                passage_id: "a".into(),
+                text: "Renderer revision aligned".into(),
+            })
+            .expect("command should apply");
+
+        assert_eq!(batch.transaction_id, 42);
+        assert_eq!(session.revision(), 43);
+    }
+
+    #[test]
+    fn direct_graph_and_index_queries_do_not_consume_revisions() {
+        let mut session = session();
+
+        assert_eq!(session.revision(), 1);
+        session
+            .graph_projection("story-1", CoreGraphProjectionOptions::default())
+            .expect("graph should query");
+        session
+            .story_index("story-1", CoreStoryIndexOptions::default())
+            .expect("index should query");
+        assert_eq!(session.revision(), 1);
+    }
+
+    #[test]
     fn rolls_back_move_passages_when_one_move_fails() {
         let mut session = session();
         let error = session
@@ -5258,7 +5282,8 @@ mod tests {
                 .passage_by_id_mut(&PassageId::new("a"))
                 .expect("passage");
 
-            passage.text = "Set $score. assets/cover.png [[Next]]".into();
+            passage.text =
+                "Set $score and $player.score. _turn ?sidebar assets/cover.png [[Next]]".into();
             passage.tags = vec!["chapter-one".into(), "scene".into()];
             story.tag_colors.insert("scene".into(), "red".into());
             story.script = "const coin = 1;".into();
@@ -5280,6 +5305,14 @@ mod tests {
         };
 
         assert!(index.symbols.iter().any(|symbol| symbol.name == "$score"));
+        assert!(
+            index
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == "$player.score")
+        );
+        assert!(!index.symbols.iter().any(|symbol| symbol.name == "_turn"));
+        assert!(!index.symbols.iter().any(|symbol| symbol.name == "?sidebar"));
         assert!(
             index
                 .assets

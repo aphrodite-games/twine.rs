@@ -72,6 +72,7 @@ async function handleRequest(
 				{
 					const nextSession = new SessionConstructor(request.snapshot);
 
+					nextSession.set_revision(request.revision);
 					session?.free();
 					session = nextSession;
 				}
@@ -79,26 +80,42 @@ async function handleRequest(
 				result = {revision: request.revision};
 				break;
 
-			case 'apply':
-				result = ensureSession(request.revision).apply(request.command);
-				sessionRevision = request.revision + 1;
+			case 'apply': {
+				const liveSession = ensureSession(request.revision);
+				const batch = liveSession.apply(request.command);
+
+				sessionRevision = liveSession.revision();
+				result = {batch, revision: sessionRevision};
 				break;
+			}
 
-			case 'undo':
-				result = ensureSession(request.revision).undo();
+			case 'undo': {
+				const liveSession = ensureSession(request.revision);
+				const batch = liveSession.undo();
 
-				if (result) {
+				if (batch) {
 					sessionRevision = request.revision + 1;
+					liveSession.set_revision(sessionRevision);
+					result = {batch, revision: sessionRevision};
+				} else {
+					result = null;
 				}
 				break;
+			}
 
-			case 'redo':
-				result = ensureSession(request.revision).redo();
+			case 'redo': {
+				const liveSession = ensureSession(request.revision);
+				const batch = liveSession.redo();
 
-				if (result) {
+				if (batch) {
 					sessionRevision = request.revision + 1;
+					liveSession.set_revision(sessionRevision);
+					result = {batch, revision: sessionRevision};
+				} else {
+					result = null;
 				}
 				break;
+			}
 
 			case 'queryGraphProjection':
 				result = ensureSession(request.revision).query_graph_projection(

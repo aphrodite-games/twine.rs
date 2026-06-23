@@ -6,6 +6,7 @@ import {CodeArea} from '../components/control/code-area';
 import {Button, Checkbox} from '../components/design-system';
 import {useCoreProjectHost} from '../core';
 import type {CoreSearchHit} from '../core/bindings/CoreSearchHit';
+import type {CoreStoryIndex} from '../core';
 import {usePrefsContext} from '../store/prefs';
 import {
 	StorySearchFlags,
@@ -49,6 +50,10 @@ export const StorySearchDialog: React.FC<StorySearchDialogProps> = props => {
 	const story = storyWithId(stories, storyId);
 	const coreProjectHost = useCoreProjectHost();
 	const storyRef = React.useRef(story);
+	const [index, setIndex] = React.useState<CoreStoryIndex>();
+	const includePassageNames = flags.includePassageNames ?? false;
+	const matchCase = flags.matchCase ?? false;
+	const useRegexes = flags.useRegexes ?? false;
 	const errorText = React.useMemo(() => {
 		const error = passageReplaceError(story.passages, find, replace, flags);
 
@@ -62,42 +67,61 @@ export const StorySearchDialog: React.FC<StorySearchDialogProps> = props => {
 			return t(`dialogs.storySearch.error.${error.error}`);
 		}
 	}, [find, flags, replace, story.passages]);
-	const index = React.useMemo(
-		() =>
-			coreProjectHost.queryStoryIndex(story.id, {
-				includeAssets: false,
-				includeContents: false,
-				includeDiagnostics: false,
-				includeFiles: false,
-				includeGraph: false,
-				includePassageNames: flags.includePassageNames ?? false,
-				includePassageText: true,
-				includeScript: true,
-				includeStylesheet: true,
-				includeTags: false,
-				includeVariables: false,
-				matchCase: flags.matchCase ?? false,
-				query: find,
-				replacement: replace,
-				useRegexes: flags.useRegexes ?? false
-			}),
-		[coreProjectHost, find, flags, replace, story]
-	);
+	React.useEffect(() => {
+		let active = true;
+		const options = {
+			includeAssets: false,
+			includeContents: false,
+			includeDiagnostics: false,
+			includeFiles: false,
+			includeGraph: false,
+			includePassageNames,
+			includePassageText: true,
+			includeScript: true,
+			includeStylesheet: true,
+			includeTags: false,
+			includeVariables: false,
+			matchCase,
+			query: find,
+			replacement: replace,
+			useRegexes
+		};
+
+		setIndex(undefined);
+		void coreProjectHost.queryStoryIndexAsync(story.id, options).then(index => {
+			if (active) {
+				setIndex(index);
+			}
+		});
+
+		return () => {
+			active = false;
+		};
+	}, [
+		coreProjectHost,
+		find,
+		includePassageNames,
+		matchCase,
+		replace,
+		story,
+		useRegexes
+	]);
+	const searchHits = index?.searchHits ?? [];
 	const matches = React.useMemo(() => {
-		const passageIds = index.searchHits
+		const passageIds = searchHits
 			.map(hit => hit.passageId)
 			.filter((id): id is string => !!id);
 
 		return Array.from(new Set(passageIds));
-	}, [index.searchHits]);
+	}, [searchHits]);
 	const replaceableHits = React.useMemo(
 		() =>
-			index.searchHits.filter(hit =>
+			searchHits.filter(hit =>
 				['passageName', 'passageText', 'script', 'stylesheet'].includes(
 					hit.scope
 				)
 			),
-		[index.searchHits]
+		[searchHits]
 	);
 	const debouncedDispatch = React.useMemo(
 		() => debounce(dispatch, 250, {leading: false, trailing: true}),
@@ -239,17 +263,17 @@ export const StorySearchDialog: React.FC<StorySearchDialogProps> = props => {
 				</Button>
 				<span>
 					{find
-						? index.searchHits.length > 0
+						? searchHits.length > 0
 							? t('dialogs.storySearch.matchCount', {
-									count: index.searchHits.length
+									count: searchHits.length
 								})
 							: t('dialogs.storySearch.noMatches')
 						: t('dialogs.storySearch.ready')}
 				</span>
 			</div>
-			{index.searchHits.length > 0 && (
+			{searchHits.length > 0 && (
 				<ol className="search-result-list">
-					{index.searchHits.slice(0, 50).map((hit, index) => (
+					{searchHits.slice(0, 50).map((hit, index) => (
 						<li key={`${hit.sourceId}-${hit.scope}-${hit.start}-${index}`}>
 							<button
 								className="search-result"

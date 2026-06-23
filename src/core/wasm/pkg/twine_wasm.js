@@ -87,6 +87,19 @@ export class TwineWasmProjectSession {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @returns {number}
+     */
+    revision() {
+        const ret = wasm.twinewasmprojectsession_revision(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} revision
+     */
+    set_revision(revision) {
+        wasm.twinewasmprojectsession_set_revision(this.__wbg_ptr, revision);
+    }
+    /**
      * @returns {any}
      */
     snapshot() {

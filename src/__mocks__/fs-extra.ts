@@ -1,4 +1,6 @@
 export const copy = jest.fn();
+export const ensureSymlink = jest.fn();
+export const lstat = jest.fn();
 export const mkdtemp = jest.fn();
 export const mkdirp = jest.fn();
 export const move = jest.fn();

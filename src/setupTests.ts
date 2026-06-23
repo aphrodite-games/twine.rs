@@ -7,6 +7,18 @@ import 'jest-canvas-mock';
 
 jest.mock('./util/i18n');
 
+jest.mock('./core/wasm/twine-wasm-client', () => {
+	const actual = jest.requireActual('./core/wasm/twine-wasm-client');
+	const {createTestCoreSessionClient} = jest.requireActual(
+		'./test-util/test-core-session-client'
+	);
+
+	return {
+		...actual,
+		createWasmCoreWorkerClient: createTestCoreSessionClient
+	};
+});
+
 // Mock this component so that we don't get spurious errors around needing
 // focusable elements, because often we're mocking contents.
 

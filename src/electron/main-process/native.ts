@@ -16,8 +16,10 @@ interface NativeProjectAddon {
 		currentFilesJson: string
 	): string;
 	findTwineHtmlFilesJson(rootPath: string): string;
+	forgetProjectFolderJson(indexPath: string, rootPath: string): string;
 	healthJson(): string;
 	listProjectAssetsJson(rootPath: string): string;
+	listRememberedProjectFoldersJson(indexPath: string): string;
 	loadProjectFolderJson(rootPath: string, loadPassageText?: boolean): string;
 	prepareProjectImportJson(sourcePath: string): string;
 	prepareHtmlImportJson(
@@ -26,6 +28,7 @@ interface NativeProjectAddon {
 		sourceKind: string
 	): string;
 	projectFileManifestJson(rootPath: string, assetsJson?: string): string;
+	rememberProjectFolderJson(indexPath: string, projectJson: string): string;
 	saveProjectFolderJson(rootPath: string, storyJson: string): string;
 }
 
@@ -33,6 +36,12 @@ interface NativeHealthReport {
 	features?: string[];
 	ok?: boolean;
 	version?: string;
+}
+
+export interface NativeRememberedProjectFolder {
+	rootPath: string;
+	storyIds: string[];
+	updatedAt: string;
 }
 
 const nativeRequire = createRequire(__filename);
@@ -213,6 +222,30 @@ export function saveNativeProjectFolder(rootPath: string, story: Story) {
 		callNative<NativeProjectFolderResult>('project save', addon =>
 			addon.saveProjectFolderJson(rootPath, JSON.stringify(story))
 		)
+	);
+}
+
+export function rememberNativeProjectFolder(
+	indexPath: string,
+	project: NativeProjectFolderResult
+) {
+	return callNative<NativeRememberedProjectFolder>(
+		'project library remember',
+		addon => addon.rememberProjectFolderJson(indexPath, JSON.stringify(project))
+	);
+}
+
+export function forgetNativeProjectFolder(indexPath: string, rootPath: string) {
+	return callNative<NativeRememberedProjectFolder[]>(
+		'project library forget',
+		addon => addon.forgetProjectFolderJson(indexPath, rootPath)
+	);
+}
+
+export function listRememberedNativeProjectFolders(indexPath: string) {
+	return callNative<NativeRememberedProjectFolder[]>(
+		'project library list',
+		addon => addon.listRememberedProjectFoldersJson(indexPath)
 	);
 }
 

@@ -45,7 +45,7 @@ export interface UsePublishingProps {
 		storyId: string,
 		publishOptions?: PublishStoryOptions
 	) => Promise<string>;
-	publishStoryData: (storyId: string) => string;
+	publishStoryData: (storyId: string) => Promise<string>;
 }
 
 /**
@@ -63,8 +63,9 @@ export function usePublishing(): UsePublishingProps {
 	const coreProjectHost = useCoreProjectHost();
 
 	const assetInventoryForStory = React.useCallback(
-		(storyId: string) => {
-			return coreProjectHost.queryStoryIndex(storyId).assetInventory;
+		async (storyId: string) => {
+			return (await coreProjectHost.queryStoryIndexAsync(storyId))
+				.assetInventory;
 		},
 		[coreProjectHost]
 	);
@@ -91,7 +92,8 @@ export function usePublishing(): UsePublishingProps {
 			return createStoryBuildPackage(story, getAppInfo(), {
 				...publishOptions,
 				assetInventory:
-					publishOptions?.assetInventory ?? assetInventoryForStory(storyId),
+					publishOptions?.assetInventory ??
+					(await assetInventoryForStory(storyId)),
 				formatProperties,
 				target
 			});
@@ -127,7 +129,7 @@ export function usePublishing(): UsePublishingProps {
 				}
 
 				return createStoryBuildPackage(story, getAppInfo(), {
-					assetInventory: assetInventoryForStory(storyId),
+					assetInventory: await assetInventoryForStory(storyId),
 					formatProperties,
 					target: 'proof'
 				}).html;
@@ -157,7 +159,8 @@ export function usePublishing(): UsePublishingProps {
 				}
 
 				return createStoryBuildPackage(story, getAppInfo(), {
-					assetInventory: assetInventory ?? assetInventoryForStory(storyId),
+					assetInventory:
+						assetInventory ?? (await assetInventoryForStory(storyId)),
 					formatProperties,
 					target: 'proof'
 				});
@@ -189,11 +192,11 @@ export function usePublishing(): UsePublishingProps {
 			[buildStoryPackage]
 		),
 		publishStoryData: React.useCallback(
-			(storyId: string) => {
+			async (storyId: string) => {
 				const story = storyWithId(stories, storyId);
 
 				return publishStory(story, getAppInfo(), {
-					assetInventory: assetInventoryForStory(storyId),
+					assetInventory: await assetInventoryForStory(storyId),
 					startOptional: true
 				});
 			},

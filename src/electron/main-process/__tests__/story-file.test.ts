@@ -14,17 +14,30 @@ import {
 	renameStory,
 	saveStoryHtml
 } from '../story-file';
+import type {StoryFile} from '../story-file';
 import {
 	fileWasTouched,
 	stopTrackingFile,
 	wasFileChangedExternally
 } from '../track-file-changes';
+import {openProjectFolder} from '../project-folder';
+import {
+	forgetProjectFolder,
+	rememberedProjectFolders
+} from '../project-library-index';
 import {fakeStory} from '../../../test-util';
 import {Story} from '../../../store/stories';
 import {storyFileName} from '../../shared/story-filename';
 
 jest.mock('../story-directory', () => ({
 	getStoryDirectoryPath: () => 'mock-story-directory'
+}));
+jest.mock('../project-folder', () => ({
+	openProjectFolder: jest.fn()
+}));
+jest.mock('../project-library-index', () => ({
+	forgetProjectFolder: jest.fn(),
+	rememberedProjectFolders: jest.fn()
 }));
 jest.mock('../track-file-changes');
 
@@ -88,9 +101,15 @@ describe('loadStories', () => {
 	const fileWasTouchedMock = fileWasTouched as jest.Mock;
 	const readdirMock = readdir as jest.Mock;
 	const readFileMock = readFile as jest.Mock;
+	const openProjectFolderMock = openProjectFolder as jest.Mock;
+	const forgetProjectFolderMock = forgetProjectFolder as jest.Mock;
+	const rememberedProjectFoldersMock = rememberedProjectFolders as jest.Mock;
 	const statMock = stat as jest.Mock;
 
 	beforeEach(() => {
+		forgetProjectFolderMock.mockReturnValue(undefined);
+		openProjectFolderMock.mockResolvedValue(undefined);
+		rememberedProjectFoldersMock.mockReturnValue([]);
 		readdirMock.mockResolvedValue(['test-story-1.html', 'test-story-2.html']);
 		readFileMock.mockImplementation((name: string) => {
 			switch (name) {
@@ -137,8 +156,106 @@ describe('loadStories', () => {
 				mtime: expect.any(Date)
 			}
 		]);
-		expect(result[0].mtime.getTime()).toBe(new Date('1/1/1990').getTime());
-		expect(result[1].mtime.getTime()).toBe(new Date('1/1/2000').getTime());
+		const legacyResult = result.filter(
+			(entry): entry is StoryFile => 'htmlSource' in entry
+		);
+
+		expect(legacyResult[0].mtime.getTime()).toBe(
+			new Date('1/1/1990').getTime()
+		);
+		expect(legacyResult[1].mtime.getTime()).toBe(
+			new Date('1/1/2000').getTime()
+		);
+	});
+
+	it('loads remembered native project folders before legacy HTML files', async () => {
+		const story = fakeStory(1);
+
+		rememberedProjectFoldersMock.mockReturnValue([
+			{
+				rootPath: '/native/moon-castle.twine.rs',
+				storyIds: [story.id],
+				updatedAt: '2026-06-21T16:00:00.000Z'
+			}
+		]);
+		openProjectFolderMock.mockResolvedValue({
+			passageTextLoaded: false,
+			rootPath: '/native/moon-castle.twine.rs',
+			stories: [story],
+			storyIds: [story.id]
+		});
+
+		expect(await loadStories()).toEqual([
+			{
+				kind: 'native-project',
+				passageTextLoaded: false,
+				rootPath: '/native/moon-castle.twine.rs',
+				story,
+				storyIds: [story.id]
+			},
+			{
+				htmlSource: 'mock story 1 contents',
+				mtime: expect.any(Date)
+			},
+			{
+				htmlSource: 'mock story 2 contents',
+				mtime: expect.any(Date)
+			}
+		]);
+		expect(openProjectFolderMock).toHaveBeenCalledWith(
+			'/native/moon-castle.twine.rs',
+			{loadPassageText: false}
+		);
+	});
+
+	it('keeps remembered native project folders when legacy HTML directory is absent', async () => {
+		const story = fakeStory(1);
+
+		rememberedProjectFoldersMock.mockReturnValue([
+			{
+				rootPath: '/native/moon-castle.twine.rs',
+				storyIds: [story.id],
+				updatedAt: '2026-06-21T16:00:00.000Z'
+			}
+		]);
+		openProjectFolderMock.mockResolvedValue({
+			passageTextLoaded: true,
+			rootPath: '/native/moon-castle.twine.rs',
+			stories: [story],
+			storyIds: [story.id]
+		});
+		readdirMock.mockRejectedValue(
+			Object.assign(new Error('missing'), {code: 'ENOENT'})
+		);
+
+		expect(await loadStories()).toEqual([
+			{
+				kind: 'native-project',
+				passageTextLoaded: true,
+				rootPath: '/native/moon-castle.twine.rs',
+				story,
+				storyIds: [story.id]
+			}
+		]);
+	});
+
+	it('forgets missing remembered native project folders', async () => {
+		rememberedProjectFoldersMock.mockReturnValue([
+			{
+				rootPath: '/native/missing.twine.rs',
+				storyIds: ['story-id'],
+				updatedAt: '2026-06-21T16:00:00.000Z'
+			}
+		]);
+		openProjectFolderMock.mockRejectedValue(
+			Object.assign(new Error('missing'), {code: 'ENOENT'})
+		);
+
+		await loadStories();
+
+		expect(forgetProjectFolderMock).toHaveBeenCalledWith(
+			'/native/missing.twine.rs'
+		);
 	});
 
 	it("ignores files that don't have a .html suffix", async () => {

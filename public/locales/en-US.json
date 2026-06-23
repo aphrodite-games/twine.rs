@@ -172,6 +172,14 @@
 		"appPrefs": {
 			"codeEditorFont": "Code Editor Font",
 			"codeEditorFontScale": "Code Editor Font Size",
+			"codeEditorTheme": "Code Editor Theme",
+			"codeEditorThemes": {
+				"highContrast": "High Contrast",
+				"oneDark": "CodeMirror One Dark",
+				"solarizedDark": "Solarized Dark",
+				"solarizedLight": "Solarized Light",
+				"twine": "Twine Adaptive"
+			},
 			"dialogWidth": "Dialog Width",
 			"dialogWidths": {
 				"default": "Default",
@@ -180,6 +188,7 @@
 			},
 			"editorCursorBlinks": "Blinking Cursor in Editors",
 			"fontExplanation": "Changing the font here only affects the Twine editor. It will not change the font a story uses when played.",
+			"graphRightClickCreatePassage": "Right-Click Creates Passages",
 			"language": "Language",
 			"passageEditorFont": "Passage Editor Font",
 			"passageEditorFontScale": "Passage Editor Font Size",
@@ -379,6 +388,8 @@
 				"expandDock": "Expand {{dock}}",
 				"expandLeftDock": "Expand Passages",
 				"expandRightDock": "Expand Inspector",
+				"find": "Find",
+				"findInEditor": "Find in Editor",
 				"graphMode": "Graph",
 				"inspector": "Inspector",
 				"leftDock": "Passages",

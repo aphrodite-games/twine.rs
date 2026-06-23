@@ -84,6 +84,41 @@ export const AppPrefsDialog: React.FC<
 					{t('dialogs.appPrefs.passageTagDisplay')}
 				</TextSelect>
 				<Checkbox
+					checked={prefs.graphRightClickCreatePassage}
+					label={t('dialogs.appPrefs.graphRightClickCreatePassage')}
+					onChange={value =>
+						dispatch(setPref('graphRightClickCreatePassage', value))
+					}
+				/>
+				<TextSelect
+					onChange={e => dispatch(setPref('codeEditorTheme', e.target.value))}
+					options={[
+						{
+							label: t('dialogs.appPrefs.codeEditorThemes.twine'),
+							value: 'twine'
+						},
+						{
+							label: t('dialogs.appPrefs.codeEditorThemes.oneDark'),
+							value: 'one-dark'
+						},
+						{
+							label: t('dialogs.appPrefs.codeEditorThemes.solarizedLight'),
+							value: 'solarized-light'
+						},
+						{
+							label: t('dialogs.appPrefs.codeEditorThemes.solarizedDark'),
+							value: 'solarized-dark'
+						},
+						{
+							label: t('dialogs.appPrefs.codeEditorThemes.highContrast'),
+							value: 'high-contrast'
+						}
+					]}
+					value={prefs.codeEditorTheme}
+				>
+					{t('dialogs.appPrefs.codeEditorTheme')}
+				</TextSelect>
+				<Checkbox
 					checked={prefs.editorCursorBlinks}
 					disabled={!prefs.useCodeMirror}
 					label={t('dialogs.appPrefs.editorCursorBlinks')}

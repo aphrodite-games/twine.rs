@@ -14,6 +14,7 @@ import {
 import {quickFixActionsForDiagnostic} from '../../core/quick-fix-registry';
 import type {DiagnosticsViewModelItem} from '../../core/view-models';
 import type {CoreDiagnosticSeverity} from '../../core/bindings/CoreDiagnosticSeverity';
+import type {CoreStoryIndex} from '../../core';
 import {
 	Passage,
 	selectPassage,
@@ -139,6 +140,7 @@ export const DiagnosticsRoute: React.FC = () => {
 	const [query, setQuery] = React.useState('');
 	const [selectedId, setSelectedId] = React.useState<string>();
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [index, setIndex] = React.useState<CoreStoryIndex>();
 	const [dismissedIds, setDismissedIds] = React.useState<Set<string>>(
 		() => new Set()
 	);
@@ -182,10 +184,41 @@ export const DiagnosticsRoute: React.FC = () => {
 			);
 	}, [story?.id]);
 
-	const index = React.useMemo(
-		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
-		[coreProjectHost, patchVersion, story]
-	);
+	React.useEffect(() => {
+		let active = true;
+
+		if (!story) {
+			setIndex(undefined);
+			return () => {
+				active = false;
+			};
+		}
+
+		setIndex(undefined);
+		void coreProjectHost
+			.queryStoryIndexAsync(story.id, {
+				includeAssets: true,
+				includeContents: true,
+				includeDiagnostics: true,
+				includeFiles: false,
+				includeGraph: true,
+				includePassageNames: false,
+				includePassageText: false,
+				includeScript: true,
+				includeStylesheet: true,
+				includeTags: false,
+				includeVariables: true
+			})
+			.then(index => {
+				if (active) {
+					setIndex(index);
+				}
+			});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, patchVersion, story]);
 	const diagnostics = React.useMemo(
 		() => (story && index ? diagnosticsViewModel(index, story) : undefined),
 		[index, story]

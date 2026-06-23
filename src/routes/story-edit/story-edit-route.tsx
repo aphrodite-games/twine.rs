@@ -31,6 +31,10 @@ export const InnerStoryEditRoute: React.FC = () => {
 	const story = storyWithId(stories, storyId);
 	const {testStory} = useStoryLaunch();
 	const [fuzzyFinderOpen, setFuzzyFinderOpen] = React.useState(false);
+	const [graphRevealRequest, setGraphRevealRequest] = React.useState({
+		key: 0,
+		passageId: ''
+	});
 	const mainContent = React.useRef<HTMLDivElement>(null);
 	const workspace = useStoryEditWorkspace(story);
 	const {getCenter, setCenter} = useViewCenter(story, mainContent);
@@ -58,7 +62,6 @@ export const InnerStoryEditRoute: React.FC = () => {
 	const handleEditPassage = React.useCallback(
 		(passage: Passage) => {
 			handleChoosePassage(passage);
-
 			if (workspace.mode === 'graph') {
 				workspace.setMode('split');
 			}
@@ -68,6 +71,10 @@ export const InnerStoryEditRoute: React.FC = () => {
 	const handleRevealPassageInGraph = React.useCallback(
 		(passage: Passage) => {
 			handleChoosePassage(passage);
+			setGraphRevealRequest(current => ({
+				key: current.key + 1,
+				passageId: passage.id
+			}));
 
 			if (workspace.mode === 'text') {
 				workspace.setMode('split');
@@ -139,6 +146,8 @@ export const InnerStoryEditRoute: React.FC = () => {
 							onSelect={handleSelectPassageInMap}
 							onSelectIds={handleSelectPassageIds}
 							onTestPassage={handleTestPassage}
+							revealPassageId={graphRevealRequest.passageId}
+							revealRequestKey={graphRevealRequest.key}
 							selectedPassageId={workspace.selectedPassageId}
 							story={story}
 							visibleZoom={visibleZoom}

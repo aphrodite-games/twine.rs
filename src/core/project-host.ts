@@ -5,53 +5,34 @@ import type {CoreStoryIndex} from './bindings/CoreStoryIndex';
 import type {CoreStoryIndexOptions} from './bindings/CoreStoryIndexOptions';
 import type {Patch} from './bindings/Patch';
 import type {PatchBatch} from './bindings/PatchBatch';
-import type {PassageSnapshot} from './bindings/PassageSnapshot';
-import type {StoryMetadataPatch} from './bindings/StoryMetadataPatch';
 import type {StoryCommand} from './bindings/StoryCommand';
-import type {StorySnapshot} from './bindings/StorySnapshot';
 import type {GraphProjectionQuery} from './graph-projection';
 import {
 	assetKindForPath,
 	assetSnippet,
-	fileUrlForPath,
 	normalizedAssetPath,
-	projectAssetPath,
-	replaceAssetReferencesInSource
+	projectAssetPath
 } from './asset-paths';
+import {normalizeGraphProjectionOptions} from './graph-projection';
 import {
-	normalizeGraphProjectionOptions,
-	saveGeneratedGraphLayout,
-	storyToCoreGraphProjection
-} from './graph-projection';
+	applyProjectPatchBatch,
+	projectPatchBatchStoryActions
+} from './patch-applier';
 import {projectSnapshotFromStories} from './project-snapshot';
-import {normalizeStoryIndexOptions, storyToCoreIndex} from './story-index';
+import {normalizeStoryIndexOptions} from './story-index';
 import type {CoreBridgeMode} from './wasm/performance';
 import {
+	CoreSessionMutationResult,
 	WasmCoreWorkerClient,
 	createWasmCoreWorkerClient
 } from './wasm/twine-wasm-client';
-import {
-	StoriesAction,
-	StoriesState,
-	Passage,
-	Story,
-	deletePassages,
-	storyWithId,
-	updatePassage,
-	updateStory,
-	useStoriesContext
-} from '../store/stories';
+import {StoriesState, Story, useStoriesContext} from '../store/stories';
 import type {StoriesActionOrThunk} from '../store/undoable-stories';
 import {useUndoableStoriesContext} from '../store/undoable-stories';
 
 export type StoryIndexQuery = string | Partial<CoreStoryIndexOptions>;
 
 export type CoreProjectPatchListener = (patches: PatchBatch) => void;
-
-interface StoryIndexCacheEntry {
-	index: CoreStoryIndex;
-	knownAssets: CoreAssetInventoryEntry[];
-}
 
 export interface CoreProjectHost {
 	applyStoryCommand(command: StoryCommand, annotation?: string): void;
@@ -133,6 +114,34 @@ type UndoableDispatch = (
 	annotation?: string
 ) => void;
 
+type CoreProjectSessionClient = Pick<
+	WasmCoreWorkerClient,
+	| 'apply'
+	| 'cachedGraphProjection'
+	| 'cachedStoryIndex'
+	| 'enabled'
+	| 'lastGraphProjection'
+	| 'mode'
+	| 'queryGraphProjection'
+	| 'queryStoryIndex'
+	| 'redo'
+	| 'replaceProject'
+	| 'undo'
+> & {
+	applySync?(
+		command: StoryCommand,
+		revision: number
+	): CoreSessionMutationResult;
+	replaceProjectSync?(
+		snapshot: ReturnType<typeof projectSnapshotFromStories>,
+		revision: number
+	): void;
+};
+
+export interface StoreCoreProjectHostOptions {
+	wasmClient?: CoreProjectSessionClient;
+}
+
 function storyCommandAnnotation(command: StoryCommand) {
 	switch (command.type) {
 		case 'createPassage':
@@ -170,28 +179,6 @@ function storyCommandAnnotation(command: StoryCommand) {
 	}
 }
 
-function storyForId(stories: Story[], storyId: string) {
-	return storyWithId(stories, storyId);
-}
-
-function storyIndexCacheKey(options: StoryIndexQuery) {
-	const cacheableOptions = normalizeStoryIndexOptions(options);
-
-	return JSON.stringify({...cacheableOptions, knownAssets: []});
-}
-
-function passageForId(story: Story, passageId: string) {
-	const passage = story.passages.find(passage => passage.id === passageId);
-
-	if (!passage) {
-		throw new Error(
-			`No passage with ID "${passageId}" exists in story "${story.id}".`
-		);
-	}
-
-	return passage;
-}
-
 function assetInventoryEntry(
 	path: string,
 	options: {previewUrl?: string | null} = {}
@@ -223,122 +210,6 @@ function assetInventoryEntry(
 		unused: true,
 		width: null
 	};
-}
-
-function insertAtPosition(source: string, position: number, text: string) {
-	const safePosition = Math.max(0, Math.min(source.length, position));
-
-	return `${source.slice(0, safePosition)}${text}${source.slice(safePosition)}`;
-}
-
-function createPassageProps(
-	command: Extract<StoryCommand, {type: 'createPassage'}>
-) {
-	return {
-		...(command.id ? {id: command.id} : {}),
-		...(command.layout ?? {}),
-		...(command.name ? {name: command.name} : {}),
-		tags: command.tags,
-		text: command.text
-	};
-}
-
-function restoredPassageProps(
-	command: Extract<StoryCommand, {type: 'restorePassages'}>
-) {
-	return command.passages.map(passage => ({
-		id: passage.id,
-		...(passage.layout ?? {}),
-		name: passage.name,
-		tags: passage.tags,
-		text: passage.text
-	}));
-}
-
-function passageSnapshotToProps(
-	passage: PassageSnapshot
-): Partial<Passage> & Pick<Passage, 'id' | 'story'> {
-	return {
-		id: passage.id,
-		...(passage.layout ?? {}),
-		name: passage.name,
-		story: passage.storyId,
-		tags: passage.tags,
-		text: passage.text
-	};
-}
-
-function storySnapshotToStory(story: StorySnapshot): Story {
-	return {
-		id: story.id,
-		ifid: story.ifid,
-		lastUpdate: new Date(),
-		name: story.name,
-		passages: story.passages.map(passage => ({
-			...passageSnapshotToProps(passage),
-			highlighted: false,
-			selected: false
-		})) as Passage[],
-		script: story.script,
-		selected: false,
-		snapToGrid: story.snapToGrid,
-		startPassage: story.startPassageId,
-		storyFormat: story.storyFormat,
-		storyFormatVersion: story.storyFormatVersion,
-		stylesheet: story.stylesheet,
-		tagColors: normalizedTagColors(story.tagColors),
-		tags: story.tags,
-		zoom: story.zoom
-	};
-}
-
-function normalizedTagColors(
-	tagColors: StorySnapshot['tagColors'] | StoryMetadataPatch['tagColors']
-): Story['tagColors'] {
-	return Object.fromEntries(
-		Object.entries(tagColors ?? {}).filter(
-			(entry): entry is [string, string] => entry[1] !== undefined
-		)
-	);
-}
-
-function storyMetadataPatchToProps(
-	changes: StoryMetadataPatch
-): Partial<Story> {
-	return {
-		...(changes.name !== null ? {name: changes.name} : {}),
-		...(changes.snapToGrid !== null
-			? {snapToGrid: changes.snapToGrid}
-			: {}),
-		...(changes.storyFormat !== null
-			? {storyFormat: changes.storyFormat}
-			: {}),
-		...(changes.storyFormatVersion !== null
-			? {storyFormatVersion: changes.storyFormatVersion}
-			: {}),
-		...(changes.tagColors !== null
-			? {tagColors: normalizedTagColors(changes.tagColors)}
-			: {}),
-		...(changes.tags !== null ? {tags: changes.tags} : {}),
-		...(changes.zoom !== null ? {zoom: changes.zoom} : {})
-	};
-}
-
-function passagePatchToProps(
-	changes: Patch & {type: 'passageUpdated'}
-): Partial<Passage> {
-	const patch = changes.changes;
-
-	return {
-		...(patch.layout !== null ? patch.layout : {}),
-		...(patch.name !== null ? {name: patch.name} : {}),
-		...(patch.tags !== null ? {tags: patch.tags} : {}),
-		...(patch.text !== null ? {text: patch.text} : {})
-	};
-}
-
-function projectSnapshotToStories(snapshot: Patch & {type: 'projectSnapshotReplaced'}) {
-	return snapshot.snapshot.stories.map(storySnapshotToStory);
 }
 
 function persistableStoryFingerprint(story: Story) {
@@ -375,6 +246,64 @@ function storyFingerprintMap(stories: StoriesState) {
 	);
 }
 
+function storyFingerprintMapsEqual(
+	left: Map<string, string>,
+	right: Map<string, string>
+) {
+	if (left.size !== right.size) {
+		return false;
+	}
+
+	for (const [storyId, fingerprint] of left) {
+		if (right.get(storyId) !== fingerprint) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+function emptyGraphStats() {
+	return {
+		brokenLinks: 0,
+		emptyPassages: 0,
+		links: 0,
+		orphanPassages: 0,
+		passages: 0,
+		resolvedLinks: 0,
+		selfLinks: 0,
+		taggedPassages: 0,
+		unreachablePassages: 0
+	};
+}
+
+export function emptyGraphProjection(): CoreGraphProjection {
+	return {
+		bounds: null,
+		edges: [],
+		layoutState: 'missing',
+		nodes: [],
+		stats: emptyGraphStats()
+	};
+}
+
+export function emptyStoryIndex(storyId: string): CoreStoryIndex {
+	return {
+		assetInventory: [],
+		assets: [],
+		contents: [],
+		diagnostics: [],
+		files: [],
+		graph: emptyGraphStats(),
+		replacePreviews: [],
+		searchHits: [],
+		storyId,
+		symbols: [],
+		tagEntries: [],
+		tags: []
+	};
+}
+
 export class StoreCoreProjectHost implements CoreProjectHost {
 	private assetInventoryByStory = sharedAssetInventoryByStory;
 	private dirty = false;
@@ -383,482 +312,53 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 	private pendingSessionPatchDispatches = 0;
 	private publishedStories = new Map<string, Story>();
 	private savedStoryFingerprints: Map<string, string>;
-	private storyIndexCache = new WeakMap<
-		Story,
-		Map<string, StoryIndexCacheEntry>
-	>();
 	private stories: StoriesState;
 	private transactionId = BigInt(0);
-	private wasmClient: WasmCoreWorkerClient;
+	private wasmClient: CoreProjectSessionClient;
 	private wasmProjectRevision = 1;
 	private wasmProjectReplaceRevision = -1;
 	private wasmProjectReplacePromise?: Promise<void>;
 
-	constructor(stories: StoriesState, dispatch: UndoableDispatch) {
+	constructor(
+		stories: StoriesState,
+		dispatch: UndoableDispatch,
+		options: StoreCoreProjectHostOptions = {}
+	) {
 		this.dispatch = dispatch;
 		this.stories = stories;
 		this.savedStoryFingerprints = storyFingerprintMap(stories);
-		this.wasmClient = createWasmCoreWorkerClient();
+		this.wasmClient = options.wasmClient ?? createWasmCoreWorkerClient();
 	}
 
 	applyStoryCommand(command: StoryCommand, annotation?: string) {
-		if (this.wasmClient.enabled) {
-			void this.applyStoryCommandThroughWasm(command, annotation);
+		if (this.wasmClient.applySync && this.wasmClient.replaceProjectSync) {
+			this.applyStoryCommandThroughSyncSession(command, annotation);
 			return;
 		}
 
+		void this.applyStoryCommandThroughWasm(command, annotation);
+	}
+
+	private applyStoryCommandThroughSyncSession(
+		command: StoryCommand,
+		annotation?: string
+	) {
 		const commandAnnotation = annotation ?? storyCommandAnnotation(command);
-		const dispatch = (action: StoriesAction | StoriesActionOrThunk) =>
-			this.dispatch(action, commandAnnotation);
 
-		switch (command.type) {
-			case 'batch':
-				for (const childCommand of command.commands) {
-					this.applyStoryCommand(childCommand, commandAnnotation);
-				}
-				return;
+		try {
+			const revision = this.ensureWasmProjectSessionSync();
+			const result = this.wasmClient.applySync!(command, revision);
 
-			case 'createPassage':
-				dispatch({
-					props: createPassageProps(command),
-					storyId: command.story_id,
-					type: 'createPassage'
-				});
-				return;
-
-			case 'createStory':
-				dispatch({
-					props: storySnapshotToStory(command.story),
-					type: 'createStory'
-				});
-				return;
-
-			case 'deletePassages': {
-				const story = storyForId(this.stories, command.story_id);
-				const passages = command.passage_ids.map(id => passageForId(story, id));
-
-				dispatch(deletePassages(story, passages));
-				return;
+			this.applySessionPatchBatch(
+				result.batch,
+				commandAnnotation,
+				result.revision
+			);
+			if (command.type === 'markSaved') {
+				this.savedStoryFingerprints = storyFingerprintMap(this.stories);
 			}
-
-			case 'deleteStory':
-				dispatch({storyId: command.story_id, type: 'deleteStory'});
-				return;
-
-			case 'movePassages':
-				dispatch({
-					passageUpdates: Object.fromEntries(
-						command.moves.map(move => [move.passageId, move.bounds])
-					),
-					storyId: command.story_id,
-					type: 'updatePassages'
-				});
-				return;
-
-			case 'renamePassage': {
-				const story = storyForId(this.stories, command.story_id);
-				const passage = passageForId(story, command.passage_id);
-
-				dispatch(
-					updatePassage(
-						story,
-						passage,
-						{name: command.name},
-						{dontUpdateOthers: !command.update_references}
-					)
-				);
-				return;
-			}
-
-			case 'renamePassageTag': {
-				const story = storyForId(this.stories, command.story_id);
-				const passageUpdates = Object.fromEntries(
-					story.passages
-						.filter(passage => passage.tags.includes(command.old_name))
-						.map(passage => [
-							passage.id,
-							{
-								tags: passage.tags.map(tag =>
-									tag === command.old_name ? command.new_name : tag
-								)
-							}
-						])
-				);
-
-				if (Object.keys(passageUpdates).length > 0) {
-					dispatch({
-						passageUpdates,
-						storyId: command.story_id,
-						type: 'updatePassages'
-					});
-				}
-				return;
-			}
-
-			case 'renameStory': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(updateStory(this.stories, story, {name: command.name}));
-				return;
-			}
-
-			case 'renameStoryTag':
-				for (const story of this.stories) {
-					if (story.tags.includes(command.old_name)) {
-						dispatch(
-							updateStory(this.stories, story, {
-								tags: story.tags.map(tag =>
-									tag === command.old_name ? command.new_name : tag
-								)
-							})
-						);
-					}
-				}
-				return;
-
-			case 'replaceStory': {
-				const props: Partial<Story> & {id?: string} = {
-					...storySnapshotToStory(command.story)
-				};
-
-				delete props.id;
-
-				dispatch({
-					props,
-					storyId: command.story_id,
-					type: 'updateStory'
-				});
-				return;
-			}
-
-			case 'restorePassages':
-				dispatch({
-					props: restoredPassageProps(command),
-					storyId: command.story_id,
-					type: 'createPassages'
-				});
-				return;
-
-			case 'setPassageTags': {
-				const story = storyForId(this.stories, command.story_id);
-				const passage = passageForId(story, command.passage_id);
-
-				dispatch(updatePassage(story, passage, {tags: command.tags}));
-				return;
-			}
-
-			case 'setStartPassage': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(
-					updateStory(this.stories, story, {
-						startPassage: command.passage_id
-					})
-				);
-				return;
-			}
-
-			case 'setStoryTagColor': {
-				const story = storyForId(this.stories, command.story_id);
-				const tagColors = {...story.tagColors};
-
-				if (command.color === null) {
-					delete tagColors[command.name];
-				} else {
-					tagColors[command.name] = command.color;
-				}
-
-				dispatch(updateStory(this.stories, story, {tagColors}));
-				return;
-			}
-
-			case 'setStoryTags': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(updateStory(this.stories, story, {tags: command.tags}));
-				return;
-			}
-
-			case 'setStoryFormat': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(
-					updateStory(this.stories, story, {
-						storyFormat: command.story_format,
-						storyFormatVersion: command.story_format_version
-					})
-				);
-				return;
-			}
-
-			case 'setStorySnapToGrid': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(
-					updateStory(this.stories, story, {
-						snapToGrid: command.enabled
-					})
-				);
-				return;
-			}
-
-			case 'setStoryZoom': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(updateStory(this.stories, story, {zoom: command.zoom}));
-				return;
-			}
-
-			case 'updatePassageText': {
-				const story = storyForId(this.stories, command.story_id);
-				const passage = passageForId(story, command.passage_id);
-
-				dispatch(updatePassage(story, passage, {text: command.text}));
-				return;
-			}
-
-			case 'updatePassage': {
-				const story = storyForId(this.stories, command.story_id);
-				const passage = passageForId(story, command.passage_id);
-
-				dispatch(
-					updatePassage(story, passage, {
-						...(command.changes.layout ?? {}),
-						...(command.changes.name !== null
-							? {name: command.changes.name}
-							: {}),
-						...(command.changes.tags !== null
-							? {tags: command.changes.tags}
-							: {}),
-						...(command.changes.text !== null
-							? {text: command.changes.text}
-							: {})
-					})
-				);
-				return;
-			}
-
-			case 'updateStoryScript': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(updateStory(this.stories, story, {script: command.script}));
-				return;
-			}
-
-			case 'updateStoryStylesheet': {
-				const story = storyForId(this.stories, command.story_id);
-
-				dispatch(
-					updateStory(this.stories, story, {
-						stylesheet: command.stylesheet
-					})
-				);
-				return;
-			}
-
-			case 'copyAssetSnippet': {
-				const snippet =
-					command.snippet ??
-					this.assetForPath(command.story_id, command.path)?.snippet.text ??
-					assetSnippet(command.path).text;
-
-				this.publishPatches('Copy Asset Snippet', [
-					{
-						path: command.path,
-						snippet,
-						story_id: command.story_id,
-						type: 'assetSnippetCopied'
-					}
-				]);
-				return;
-			}
-
-			case 'deleteAsset':
-				this.deleteAsset(command.story_id, command.path);
-
-				if (command.remove_references) {
-					this.replaceAssetReferencesInStory(
-						command.story_id,
-						command.path,
-						'',
-						dispatch
-					);
-				}
-
-				this.publishAssetInventory(command.story_id, 'Delete Asset', {
-					path: projectAssetPath(command.path),
-					story_id: command.story_id,
-					type: 'assetDeleted'
-				});
-				return;
-
-			case 'importAsset': {
-				const path = projectAssetPath(
-					command.target_path ??
-						command.source_path.split(/[\\/]/).pop() ??
-						'asset'
-				);
-				const existing = this.assetForPath(command.story_id, path);
-
-				if (existing && !command.overwrite) {
-					return;
-				}
-
-				const asset = assetInventoryEntry(path, {
-					previewUrl: fileUrlForPath(command.source_path)
-				});
-
-				this.upsertAsset(command.story_id, asset);
-				this.publishAssetInventory(command.story_id, 'Import Asset', {
-					asset,
-					story_id: command.story_id,
-					type: 'assetImported'
-				});
-				return;
-			}
-
-			case 'insertAssetSnippet': {
-				const snippet =
-					command.snippet ??
-					this.assetForPath(command.story_id, command.path)?.snippet.text ??
-					assetSnippet(command.path).text;
-
-				this.insertAssetSnippet(
-					command.story_id,
-					command.source_id,
-					command.passage_id,
-					command.position,
-					snippet,
-					dispatch
-				);
-				this.publishPatches('Insert Asset Snippet', [
-					{
-						path: command.path,
-						snippet,
-						source_id: command.source_id,
-						story_id: command.story_id,
-						type: 'assetSnippetInserted'
-					}
-				]);
-				return;
-			}
-
-			case 'renameAsset': {
-				const renamed = this.renameAsset(
-					command.story_id,
-					command.path,
-					command.new_path
-				);
-
-				if (command.update_references) {
-					this.replaceAssetReferencesInStory(
-						command.story_id,
-						command.path,
-						projectAssetPath(command.new_path),
-						dispatch
-					);
-				}
-
-				this.publishAssetInventory(command.story_id, 'Rename Asset', {
-					new_path: renamed.path,
-					old_path: projectAssetPath(command.path),
-					story_id: command.story_id,
-					type: 'assetRenamed'
-				});
-				return;
-			}
-
-			case 'replaceAsset': {
-				const asset = {
-					...(this.assetForPath(command.story_id, command.path) ??
-						assetInventoryEntry(projectAssetPath(command.path))),
-					modifiedAt: new Date().toISOString(),
-					previewUrl: fileUrlForPath(command.source_path),
-					thumbnailUrl:
-						assetKindForPath(command.path) === 'image'
-							? fileUrlForPath(command.source_path)
-							: null
-				};
-
-				this.upsertAsset(command.story_id, asset);
-				this.publishAssetInventory(command.story_id, 'Replace Asset', {
-					asset,
-					story_id: command.story_id,
-					type: 'assetReplaced'
-				});
-				return;
-			}
-
-			case 'revealAsset': {
-				this.publishPatches('Reveal Asset', [
-					{
-						path: projectAssetPath(command.path),
-						reveal_path: projectAssetPath(command.path),
-						story_id: command.story_id,
-						type: 'assetRevealed'
-					}
-				]);
-				return;
-			}
-
-			case 'validateAssetReferences':
-				this.publishAssetInventory(
-					command.story_id,
-					'Validate Asset References'
-				);
-				return;
-
-			case 'markSaved':
-				this.markSaved();
-				return;
-
-			case 'queryGraphProjection': {
-				this.publishPatches('Query Graph Projection', [
-					{
-						projection: this.queryGraphProjection(
-							command.story_id,
-							command.options
-						),
-						story_id: command.story_id,
-						type: 'graphProjectionUpdated'
-					}
-				]);
-				return;
-			}
-
-			case 'queryStoryIndex':
-				this.publishPatches('Query Story Index', [
-					{
-						index: this.queryStoryIndex(command.story_id, command.options),
-						story_id: command.story_id,
-						type: 'storyIndexUpdated'
-					}
-				]);
-				return;
-
-			case 'saveGeneratedLayout': {
-				const story = storyForId(this.stories, command.story_id);
-				const {moves, projection} = saveGeneratedGraphLayout(story);
-
-				if (moves.length > 0) {
-					dispatch({
-						passageUpdates: Object.fromEntries(
-							moves.map(move => [move.passageId, move.bounds])
-						),
-						storyId: command.story_id,
-						type: 'updatePassages'
-					});
-				}
-
-				this.publishPatches('Save Generated Layout', [
-					{
-						projection,
-						story_id: command.story_id,
-						type: 'layoutSaved'
-					}
-				]);
-				return;
-			}
+		} catch (error) {
+			console.error(`Rust project session command failed: ${error}`);
 		}
 	}
 
@@ -870,9 +370,16 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 
 		try {
 			const revision = await this.ensureWasmProjectSession();
-			const batch = await this.wasmClient.apply(command, revision);
+			const result = await this.wasmClient.apply(command, revision);
 
-			this.applySessionPatchBatch(batch, commandAnnotation, revision + 1);
+			this.applySessionPatchBatch(
+				result.batch,
+				commandAnnotation,
+				result.revision
+			);
+			if (command.type === 'markSaved') {
+				this.savedStoryFingerprints = storyFingerprintMap(this.stories);
+			}
 		} catch (error) {
 			console.error(`Rust project session command failed: ${error}`);
 		}
@@ -883,119 +390,27 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 		annotation: string | undefined,
 		nextRevision: number
 	) {
-		const actions: StoriesAction[] = [];
-
-		for (const patch of batch.patches) {
-			switch (patch.type) {
-				case 'assetDeleted':
-					this.deleteAsset(patch.story_id, patch.path);
-					break;
-
-				case 'assetImported':
-				case 'assetReplaced':
-					this.upsertAsset(patch.story_id, patch.asset);
-					break;
-
-				case 'assetInventoryUpdated':
-					replaceKnownAssetInventoryForStory(patch.story_id, patch.inventory);
-					break;
-
-				case 'assetRenamed':
-					this.renameAsset(patch.story_id, patch.old_path, patch.new_path);
-					break;
-
-				case 'dirtyStateChanged':
-					this.dirty = patch.dirty;
-					break;
-
-				case 'passageCreated':
-					actions.push({
-						props: passageSnapshotToProps(patch.passage),
-						storyId: patch.story_id,
-						type: 'createPassage'
-					});
-					break;
-
-				case 'passageDeleted':
-					actions.push({
-						passageId: patch.passage_id,
-						storyId: patch.story_id,
-						type: 'deletePassage'
-					});
-					break;
-
-				case 'passageUpdated':
-					actions.push({
-						passageId: patch.passage_id,
-						props: passagePatchToProps(patch),
-						storyId: patch.story_id,
-						type: 'updatePassage'
-					});
-					break;
-
-				case 'projectSnapshotReplaced':
-					actions.push({
-						state: projectSnapshotToStories(patch),
-						type: 'init'
-					});
-					break;
-
-				case 'startPassageChanged':
-					actions.push({
-						props: {startPassage: patch.passage_id},
-						storyId: patch.story_id,
-						type: 'updateStory'
-					});
-					break;
-
-				case 'storyCreated':
-					actions.push({
-						props: storySnapshotToStory(patch.story),
-						type: 'createStory'
-					});
-					break;
-
-				case 'storyDeleted':
-					actions.push({
-						storyId: patch.story_id,
-						type: 'deleteStory'
-					});
-					break;
-
-				case 'storyMetadataUpdated':
-					actions.push({
-						props: storyMetadataPatchToProps(patch.changes),
-						storyId: patch.story_id,
-						type: 'updateStory'
-					});
-					break;
-
-				case 'storyScriptUpdated':
-					actions.push({
-						props: {script: patch.script},
-						storyId: patch.story_id,
-						type: 'updateStory'
-					});
-					break;
-
-				case 'storyStylesheetUpdated':
-					actions.push({
-						props: {stylesheet: patch.stylesheet},
-						storyId: patch.story_id,
-						type: 'updateStory'
-					});
-					break;
-			}
-		}
+		const storyActions = projectPatchBatchStoryActions(batch);
 
 		this.wasmProjectRevision = nextRevision;
 		this.wasmProjectReplaceRevision = nextRevision;
 		this.wasmProjectReplacePromise = Promise.resolve();
-		this.pendingSessionPatchDispatches += actions.length;
-
-		for (const action of actions) {
-			this.dispatch(action, annotation);
-		}
+		this.pendingSessionPatchDispatches += storyActions.length;
+		applyProjectPatchBatch(
+			batch,
+			{
+				deleteAsset: (storyId, path) => this.deleteAsset(storyId, path),
+				dispatch: action => this.dispatch(action, annotation),
+				renameAsset: (storyId, oldPath, newPath) =>
+					this.renameAsset(storyId, oldPath, newPath),
+				replaceAssetInventory: replaceKnownAssetInventoryForStory,
+				setDirty: dirty => {
+					this.dirty = dirty;
+				},
+				upsertAsset: (storyId, asset) => this.upsertAsset(storyId, asset)
+			},
+			storyActions
+		);
 
 		this.publishPatchBatch(batch);
 	}
@@ -1015,10 +430,10 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 	private async undoThroughWasm() {
 		try {
 			const revision = await this.ensureWasmProjectSession();
-			const batch = await this.wasmClient.undo(revision);
+			const result = await this.wasmClient.undo(revision);
 
-			if (batch) {
-				this.applySessionPatchBatch(batch, undefined, revision + 1);
+			if (result) {
+				this.applySessionPatchBatch(result.batch, undefined, result.revision);
 			}
 		} catch (error) {
 			console.error(`Rust project session undo failed: ${error}`);
@@ -1036,10 +451,10 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 	private async redoThroughWasm() {
 		try {
 			const revision = await this.ensureWasmProjectSession();
-			const batch = await this.wasmClient.redo(revision);
+			const result = await this.wasmClient.redo(revision);
 
-			if (batch) {
-				this.applySessionPatchBatch(batch, undefined, revision + 1);
+			if (result) {
+				this.applySessionPatchBatch(result.batch, undefined, result.revision);
 			}
 		} catch (error) {
 			console.error(`Rust project session redo failed: ${error}`);
@@ -1068,76 +483,6 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 		);
 	}
 
-	private insertAssetSnippet(
-		storyId: string,
-		sourceId: string,
-		passageId: string | null,
-		position: number,
-		snippet: string,
-		dispatch: (action: StoriesAction | StoriesActionOrThunk) => void
-	) {
-		const story = storyForId(this.stories, storyId);
-		const passage = passageId
-			? passageForId(story, passageId)
-			: story.passages.find(passage => passage.id === sourceId);
-
-		if (passage) {
-			dispatch(
-				updatePassage(story, passage, {
-					text: insertAtPosition(passage.text, position, snippet)
-				})
-			);
-			return;
-		}
-
-		if (sourceId.endsWith(':script')) {
-			dispatch(
-				updateStory(this.stories, story, {
-					script: insertAtPosition(story.script, position, snippet)
-				})
-			);
-			return;
-		}
-
-		if (sourceId.endsWith(':stylesheet')) {
-			dispatch(
-				updateStory(this.stories, story, {
-					stylesheet: insertAtPosition(story.stylesheet, position, snippet)
-				})
-			);
-		}
-	}
-
-	private publishAssetInventory(storyId: string, label: string, patch?: Patch) {
-		const index = this.queryStoryIndex(storyId);
-		const patches: Patch[] = [
-			...(patch ? [patch] : []),
-			{
-				inventory: index.assetInventory,
-				story_id: storyId,
-				type: 'assetInventoryUpdated'
-			},
-			{
-				index,
-				story_id: storyId,
-				type: 'storyIndexUpdated'
-			}
-		];
-
-		this.publishPatches(label, patches);
-	}
-
-	private publishPatches(label: string, patches: Patch[]) {
-		this.transactionId++;
-		this.listeners.forEach(listener =>
-			listener({
-				label,
-				patches,
-				transactionId: this.transactionId
-			})
-		);
-	}
-
 	private currentDirtyState() {
 		const currentIds = new Set(this.stories.map(story => story.id));
 
@@ -1159,17 +504,6 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 		return false;
 	}
 
-	private markSaved() {
-		this.savedStoryFingerprints = storyFingerprintMap(this.stories);
-
-		if (this.dirty) {
-			this.dirty = false;
-			this.publishPatches('mark-saved', [
-				{dirty: false, type: 'dirtyStateChanged'}
-			]);
-		}
-	}
-
 	private renameAsset(storyId: string, path: string, newPath: string) {
 		const oldAsset = this.assetForPath(storyId, path);
 		const renamed = {
@@ -1184,47 +518,6 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 		this.deleteAsset(storyId, path);
 		this.upsertAsset(storyId, renamed);
 		return renamed;
-	}
-
-	private replaceAssetReferencesInStory(
-		storyId: string,
-		oldPath: string,
-		newPath: string,
-		dispatch: (action: StoriesAction | StoriesActionOrThunk) => void
-	) {
-		const story = storyForId(this.stories, storyId);
-
-		for (const passage of story.passages) {
-			const text = replaceAssetReferencesInSource(
-				passage.text,
-				oldPath,
-				newPath
-			);
-
-			if (text !== passage.text) {
-				dispatch(updatePassage(story, passage, {text}));
-			}
-		}
-
-		const script = replaceAssetReferencesInSource(
-			story.script,
-			oldPath,
-			newPath
-		);
-
-		if (script !== story.script) {
-			dispatch(updateStory(this.stories, story, {script}));
-		}
-
-		const stylesheet = replaceAssetReferencesInSource(
-			story.stylesheet,
-			oldPath,
-			newPath
-		);
-
-		if (stylesheet !== story.stylesheet) {
-			dispatch(updateStory(this.stories, story, {stylesheet}));
-		}
 	}
 
 	private upsertAsset(storyId: string, asset: CoreAssetInventoryEntry) {
@@ -1310,6 +603,26 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 		return this.wasmProjectReplaceRevision;
 	}
 
+	private ensureWasmProjectSessionSync() {
+		if (!this.wasmClient.enabled || !this.wasmClient.replaceProjectSync) {
+			throw new Error('WASM core worker is unavailable.');
+		}
+
+		if (
+			!this.wasmProjectReplacePromise ||
+			this.wasmProjectReplaceRevision !== this.wasmProjectRevision
+		) {
+			const revision = this.wasmProjectRevision;
+			const snapshot = projectSnapshotFromStories(this.stories);
+
+			this.wasmProjectReplaceRevision = revision;
+			this.wasmClient.replaceProjectSync(snapshot, revision);
+			this.wasmProjectReplacePromise = Promise.resolve();
+		}
+
+		return this.wasmProjectReplaceRevision;
+	}
+
 	queryGraphProjection(storyId: string, options: GraphProjectionQuery = {}) {
 		const normalizedOptions = normalizeGraphProjectionOptions(options);
 		const cached = this.wasmClient.cachedGraphProjection(
@@ -1333,10 +646,7 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 			}
 		}
 
-		return storyToCoreGraphProjection(
-			storyForId(this.stories, storyId),
-			normalizedOptions
-		);
+		return emptyGraphProjection();
 	}
 
 	async queryGraphProjectionAsync(
@@ -1354,26 +664,14 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 					revision
 				);
 			} catch (error) {
-				console.warn(`Falling back to JS graph projection: ${error}`);
+				console.warn(`Rust graph projection query failed: ${error}`);
 			}
 		}
 
-		return storyToCoreGraphProjection(
-			storyForId(this.stories, storyId),
-			normalizedOptions
-		);
+		return emptyGraphProjection();
 	}
 
 	queryStoryIndex(storyId: string, options: StoryIndexQuery = {}) {
-		const story = storyForId(this.stories, storyId);
-		const knownAssets =
-			this.assetInventoryByStory.get(storyId) ?? emptyAssetInventory;
-		const explicitKnownAssets =
-			typeof options === 'string' ? [] : (options.knownAssets ?? []);
-		const canCache = explicitKnownAssets.length === 0;
-		const cacheKey = storyIndexCacheKey(options);
-		const storyCache = this.storyIndexCache.get(story);
-		const cached = canCache ? storyCache?.get(cacheKey) : undefined;
 		const normalizedOptions = this.normalizedStoryIndexOptions(
 			storyId,
 			options
@@ -1384,25 +682,11 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 			this.wasmProjectRevision
 		);
 
-		if (wasmCached && canCache) {
+		if (wasmCached) {
 			return wasmCached;
 		}
 
-		if (cached?.knownAssets === knownAssets) {
-			return cached.index;
-		}
-
-		const index = storyToCoreIndex(story, normalizedOptions);
-
-		if (canCache) {
-			const nextStoryCache =
-				storyCache ?? new Map<string, StoryIndexCacheEntry>();
-
-			nextStoryCache.set(cacheKey, {index, knownAssets});
-			this.storyIndexCache.set(story, nextStoryCache);
-		}
-
-		return index;
+		return emptyStoryIndex(storyId);
 	}
 
 	async queryStoryIndexAsync(storyId: string, options: StoryIndexQuery = {}) {
@@ -1420,14 +704,11 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 					revision
 				);
 			} catch (error) {
-				console.warn(`Falling back to JS story index: ${error}`);
+				console.warn(`Rust story index query failed: ${error}`);
 			}
 		}
 
-		return storyToCoreIndex(
-			storyForId(this.stories, storyId),
-			normalizedOptions
-		);
+		return emptyStoryIndex(storyId);
 	}
 
 	subscribeToPatches(listener: CoreProjectPatchListener) {
@@ -1440,9 +721,14 @@ export class StoreCoreProjectHost implements CoreProjectHost {
 
 	update(stories: StoriesState, dispatch: UndoableDispatch) {
 		if (this.stories !== stories) {
+			const previousFingerprints = storyFingerprintMap(this.stories);
+			const nextFingerprints = storyFingerprintMap(stories);
+
 			if (this.pendingSessionPatchDispatches > 0) {
 				this.pendingSessionPatchDispatches--;
-			} else {
+			} else if (
+				!storyFingerprintMapsEqual(previousFingerprints, nextFingerprints)
+			) {
 				this.wasmProjectRevision++;
 				this.wasmProjectReplacePromise = undefined;
 			}

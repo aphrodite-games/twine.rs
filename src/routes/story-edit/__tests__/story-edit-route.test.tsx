@@ -1,4 +1,4 @@
-import {act, fireEvent, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {createMemoryHistory} from 'history';
 import {axe} from 'jest-axe';
 import * as React from 'react';
@@ -98,6 +98,33 @@ describe('<StoryEditRoute>', () => {
 	it('displays a story graph panel', async () => {
 		await renderComponent(fakeStory());
 		expect(screen.getByLabelText('Story graph')).toBeInTheDocument();
+	});
+
+	it('edits graph passages in the workspace instead of opening the legacy passage dialog', async () => {
+		const story = fakeStory(1);
+
+		story.passages[0].left = 125;
+		story.passages[0].top = 125;
+		window.localStorage.setItem(
+			'twine-story-edit-workspace',
+			JSON.stringify({mode: 'graph'})
+		);
+		const {container} = await renderComponent(story);
+		let graphNode: HTMLElement | null = null;
+
+		await waitFor(() => {
+			graphNode = container.querySelector(
+				`[data-passage-id="${story.passages[0].id}"] .tw-node`
+			);
+			expect(graphNode).toBeTruthy();
+		});
+
+		fireEvent.doubleClick(graphNode!);
+
+		await waitFor(() =>
+			expect(container.querySelector('.story-edit-text-panel')).toBeTruthy()
+		);
+		expect(container.querySelector('.passage-edit-stack')).toBeNull();
 	});
 
 	it('opens the Go To Passage finder from text mode above the workspace', async () => {

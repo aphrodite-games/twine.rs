@@ -24,6 +24,9 @@ describe('command-line helpers', () => {
 			'twine-rs [options] [project-folder...]'
 		);
 		expect(commandLineHelpText()).toContain('--backupCadenceMinutes=<minutes>');
+		expect(commandLineHelpText()).toContain(
+			'--scratchAssetStrategy=<link|copy>'
+		);
 		expect(commandLineHelpText()).toContain('project-folder');
 	});
 
@@ -40,6 +43,12 @@ describe('command-line helpers', () => {
 		expect(
 			commandLineOpenPaths(
 				['--storyLibraryFolderPath', '/tmp/library', 'project.twine.rs'],
+				'/tmp/root'
+			)
+		).toEqual(['/tmp/root/project.twine.rs']);
+		expect(
+			commandLineOpenPaths(
+				['--scratchAssetStrategy', 'copy', 'project.twine.rs'],
 				'/tmp/root'
 			)
 		).toEqual(['/tmp/root/project.twine.rs']);

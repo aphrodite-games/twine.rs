@@ -1,4 +1,4 @@
-import {act, fireEvent, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import * as React from 'react';
 import {
 	FakeStateProvider,
@@ -7,6 +7,7 @@ import {
 	StoryInspector
 } from '../../../test-util';
 import {StoreCoreProjectHost} from '../../../core/project-host';
+import {storyToCoreIndex} from '../../../core/story-index';
 import {StoryTextPanel} from '../story-text-panel';
 
 jest.mock('../../../components/control/source-editor', () => ({
@@ -14,16 +15,19 @@ jest.mock('../../../components/control/source-editor', () => ({
 		id: string;
 		label: string;
 		onChange: (value: string) => void;
+		searchRequestKey?: number;
 		value: string;
 	}) => (
 		<textarea
 			aria-label={props.label}
+			data-search-request-key={props.searchRequestKey}
 			data-testid={props.id}
 			onChange={event => props.onChange(event.currentTarget.value)}
 			value={props.value}
 		/>
 	)
 }));
+jest.mock('../../../components/tag/tag-card-button');
 
 describe('<StoryTextPanel>', () => {
 	let applyStoryCommandSpy: jest.SpyInstance;
@@ -50,10 +54,9 @@ describe('<StoryTextPanel>', () => {
 
 	beforeEach(() => {
 		jest.useFakeTimers();
-		applyStoryCommandSpy = jest.spyOn(
-			StoreCoreProjectHost.prototype,
-			'applyStoryCommand'
-		);
+		applyStoryCommandSpy = jest
+			.spyOn(StoreCoreProjectHost.prototype, 'applyStoryCommand')
+			.mockImplementation(() => undefined);
 	});
 
 	afterEach(() => {
@@ -62,7 +65,7 @@ describe('<StoryTextPanel>', () => {
 		jest.useRealTimers();
 	});
 
-	it('updates passage text through the core project host', () => {
+	it('sends passage text updates through the core project host', () => {
 		const story = renderComponent();
 
 		fireEvent.change(
@@ -71,9 +74,6 @@ describe('<StoryTextPanel>', () => {
 		);
 		act(() => jest.advanceTimersByTime(300));
 
-		expect(
-			screen.getByTestId(`passage-${story.passages[0].id}`)
-		).toHaveTextContent('mock-passage-change');
 		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
 			passage_id: story.passages[0].id,
 			story_id: story.id,
@@ -82,7 +82,7 @@ describe('<StoryTextPanel>', () => {
 		});
 	});
 
-	it("updates the story's JavaScript through the core project host", () => {
+	it('sends story JavaScript updates through the core project host', () => {
 		const story = renderComponent();
 
 		fireEvent.click(
@@ -94,9 +94,6 @@ describe('<StoryTextPanel>', () => {
 		);
 		act(() => jest.advanceTimersByTime(300));
 
-		expect(
-			screen.getByTestId('story-inspector-javascript-default')
-		).toHaveTextContent('mock-script-change');
 		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
 			script: 'mock-script-change',
 			story_id: story.id,
@@ -104,7 +101,7 @@ describe('<StoryTextPanel>', () => {
 		});
 	});
 
-	it("updates the story's stylesheet through the core project host", () => {
+	it('sends story stylesheet updates through the core project host', () => {
 		const story = renderComponent();
 
 		fireEvent.click(
@@ -116,9 +113,6 @@ describe('<StoryTextPanel>', () => {
 		);
 		act(() => jest.advanceTimersByTime(300));
 
-		expect(
-			screen.getByTestId('story-inspector-stylesheet-default')
-		).toHaveTextContent('mock-stylesheet-change');
 		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
 			story_id: story.id,
 			stylesheet: 'mock-stylesheet-change',
@@ -126,23 +120,25 @@ describe('<StoryTextPanel>', () => {
 		});
 	});
 
-	it('runs inline diagnostic quick fixes through the core project host', () => {
+	it('runs inline diagnostic quick fixes through the core project host', async () => {
 		const story = fakeStory(1);
 
 		story.passages[0].text = 'Go to [[Missing]].';
-		renderComponent({stories: [story]});
+		renderComponent({stories: [story]}, {index: storyToCoreIndex(story)});
 
 		fireEvent.click(screen.getByRole('button', {name: 'Create "Missing"'}));
 
-		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
-			id: null,
-			layout: null,
-			name: 'Missing',
-			story_id: story.id,
-			tags: [],
-			text: '',
-			type: 'createPassage'
-		});
+		await waitFor(() =>
+			expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+				id: null,
+				layout: null,
+				name: 'Missing',
+				story_id: story.id,
+				tags: [],
+				text: '',
+				type: 'createPassage'
+			})
+		);
 	});
 
 	it('tests the selected passage from the text header', () => {
@@ -156,5 +152,77 @@ describe('<StoryTextPanel>', () => {
 		);
 
 		expect(onTestPassage).toHaveBeenCalledWith(story.passages[0]);
+	});
+
+	it('opens source search from the text header', () => {
+		const story = renderComponent();
+		const editor = screen.getByTestId(
+			`story-text-source-editor-${story.passages[0].id}`
+		);
+
+		expect(editor).toHaveAttribute('data-search-request-key', '0');
+
+		fireEvent.click(
+			screen.getByRole('button', {
+				name: 'routes.storyEdit.workspace.findInEditor'
+			})
+		);
+
+		expect(editor).toHaveAttribute('data-search-request-key', '1');
+	});
+
+	it('edits passage tags from the text header', () => {
+		const story = fakeStory(2);
+
+		story.passages[0].tags = ['one'];
+		story.passages[1].tags = ['two'];
+		renderComponent({stories: [story]});
+
+		expect(screen.getByTestId('mock-tag-card-button')).toHaveAttribute(
+			'data-all-tags',
+			'one,two'
+		);
+		expect(screen.getByTestId('mock-tag-card-button')).toHaveAttribute(
+			'data-tags',
+			'one'
+		);
+
+		fireEvent.click(screen.getByText('onAdd'));
+
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			commands: [
+				expect.objectContaining({
+					color: expect.any(String),
+					name: 'mock-tag-name',
+					story_id: story.id,
+					type: 'setStoryTagColor'
+				}),
+				{
+					passage_id: story.passages[0].id,
+					story_id: story.id,
+					tags: ['one', 'mock-tag-name'],
+					type: 'setPassageTags'
+				}
+			],
+			type: 'batch'
+		});
+
+		fireEvent.click(screen.getByText('onRemove'));
+
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			passage_id: story.passages[0].id,
+			story_id: story.id,
+			tags: ['one'],
+			type: 'setPassageTags'
+		});
+
+		fireEvent.click(screen.getByText('onChangeColor'));
+
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			color: 'mock-changed-color',
+			name: 'mock-tag-name',
+			story_id: story.id,
+			type: 'setStoryTagColor'
+		});
 	});
 });

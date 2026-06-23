@@ -2,9 +2,8 @@
 
 use std::collections::BTreeMap;
 use twine_core::{
-    CoreGraphProjection, CoreGraphProjectionOptions, CoreStoryIndex, CoreStoryIndexOptions,
-    PassageSnapshot, Patch, PatchBatch, ProjectSession, ProjectSnapshot, StoryCommand,
-    StorySnapshot,
+    CoreGraphProjectionOptions, CoreStoryIndexOptions, PassageSnapshot, ProjectSession,
+    ProjectSnapshot, StoryCommand, StorySnapshot,
 };
 use twine_model::{
     GraphLayout, GraphPosition, LibraryMetadata, Passage, PassageId, PassageIndex, PassageLayout,
@@ -51,20 +50,24 @@ impl TwineWasmProjectSession {
         self.session.can_redo()
     }
 
+    pub fn revision(&self) -> u32 {
+        self.session.revision().min(u32::MAX as u64) as u32
+    }
+
+    pub fn set_revision(&mut self, revision: u32) {
+        self.session.set_revision(revision as u64);
+    }
+
     pub fn query_graph_projection(
         &mut self,
         story_id: String,
         options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options = from_js::<CoreGraphProjectionOptions>(options)?;
-        let batch = self
+        let projection = self
             .session
-            .apply(StoryCommand::QueryGraphProjection {
-                options,
-                story_id: story_id.clone(),
-            })
+            .graph_projection(&story_id, options)
             .map_err(core_error)?;
-        let projection = graph_projection_from_batch(&batch, &story_id)?;
 
         to_js(&projection)
     }
@@ -75,14 +78,10 @@ impl TwineWasmProjectSession {
         options: JsValue,
     ) -> Result<JsValue, JsValue> {
         let options = from_js::<CoreStoryIndexOptions>(options)?;
-        let batch = self
+        let index = self
             .session
-            .apply(StoryCommand::QueryStoryIndex {
-                options,
-                story_id: story_id.clone(),
-            })
+            .story_index(&story_id, options)
             .map_err(core_error)?;
-        let index = story_index_from_batch(&batch, &story_id)?;
 
         to_js(&index)
     }
@@ -131,43 +130,6 @@ where
 
 fn core_error(error: twine_core::CoreError) -> JsValue {
     JsValue::from_str(&error.to_string())
-}
-
-fn missing_patch_error(kind: &str, story_id: &str) -> JsValue {
-    JsValue::from_str(&format!(
-        "Rust core did not return {kind} for story \"{story_id}\""
-    ))
-}
-
-fn graph_projection_from_batch(
-    batch: &PatchBatch,
-    story_id: &str,
-) -> Result<CoreGraphProjection, JsValue> {
-    batch
-        .patches
-        .iter()
-        .find_map(|patch| match patch {
-            Patch::GraphProjectionUpdated {
-                projection,
-                story_id: patch_story_id,
-            } if patch_story_id == story_id => Some(projection.clone()),
-            _ => None,
-        })
-        .ok_or_else(|| missing_patch_error("graph projection", story_id))
-}
-
-fn story_index_from_batch(batch: &PatchBatch, story_id: &str) -> Result<CoreStoryIndex, JsValue> {
-    batch
-        .patches
-        .iter()
-        .find_map(|patch| match patch {
-            Patch::StoryIndexUpdated {
-                index,
-                story_id: patch_story_id,
-            } if patch_story_id == story_id => Some(index.clone()),
-            _ => None,
-        })
-        .ok_or_else(|| missing_patch_error("story index", story_id))
 }
 
 fn project_from_snapshot(snapshot: ProjectSnapshot) -> Project {
@@ -318,31 +280,13 @@ mod tests {
     fn project_session_queries_graph_and_index_from_snapshot() {
         let mut session = ProjectSession::new(project_from_snapshot(snapshot()));
         let graph = session
-            .apply(StoryCommand::QueryGraphProjection {
-                options: CoreGraphProjectionOptions::default(),
-                story_id: "story-1".into(),
-            })
+            .graph_projection("story-1", CoreGraphProjectionOptions::default())
             .unwrap();
         let index = session
-            .apply(StoryCommand::QueryStoryIndex {
-                options: CoreStoryIndexOptions::default(),
-                story_id: "story-1".into(),
-            })
+            .story_index("story-1", CoreStoryIndexOptions::default())
             .unwrap();
 
-        assert_eq!(
-            graph_projection_from_batch(&graph, "story-1")
-                .unwrap()
-                .stats
-                .links,
-            1
-        );
-        assert_eq!(
-            story_index_from_batch(&index, "story-1")
-                .unwrap()
-                .tag_entries[0]
-                .color,
-            Some("red".into())
-        );
+        assert_eq!(graph.stats.links, 1);
+        assert_eq!(index.tag_entries[0].color, Some("red".into()));
     }
 }

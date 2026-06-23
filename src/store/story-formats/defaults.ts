@@ -47,6 +47,76 @@ export const builtins = () => [
 	},
 	{
 		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.31.0/format.js',
+		version: '2.31.0'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.31.1/format.js',
+		version: '2.31.1'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.32.0/format.js',
+		version: '2.32.0'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.33.0/format.js',
+		version: '2.33.0'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.33.1/format.js',
+		version: '2.33.1'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.33.2/format.js',
+		version: '2.33.2'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.33.3/format.js',
+		version: '2.33.3'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.33.4/format.js',
+		version: '2.33.4'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.34.0/format.js',
+		version: '2.34.0'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.34.1/format.js',
+		version: '2.34.1'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.35.0/format.js',
+		version: '2.35.0'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.36.0/format.js',
+		version: '2.36.0'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.36.1/format.js',
+		version: '2.36.1'
+	},
+	{
+		name: 'SugarCube',
+		url: 'story-formats/sugarcube-2.37.0/format.js',
+		version: '2.37.0'
+	},
+	{
+		name: 'SugarCube',
 		url: 'story-formats/sugarcube-2.37.3/format.js',
 		version: '2.37.3'
 	}

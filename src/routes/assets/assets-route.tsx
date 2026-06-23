@@ -14,6 +14,7 @@ import {
 	assetManagerViewModel,
 	copyAssetSnippetCommand,
 	deleteAssetCommand,
+	emptyStoryIndex,
 	importAssetCommand,
 	insertAssetSnippetCommand,
 	replaceAssetCommand,
@@ -23,10 +24,18 @@ import {
 	useCoreProjectHost,
 	validateAssetReferencesCommand
 } from '../../core';
-import type {CoreAssetInventoryEntry, PatchBatch} from '../../core';
+import type {
+	CoreAssetInventoryEntry,
+	CoreStoryIndex,
+	PatchBatch
+} from '../../core';
 import type {CoreAssetReference} from '../../core/bindings/CoreAssetReference';
 import type {AssetManagerViewModelEntry} from '../../core/view-models';
-import {fileUrlForPath, projectAssetPath} from '../../core/asset-paths';
+import {
+	fileUrlForPath,
+	normalizedAssetPath,
+	projectAssetPath
+} from '../../core/asset-paths';
 import {
 	Passage,
 	selectPassage,
@@ -64,6 +73,35 @@ interface AssetDirectoryIndex {
 
 function storyForId(stories: Story[], storyId: string | undefined) {
 	return stories.find(story => story.id === storyId);
+}
+
+function assetInventoryKey(asset: CoreAssetInventoryEntry) {
+	return normalizedAssetPath(asset.normalizedPath || asset.path);
+}
+
+function indexWithProjectAssets(
+	storyId: string,
+	index: CoreStoryIndex | undefined,
+	projectAssets: CoreAssetInventoryEntry[]
+) {
+	const base = index ?? emptyStoryIndex(storyId);
+
+	if (projectAssets.length === 0) {
+		return base;
+	}
+
+	const inventoryByPath = new Map(
+		projectAssets.map(asset => [assetInventoryKey(asset), asset])
+	);
+
+	for (const asset of base.assetInventory) {
+		inventoryByPath.set(assetInventoryKey(asset), asset);
+	}
+
+	return {
+		...base,
+		assetInventory: Array.from(inventoryByPath.values())
+	};
 }
 
 function copyText(text: string) {
@@ -619,6 +657,7 @@ export const AssetsRoute: React.FC = () => {
 	const [inventoryState, setInventoryState] =
 		React.useState<AssetInventoryState>('fallback');
 	const [patchVersion, setPatchVersion] = React.useState(0);
+	const [index, setIndex] = React.useState<CoreStoryIndex>();
 	const [inferredProjectRoot, setInferredProjectRoot] =
 		React.useState<string>();
 	const projectMetadata = React.useMemo(
@@ -745,13 +784,36 @@ export const AssetsRoute: React.FC = () => {
 		};
 	}, [projectMetadata?.rootPath, story, twineElectron]);
 
-	const index = React.useMemo(
-		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
-		[coreProjectHost, patchVersion, projectAssets, story]
-	);
+	React.useEffect(() => {
+		let active = true;
+
+		if (!story) {
+			setIndex(undefined);
+			return () => {
+				active = false;
+			};
+		}
+
+		setIndex(undefined);
+
+		void coreProjectHost.queryStoryIndexAsync(story.id).then(index => {
+			if (active) {
+				setIndex(index);
+			}
+		});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, patchVersion, projectAssets, story]);
 	const assets = React.useMemo(
-		() => (index ? assetManagerViewModel(index) : undefined),
-		[index]
+		() =>
+			story
+				? assetManagerViewModel(
+						indexWithProjectAssets(story.id, index, projectAssets)
+					)
+				: undefined,
+		[index, projectAssets, story]
 	);
 	const directoryIndex = React.useMemo(
 		() => buildAssetDirectoryIndex(assets?.entries ?? []),

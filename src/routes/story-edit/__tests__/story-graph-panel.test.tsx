@@ -2,7 +2,7 @@ import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import * as React from 'react';
 import {StoreCoreProjectHost} from '../../../core/project-host';
 import {defaults as prefsDefaults} from '../../../store/prefs/defaults';
-import {PrefsContext} from '../../../store/prefs';
+import {PrefsContext, PrefsState} from '../../../store/prefs';
 import {reducer as prefsReducer} from '../../../store/prefs/reducer';
 import {StoriesContext} from '../../../store/stories';
 import {UndoableStoriesContext} from '../../../store/undoable-stories';
@@ -51,9 +51,11 @@ function renderComponent(
 	generatedLayout = false,
 	configure?: (context: ReturnType<typeof graphStory>) => void,
 	options: {
+		controlledSelection?: boolean;
 		selectedPassageId?: string;
 		visibleZoom?: number;
 		zoom?: number;
+		prefs?: Partial<PrefsState>;
 	} = {}
 ) {
 	const {next, start, story} = graphStory(generatedLayout);
@@ -69,10 +71,11 @@ function renderComponent(
 	const onTestPassage = jest.fn();
 	const storiesDispatch = jest.fn();
 	const undoableDispatch = jest.fn();
+	const initialSelectedPassageId = options.selectedPassageId ?? start.id;
 	const TestProviders: React.FC = ({children}) => {
 		const [prefs, prefsDispatch] = React.useReducer(
 			prefsReducer,
-			prefsDefaults()
+			{...prefsDefaults(), ...options.prefs}
 		);
 
 		return (
@@ -93,22 +96,39 @@ function renderComponent(
 			</PrefsContext.Provider>
 		);
 	};
-	const result = render(
-		<TestProviders>
-			<StoryGraphPanel
-				onCreate={onCreate}
-				onDeselect={onDeselect}
-				onEdit={onEdit}
-				onSelect={onSelect}
-				onSelectIds={onSelectIds}
-				onTestPassage={onTestPassage}
-				selectedPassageId={options.selectedPassageId ?? start.id}
-				story={story}
-				visibleZoom={options.visibleZoom ?? story.zoom}
-				zoom={story.zoom}
-			/>
-		</TestProviders>
-	);
+	const TestComponent: React.FC = () => {
+		const [selectedPassageId, setSelectedPassageId] = React.useState(
+			initialSelectedPassageId
+		);
+
+		return (
+			<TestProviders>
+				<StoryGraphPanel
+					onCreate={onCreate}
+					onDeselect={onDeselect}
+					onEdit={onEdit}
+					onSelect={(passage, solo) => {
+						onSelect(passage, solo);
+
+						if (options.controlledSelection) {
+							setSelectedPassageId(passage.id);
+						}
+					}}
+					onSelectIds={onSelectIds}
+					onTestPassage={onTestPassage}
+					selectedPassageId={
+						options.controlledSelection
+							? selectedPassageId
+							: initialSelectedPassageId
+					}
+					story={story}
+					visibleZoom={options.visibleZoom ?? story.zoom}
+					zoom={story.zoom}
+				/>
+			</TestProviders>
+		);
+	};
+	const result = render(<TestComponent />);
 
 	return {
 		next,
@@ -132,32 +152,89 @@ function nodeButton(container: HTMLElement, passageId: string) {
 	) as HTMLElement;
 }
 
+async function waitForNode(
+	container: HTMLElement,
+	passageId: string
+): Promise<HTMLElement> {
+	await waitFor(() => {
+		expect(
+			container.querySelector(`[data-passage-id="${passageId}"]`)
+		).toBeTruthy();
+	});
+
+	return container.querySelector(
+		`[data-passage-id="${passageId}"]`
+	) as HTMLElement;
+}
+
+async function waitForNodeButton(
+	container: HTMLElement,
+	passageId: string
+): Promise<HTMLElement> {
+	await waitFor(() => {
+		expect(nodeButton(container, passageId)).toBeTruthy();
+	});
+
+	return nodeButton(container, passageId);
+}
+
 describe('<StoryGraphPanel>', () => {
+	let applyStoryCommandSpy: jest.SpyInstance;
+
+	beforeEach(() => {
+		applyStoryCommandSpy = jest
+			.spyOn(StoreCoreProjectHost.prototype, 'applyStoryCommand')
+			.mockImplementation(() => undefined);
+	});
+
 	afterEach(() => {
 		window.localStorage.clear();
 		jest.restoreAllMocks();
 	});
 
-	it('renders passage nodes and projected link edges', () => {
+	it('renders passage nodes and projected link edges', async () => {
 		const {result} = renderComponent();
 
-		expect(nodeButton(result.container, 'start')).toHaveTextContent('Start');
 		expect(
-			screen.getByRole('button', {name: 'Resize Start'})
+			await waitForNodeButton(result.container, 'start')
+		).toHaveTextContent('Start');
+		expect(
+			await screen.findByRole('button', {name: 'Resize Start'})
 		).toBeInTheDocument();
 		expect(nodeButton(result.container, 'next')).toHaveTextContent('Next');
 		expect(screen.getByText('saved')).toBeInTheDocument();
-		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
-			'data-edge-kinds',
-			expect.stringContaining('resolved')
+		await waitFor(() =>
+			expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+				'data-edge-kinds',
+				expect.stringContaining('resolved')
+			)
 		);
 		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
 			'data-edge-kinds',
 			expect.stringContaining('broken')
 		);
+		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+			'data-selected-node-count',
+			'1'
+		);
+		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+			'data-connected-edge-count',
+			'2'
+		);
 	});
 
-	it('anchors link edges to the actual passage card bounds', () => {
+	it('renders passage tag names when the tag display preference asks for names', async () => {
+		const {result} = renderComponent(false, undefined, {
+			prefs: {passageTagDisplay: 'name'}
+		});
+		const startNode = await waitForNodeButton(result.container, 'start');
+
+		expect(startNode.querySelector('.tw-node__tag-name')).toHaveTextContent(
+			'scene'
+		);
+	});
+
+	it('anchors link edges to the actual passage card bounds', async () => {
 		renderComponent(false, ({next, start}) => {
 			start.height = 92;
 			start.width = 150;
@@ -166,13 +243,15 @@ describe('<StoryGraphPanel>', () => {
 			next.width = 240;
 		});
 
-		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
-			'data-edge-routes',
-			expect.stringContaining('start->next:150,46>210,74')
+		await waitFor(() =>
+			expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+				'data-edge-routes',
+				expect.stringContaining('start->next:150,46>210,74')
+			)
 		);
 	});
 
-	it('rotates edge anchors with the graph view', () => {
+	it('rotates edge anchors with the graph view', async () => {
 		renderComponent(false, ({next, start}) => {
 			start.height = 92;
 			start.width = 150;
@@ -185,25 +264,45 @@ describe('<StoryGraphPanel>', () => {
 			screen.getByRole('button', {name: 'Rotate view: Left to Right'})
 		);
 
-		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
-			'data-edge-routes',
-			expect.stringContaining('start->next:46,150>74,210')
+		await waitFor(() =>
+			expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+				'data-edge-routes',
+				expect.stringContaining('start->next:46,150>74,210')
+			)
 		);
 	});
 
-	it('updates link layers from graph toolbar buttons', () => {
+	it('updates link layers from graph toolbar buttons', async () => {
 		renderComponent();
 
 		fireEvent.click(screen.getByRole('button', {name: 'Broken links'}));
 
-		expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
-			'data-edge-kinds',
-			expect.stringContaining('resolved')
+		await waitFor(() =>
+			expect(screen.getByTestId('story-graph-edges-canvas')).toHaveAttribute(
+				'data-edge-kinds',
+				expect.stringContaining('resolved')
+			)
 		);
 		expect(screen.getByTestId('story-graph-edges-canvas')).not.toHaveAttribute(
 			'data-edge-kinds',
 			expect.stringContaining('broken')
 		);
+	});
+
+	it('keeps the current projection visible while the next Rust query is pending', async () => {
+		const {result} = renderComponent();
+
+		const startButton = await waitForNodeButton(result.container, 'start');
+
+		expect(startButton).toHaveTextContent('Start');
+
+		jest
+			.spyOn(StoreCoreProjectHost.prototype, 'queryGraphProjectionAsync')
+			.mockImplementation(() => new Promise(() => {}));
+
+		fireEvent.click(screen.getByRole('button', {name: 'Broken links'}));
+
+		expect(nodeButton(result.container, 'start')).toHaveTextContent('Start');
 	});
 
 	it('tests the selected passage from the graph toolbar', () => {
@@ -223,7 +322,7 @@ describe('<StoryGraphPanel>', () => {
 			.mockReturnValue(240);
 		const querySpy = jest.spyOn(
 			StoreCoreProjectHost.prototype,
-			'queryGraphProjection'
+			'queryGraphProjectionAsync'
 		);
 		const {story} = renderComponent();
 
@@ -254,7 +353,7 @@ describe('<StoryGraphPanel>', () => {
 			.mockReturnValue(240);
 		const querySpy = jest.spyOn(
 			StoreCoreProjectHost.prototype,
-			'queryGraphProjection'
+			'queryGraphProjectionAsync'
 		);
 		const {story} = renderComponent(
 			false,
@@ -289,10 +388,36 @@ describe('<StoryGraphPanel>', () => {
 		heightSpy.mockRestore();
 	});
 
+	it('keeps the graph canvas sized to all passages when projection is viewport-bounded', async () => {
+		const widthSpy = jest
+			.spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+			.mockReturnValue(320);
+		const heightSpy = jest
+			.spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+			.mockReturnValue(240);
+		const {result} = renderComponent(false, ({next}) => {
+			next.left = 5600;
+			next.top = 0;
+		});
+
+		await waitForNode(result.container, 'start');
+
+		const canvas = result.container.querySelector(
+			'.story-edit-graph-canvas'
+		) as HTMLElement;
+
+		await waitFor(() =>
+			expect(parseFloat(canvas.style.width)).toBeGreaterThan(6400)
+		);
+
+		widthSpy.mockRestore();
+		heightSpy.mockRestore();
+	});
+
 	it('uses a bounded initial graph projection before viewport measurement', () => {
 		const querySpy = jest.spyOn(
 			StoreCoreProjectHost.prototype,
-			'queryGraphProjection'
+			'queryGraphProjectionAsync'
 		);
 		const {story} = renderComponent();
 
@@ -355,7 +480,7 @@ describe('<StoryGraphPanel>', () => {
 	it('focuses every selected passage when graph focus is enabled', async () => {
 		const querySpy = jest.spyOn(
 			StoreCoreProjectHost.prototype,
-			'queryGraphProjection'
+			'queryGraphProjectionAsync'
 		);
 		const {start, story} = renderComponent(false, ({next, start}) => {
 			start.selected = true;
@@ -402,16 +527,17 @@ describe('<StoryGraphPanel>', () => {
 				y: 0
 			});
 		const {result} = renderComponent();
-		const minimap = result.container.querySelector(
-			'.story-edit-graph-minimap'
-		) as HTMLElement;
 		const viewport = result.container.querySelector(
 			'.story-edit-graph-viewport'
 		) as HTMLElement;
+		let minimap: HTMLElement | null = null;
 
-		await waitFor(() => expect(minimap).toBeTruthy());
+		await waitFor(() => {
+			minimap = result.container.querySelector('.story-edit-graph-minimap');
+			expect(minimap).toBeTruthy();
+		});
 		fireEvent.pointerDown(
-			minimap,
+			minimap!,
 			new PointerEvent('pointerdown', {
 				button: 0,
 				clientX: 20,
@@ -422,7 +548,7 @@ describe('<StoryGraphPanel>', () => {
 		expect(viewport.scrollLeft).toBe(0);
 
 		fireEvent.pointerMove(
-			minimap,
+			minimap!,
 			new PointerEvent('pointermove', {
 				button: 0,
 				clientX: 160,
@@ -470,14 +596,10 @@ describe('<StoryGraphPanel>', () => {
 		expect(viewport.scrollTop).toBe(startTop + 30);
 	});
 
-	it('shows pointer-down selection feedback and additive selection immediately', () => {
+	it('shows pointer-down selection feedback and additive selection immediately', async () => {
 		const {next, onSelect, result, start} = renderComponent();
-		const startNode = result.container.querySelector(
-			'[data-passage-id="start"]'
-		) as HTMLElement;
-		const nextNode = result.container.querySelector(
-			'[data-passage-id="next"]'
-		) as HTMLElement;
+		const startNode = await waitForNode(result.container, 'start');
+		const nextNode = await waitForNode(result.container, 'next');
 
 		fireEvent.pointerDown(
 			startNode,
@@ -504,17 +626,39 @@ describe('<StoryGraphPanel>', () => {
 		expect(onSelect).toHaveBeenCalledWith(next, false);
 	});
 
-	it('selects groups with a shift-drag marquee over the graph', () => {
+	it('does not recenter the viewport when graph node selection updates state', async () => {
+		const scrollToSpy = jest
+			.spyOn(window.Element.prototype, 'scrollTo')
+			.mockImplementation(() => undefined);
+		const {next, onSelect, result} = renderComponent(false, undefined, {
+			controlledSelection: true
+		});
+		const nextNode = await waitForNode(result.container, 'next');
+
+		await waitFor(() => expect(scrollToSpy).toHaveBeenCalled());
+		scrollToSpy.mockClear();
+
+		fireEvent.pointerDown(
+			nextNode,
+			new PointerEvent('pointerdown', {
+				button: 0,
+				pointerId: 15
+			})
+		);
+
+		await waitFor(() => expect(onSelect).toHaveBeenCalledWith(next, true));
+		await new Promise(resolve => window.setTimeout(resolve, 0));
+
+		expect(scrollToSpy).not.toHaveBeenCalled();
+	});
+
+	it('selects groups with a shift-drag marquee over the graph', async () => {
 		const {onSelectIds, result} = renderComponent();
 		const viewport = result.container.querySelector(
 			'.story-edit-graph-viewport'
 		) as HTMLElement;
-		const startNode = result.container.querySelector(
-			'[data-passage-id="start"]'
-		) as HTMLElement;
-		const nextNode = result.container.querySelector(
-			'[data-passage-id="next"]'
-		) as HTMLElement;
+		const startNode = await waitForNode(result.container, 'start');
+		const nextNode = await waitForNode(result.container, 'next');
 
 		fireEvent.keyDown(window, {key: 'Shift'});
 		expect(viewport).toHaveClass('story-edit-graph-viewport--selecting-mode');
@@ -561,9 +705,9 @@ describe('<StoryGraphPanel>', () => {
 		);
 	});
 
-	it('selects, edits, and creates passages from graph interactions', () => {
+	it('selects, edits, and creates passages from graph interactions', async () => {
 		const {next, onCreate, onEdit, onSelect, result} = renderComponent();
-		const nextNode = nodeButton(result.container, 'next');
+		const nextNode = await waitForNodeButton(result.container, 'next');
 
 		fireEvent.click(nextNode);
 		expect(onSelect).toHaveBeenCalledWith(next, true);
@@ -577,58 +721,135 @@ describe('<StoryGraphPanel>', () => {
 		);
 		expect(onCreate).toHaveBeenCalledWith(
 			{left: 220, top: 180},
-			expect.objectContaining({height: 110, width: 184})
+			expect.objectContaining({height: 100, width: 100})
 		);
 	});
 
-	it('snaps dragged graph passages to the visible graph grid', async () => {
-		const {result, story, undoableDispatch} = renderComponent(
-			false,
-			({start, story}) => {
-				start.left = 0;
-				start.top = 0;
-				story.snapToGrid = true;
-			}
-		);
-		const startNode = result.container.querySelector(
-			'[data-passage-id="start"]'
+	it('does not create passages from right-click when the preference is disabled', () => {
+		const {onCreate, result} = renderComponent(false, undefined, {
+			prefs: {graphRightClickCreatePassage: false}
+		});
+		const viewport = result.container.querySelector(
+			'.story-edit-graph-viewport'
 		) as HTMLElement;
+
+		fireEvent.contextMenu(viewport, {clientX: 220, clientY: 180});
+
+		expect(onCreate).not.toHaveBeenCalled();
+	});
+
+	it('snaps dragged graph passages to the visible graph grid', async () => {
+		const {result, story} = renderComponent(false, ({start, story}) => {
+			start.left = 0;
+			start.top = 0;
+			story.snapToGrid = true;
+		});
+		const startNode = await waitForNode(result.container, 'start');
 
 		fireEvent.mouseDown(startNode, {button: 0, clientX: 0, clientY: 0});
 		fireEvent.mouseMove(document, {clientX: 17, clientY: 18});
 
 		await waitFor(() => {
-			expect(startNode.style.left).toBe('26px');
-			expect(startNode.style.top).toBe('26px');
+			expect(startNode.style.left).toBe('25px');
+			expect(startNode.style.top).toBe('25px');
 		});
 
 		fireEvent.mouseUp(document, {clientX: 17, clientY: 18});
 
 		await waitFor(() =>
-			expect(undoableDispatch).toHaveBeenCalledWith(
-				{
-					passageUpdates: {
-						start: expect.objectContaining({
-							left: 26,
-							top: 26
-						})
-					},
-					storyId: story.id,
-					type: 'updatePassages'
-				},
-				'undoChange.movePassage'
-			)
+			expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+				moves: [
+					{
+						bounds: expect.objectContaining({
+							left: 25,
+							top: 25
+						}),
+						passageId: 'start'
+					}
+				],
+				story_id: story.id,
+				type: 'movePassages'
+			})
 		);
 	});
 
-	it('applies the default card size to every selected passage', async () => {
-		const {story, undoableDispatch} = renderComponent(
-			false,
-			({next, start}) => {
-				start.selected = true;
-				next.selected = true;
-			}
+	it('shows and toggles the story snap grid state from the graph toolbar', () => {
+		const {result, story} = renderComponent(false, ({story}) => {
+			story.snapToGrid = true;
+		});
+		const graphLayer = result.container.querySelector(
+			'.story-edit-graph-layer'
+		) as HTMLElement;
+
+		expect(graphLayer).toHaveClass('story-edit-graph-layer--snap-on');
+		expect(graphLayer.style.getPropertyValue('--story-edit-snap-grid-size')).toBe(
+			'25px'
 		);
+		expect(
+			graphLayer.style.getPropertyValue('--story-edit-snap-major-grid-size')
+		).toBe('125px');
+
+		fireEvent.click(screen.getByRole('button', {name: 'Snap to grid'}));
+
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			enabled: false,
+			story_id: story.id,
+			type: 'setStorySnapToGrid'
+		});
+	});
+
+	it('saves dragged graph passages using the visible zoom', async () => {
+		const {result, story} = renderComponent(
+			false,
+			({start}) => {
+				start.left = 0;
+				start.top = 0;
+			},
+			{visibleZoom: 0.5, zoom: 1}
+		);
+		const startNode = await waitForNode(result.container, 'start');
+
+		fireEvent.mouseDown(startNode, {button: 0, clientX: 0, clientY: 0});
+		fireEvent.mouseMove(document, {clientX: 26, clientY: 0});
+		fireEvent.mouseUp(document, {clientX: 26, clientY: 0});
+
+		await waitFor(() =>
+			expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+				moves: [
+					{
+						bounds: expect.objectContaining({
+							left: 52,
+							top: 0
+						}),
+						passageId: 'start'
+					}
+				],
+				story_id: story.id,
+				type: 'movePassages'
+			})
+		);
+	});
+
+	it('zooms the graph with the mouse wheel through the core command path', () => {
+		const {result, story} = renderComponent();
+		const viewport = result.container.querySelector(
+			'.story-edit-graph-viewport'
+		) as HTMLElement;
+
+		fireEvent.wheel(viewport, {clientX: 120, clientY: 100, deltaY: -100});
+
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			story_id: story.id,
+			type: 'setStoryZoom',
+			zoom: 1.12
+		});
+	});
+
+	it('applies the default card size to every selected passage', async () => {
+		const {story} = renderComponent(false, ({next, start}) => {
+			start.selected = true;
+			next.selected = true;
+		});
 
 		fireEvent.change(screen.getByLabelText('Default card size'), {
 			target: {value: 'wide'}
@@ -639,60 +860,65 @@ describe('<StoryGraphPanel>', () => {
 		fireEvent.click(screen.getByRole('button', {name: 'Apply'}));
 
 		expect(screen.getByText('2 selected')).toBeInTheDocument();
-		expect(undoableDispatch).toHaveBeenCalledWith(
-			{
-				passageUpdates: {
-					next: expect.objectContaining({
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			moves: [
+				{
+					bounds: expect.objectContaining({
+						height: 110,
+						left: 0,
+						top: 0,
+						width: 292
+					}),
+					passageId: 'start'
+				},
+				{
+					bounds: expect.objectContaining({
 						height: 110,
 						left: 160,
 						top: 0,
 						width: 292
 					}),
-					start: expect.objectContaining({
-						height: 110,
-						left: 0,
-						top: 0,
-						width: 292
-					})
-				},
-				storyId: story.id,
-				type: 'updatePassages'
-			},
-			'undoChange.movePassage'
-		);
+					passageId: 'next'
+				}
+			],
+			story_id: story.id,
+			type: 'movePassages'
+		});
 	});
 
-	it('snaps handle resizing to passage size bands', async () => {
-		const {story, undoableDispatch} = renderComponent();
-		const resizeHandle = screen.getByRole('button', {name: 'Resize Start'});
+	it('resizes graph passages continuously from the handle', async () => {
+		const {story} = renderComponent();
+		const resizeHandle = await screen.findByRole('button', {
+			name: 'Resize Start'
+		});
 
 		fireEvent.mouseDown(resizeHandle, {button: 0, clientX: 200, clientY: 160});
 		fireEvent.mouseMove(document, {clientX: 430, clientY: 162});
 		fireEvent.mouseUp(document, {clientX: 430, clientY: 162});
 
 		await waitFor(() =>
-			expect(undoableDispatch).toHaveBeenCalledWith(
-				{
-					passageUpdates: {
-						start: expect.objectContaining({
-							height: 110,
+			expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+				moves: [
+					{
+						bounds: expect.objectContaining({
+							height: 102,
 							left: 0,
 							top: 0,
-							width: 292
-						})
-					},
-					storyId: story.id,
-					type: 'updatePassages'
-				},
-				'undoChange.movePassage'
-			)
+							width: 330
+						}),
+						passageId: 'start'
+					}
+				],
+				story_id: story.id,
+				type: 'movePassages'
+			})
 		);
 	});
 
 	it('rotates the graph view without changing story layout data', () => {
 		const querySpy = jest.spyOn(
 			StoreCoreProjectHost.prototype,
-			'queryGraphProjection'
+			'queryGraphProjectionAsync'
 		);
 		const {story, undoableDispatch} = renderComponent();
 
@@ -701,6 +927,7 @@ describe('<StoryGraphPanel>', () => {
 		);
 
 		expect(screen.getByText('Top to Bottom')).toBeInTheDocument();
+		expect(applyStoryCommandSpy).not.toHaveBeenCalled();
 		expect(undoableDispatch).not.toHaveBeenCalled();
 		expect(querySpy).toHaveBeenLastCalledWith(
 			story.id,
@@ -709,30 +936,13 @@ describe('<StoryGraphPanel>', () => {
 	});
 
 	it('saves generated layout through the core project host', () => {
-		const {story, undoableDispatch} = renderComponent(true);
+		const {story} = renderComponent(true);
 
 		fireEvent.click(screen.getByRole('button', {name: /Save Layout/}));
 
-		expect(undoableDispatch).toHaveBeenCalledWith(
-			{
-				passageUpdates: {
-					next: expect.objectContaining({
-						height: 110,
-						left: 424,
-						top: 0,
-						width: 184
-					}),
-					start: expect.objectContaining({
-						height: 110,
-						left: 0,
-						top: 0,
-						width: 184
-					})
-				},
-				storyId: story.id,
-				type: 'updatePassages'
-			},
-			'undoChange.movePassage'
-		);
+		expect(applyStoryCommandSpy).toHaveBeenCalledWith({
+			story_id: story.id,
+			type: 'saveGeneratedLayout'
+		});
 	});
 });

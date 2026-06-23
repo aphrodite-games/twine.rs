@@ -83,6 +83,18 @@ body.dragging-passages .story-edit-route * {
 	border-left: 1px solid var(--line-1);
 }
 
+.story-edit-zoom-slot {
+	align-items: center;
+	display: flex;
+	flex: 0 0 220px;
+	min-width: 220px;
+}
+
+.story-edit-zoom-slot--empty {
+	pointer-events: none;
+	visibility: hidden;
+}
+
 .story-edit-workspace {
 	--story-edit-bottom-offset: 0px;
 	--story-edit-dock-width: 260px;
@@ -179,24 +191,16 @@ body.dragging-passages .story-edit-route * {
 }
 
 .story-edit-graph-layer {
-	background:
-		radial-gradient(
-			circle,
-			color-mix(in oklab, var(--tx-4) 22%, transparent) 0 1px,
-			transparent 1.5px
-		),
-		radial-gradient(
-			circle,
-			color-mix(in oklab, var(--sem-generated) 18%, transparent) 0 1px,
-			transparent 1.7px
-		);
-	background-color: var(--ink-void);
-	background-position:
-		0 0,
-		0 0;
-	background-size:
-		26px 26px,
-		130px 130px;
+	--story-edit-snap-dot: color-mix(in oklab, var(--tx-4) 24%, transparent);
+	--story-edit-snap-major-dot: color-mix(
+		in oklab,
+		var(--sem-generated) 34%,
+		transparent
+	);
+	--story-edit-snap-grid-size: 25px;
+	--story-edit-snap-major-grid-size: 125px;
+
+	background: var(--ink-void);
 	bottom: var(--story-edit-bottom-offset);
 	color: var(--tx-2);
 	left: var(--story-edit-left-offset);
@@ -210,6 +214,15 @@ body.dragging-passages .story-edit-route * {
 		left var(--dur-3) var(--ease-out),
 		right var(--dur-3) var(--ease-out);
 	z-index: 2;
+}
+
+.story-edit-graph-layer--snap-off {
+	--story-edit-snap-dot: color-mix(in oklab, var(--tx-4) 10%, transparent);
+	--story-edit-snap-major-dot: color-mix(
+		in oklab,
+		var(--tx-4) 7%,
+		transparent
+	);
 }
 
 .story-edit-workspace.mode-split .story-edit-graph-layer {
@@ -245,6 +258,25 @@ body.dragging-passages .story-edit-route * {
 }
 
 .story-edit-graph-canvas {
+	background:
+		radial-gradient(
+			circle,
+			var(--story-edit-snap-major-dot) 0 1.7px,
+			transparent 2.2px
+		),
+		radial-gradient(
+			circle,
+			var(--story-edit-snap-dot) 0 1px,
+			transparent 1.5px
+		);
+	background-color: var(--ink-void);
+	background-position:
+		0 0,
+		0 0;
+	background-size:
+		var(--story-edit-snap-major-grid-size)
+			var(--story-edit-snap-major-grid-size),
+		var(--story-edit-snap-grid-size) var(--story-edit-snap-grid-size);
 	min-height: 100%;
 	min-width: 100%;
 	position: relative;
@@ -1513,6 +1545,10 @@ button.story-edit-link-chip:focus-visible {
 	}
 
 	.story-edit-dock-controls {
+		display: none;
+	}
+
+	.story-edit-zoom-slot {
 		display: none;
 	}
 

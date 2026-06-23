@@ -57,7 +57,10 @@ const bundledStoryFormatNames = new Map([
 	['harlowe', 'Harlowe'],
 	['paperthin', 'Paperthin'],
 	['snowman', 'Snowman'],
-	['sugarcube', 'SugarCube']
+	['sugarcube', 'SugarCube'],
+	['sugarcube 1', 'SugarCube'],
+	['sugarcube 2', 'SugarCube'],
+	['sugarcube 2 (local/offline)', 'SugarCube']
 ]);
 
 function storyFormatCanBeSugarCubeRepaired(format: string) {

@@ -453,26 +453,6 @@ export const ContentsRoute: React.FC = () => {
 
 		setFullIndex(undefined);
 
-		if (coreProjectHost.runtimeMode() !== 'wasm-worker') {
-			if (story.passages.length <= deferIndexPassageThreshold) {
-				setFullIndex(coreProjectHost.queryStoryIndex(story.id));
-				return () => {
-					active = false;
-				};
-			}
-
-			const cancelIdleWork = scheduleIdleWork(() => {
-				if (active) {
-					setFullIndex(coreProjectHost.queryStoryIndex(story.id));
-				}
-			});
-
-			return () => {
-				active = false;
-				cancelIdleWork();
-			};
-		}
-
 		const loadFullIndex = () => {
 			void coreProjectHost.queryStoryIndexAsync(story.id).then(index => {
 				if (active) {

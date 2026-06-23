@@ -209,7 +209,7 @@ describe('<StoryWorkspaceShell>', () => {
 		expect(screen.getAllByText('Missing').length).toBeGreaterThan(0);
 	});
 
-	it('shows indexed contents and project intelligence in the docks', () => {
+	it('shows indexed contents and project intelligence in the docks', async () => {
 		renderComponent('text');
 
 		expect(
@@ -230,7 +230,9 @@ describe('<StoryWorkspaceShell>', () => {
 			.getByRole('tab', {name: 'routes.storyEdit.workspace.contents'})
 			.click();
 
-		expect(screen.getAllByText('$score').length).toBeGreaterThan(0);
+		await waitFor(() =>
+			expect(screen.getAllByText('$score').length).toBeGreaterThan(0)
+		);
 		expect(screen.getAllByText('assets/cover.png').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('broken-link').length).toBeGreaterThan(0);
 	});
@@ -270,7 +272,7 @@ describe('<StoryWorkspaceShell>', () => {
 		);
 	});
 
-	it('opens indexed story sources from the contents navigator', () => {
+	it('opens indexed story sources from the contents navigator', async () => {
 		const {dialogsDispatch} = renderComponent('text');
 
 		within(
@@ -281,11 +283,16 @@ describe('<StoryWorkspaceShell>', () => {
 			.getByRole('tab', {name: 'routes.storyEdit.workspace.contents'})
 			.click();
 
-		within(
-			screen.getByRole('complementary', {
-				name: 'routes.storyEdit.workspace.leftDock'
-			})
-		)
+		const leftDock = screen.getByRole('complementary', {
+			name: 'routes.storyEdit.workspace.leftDock'
+		});
+
+		await waitFor(() =>
+			expect(
+				within(leftDock).getByRole('button', {name: /Story JavaScript/})
+			).toBeInTheDocument()
+		);
+		within(leftDock)
 			.getByRole('button', {name: /Story JavaScript/})
 			.click();
 
@@ -296,7 +303,7 @@ describe('<StoryWorkspaceShell>', () => {
 		});
 	});
 
-	it('navigates variable and asset entries to their first indexed passage', () => {
+	it('navigates variable and asset entries to their first indexed passage', async () => {
 		const {onSelectPassage, start} = renderComponent('text');
 
 		within(
@@ -307,18 +314,23 @@ describe('<StoryWorkspaceShell>', () => {
 			.getByRole('tab', {name: 'routes.storyEdit.workspace.contents'})
 			.click();
 
-		within(
-			screen.getByRole('complementary', {
-				name: 'routes.storyEdit.workspace.leftDock'
-			})
-		)
+		const leftDock = screen.getByRole('complementary', {
+			name: 'routes.storyEdit.workspace.leftDock'
+		});
+
+		await waitFor(() =>
+			expect(
+				within(leftDock).getByRole('button', {name: /\$score/})
+			).toBeInTheDocument()
+		);
+		within(leftDock)
 			.getByRole('button', {name: /\$score/})
 			.click();
 
 		expect(onSelectPassage).toHaveBeenCalledWith(start);
 	});
 
-	it('routes asset manager insertion through the project host', () => {
+	it('routes asset manager insertion through the project host', async () => {
 		const {storyDispatch} = renderComponent('text');
 
 		within(
@@ -329,10 +341,13 @@ describe('<StoryWorkspaceShell>', () => {
 			.getByRole('tab', {name: 'routes.storyEdit.workspace.assets'})
 			.click();
 
+		await waitFor(() =>
+			expect(screen.getByRole('button', {name: 'Insert'})).toBeInTheDocument()
+		);
 		screen.getByRole('button', {name: 'Insert'}).click();
 
 		expect(storyDispatch).toHaveBeenCalledWith(
-			expect.any(Function),
+			expect.objectContaining({type: 'updatePassage'}),
 			'undoChange.editPassage'
 		);
 	});
@@ -356,7 +371,7 @@ describe('<StoryWorkspaceShell>', () => {
 		expect(screen.queryByRole('button', {name: 'Delete'})).toBeNull();
 	});
 
-	it('handles asset snippet copy side effects from host patches', () => {
+	it('handles asset snippet copy side effects from host patches', async () => {
 		const copyText = jest.fn();
 
 		(window as any).twineElectron = {copyText};
@@ -370,29 +385,46 @@ describe('<StoryWorkspaceShell>', () => {
 			.getByRole('tab', {name: 'routes.storyEdit.workspace.assets'})
 			.click();
 
+		await waitFor(() =>
+			expect(
+				screen.getByRole('button', {name: 'Copy Snippet'})
+			).toBeInTheDocument()
+		);
 		screen.getByRole('button', {name: 'Copy Snippet'}).click();
 		expect(copyText).toHaveBeenCalledWith(
 			'<img src="assets/cover.png" alt="">'
 		);
 	});
 
-	it('dispatches executable diagnostic quick fixes', () => {
+	it('dispatches executable diagnostic quick fixes', async () => {
 		const {story, storyDispatch} = renderComponent('text');
 
+		await waitFor(() =>
+			expect(
+				screen.getByRole('button', {name: /Create "Missing"/})
+			).toBeInTheDocument()
+		);
 		screen.getByRole('button', {name: /Create "Missing"/}).click();
 		expect(storyDispatch).toHaveBeenCalledWith(
 			{
 				type: 'createPassage',
-				props: {name: 'Missing', tags: [], text: ''},
+				props: expect.objectContaining({name: 'Missing', tags: [], text: ''}),
 				storyId: story.id
 			},
 			'undoChange.newPassage'
 		);
 	});
 
-	it('reveals diagnostics in the graph explicitly', () => {
+	it('reveals diagnostics in the graph explicitly', async () => {
 		const {onRevealPassageInGraph, start} = renderComponent('text');
 
+		await waitFor(() =>
+			expect(
+				screen.getByRole('button', {
+					name: 'routes.storyEdit.workspace.revealInGraph'
+				})
+			).toBeInTheDocument()
+		);
 		screen
 			.getByRole('button', {
 				name: 'routes.storyEdit.workspace.revealInGraph'

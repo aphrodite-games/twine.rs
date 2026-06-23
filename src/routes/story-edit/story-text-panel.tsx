@@ -8,6 +8,9 @@ import {
 	TablerIcon
 } from '../../components/design-system';
 import {
+	emptyStoryIndex,
+	setPassageTagsCommand,
+	setStoryTagColorCommand,
 	updatePassageTextCommand,
 	updateStoryScriptCommand,
 	updateStoryStylesheetCommand,
@@ -16,8 +19,10 @@ import {
 } from '../../core';
 import type {CoreStoryIndex, WorkbenchSelection} from '../../core';
 import {quickFixActionsForDiagnostic} from '../../core/quick-fix-registry';
-import {Passage, Story} from '../../store/stories';
+import {Passage, Story, storyPassageTags} from '../../store/stories';
 import {VisibleWhitespace} from '../../components/visible-whitespace';
+import {TagCardButton} from '../../components/tag/tag-card-button';
+import {Color, colorString} from '../../util/color';
 
 export interface StoryTextPanelProps {
 	index?: CoreStoryIndex;
@@ -68,9 +73,31 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 		story
 	} = props;
 	const coreProjectHost = useCoreProjectHost();
+	const [asyncIndex, setAsyncIndex] = React.useState<CoreStoryIndex>();
+	React.useEffect(() => {
+		let active = true;
+
+		if (index) {
+			setAsyncIndex(undefined);
+			return () => {
+				active = false;
+			};
+		}
+
+		setAsyncIndex(undefined);
+		void coreProjectHost.queryStoryIndexAsync(story.id).then(index => {
+			if (active) {
+				setAsyncIndex(index);
+			}
+		});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, index, story.id, story]);
 	const storyIndex = React.useMemo(
-		() => index ?? coreProjectHost.queryStoryIndex(story.id),
-		[coreProjectHost, index, story.id]
+		() => index ?? asyncIndex ?? emptyStoryIndex(story.id),
+		[asyncIndex, index, story.id]
 	);
 	const selection = React.useMemo(
 		() =>
@@ -82,6 +109,7 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 	const {t} = useTranslation();
 	const [activeSource, setActiveSource] =
 		React.useState<StorySourceTab>('passage');
+	const [searchRequestKey, setSearchRequestKey] = React.useState(0);
 	const source = React.useMemo(() => {
 		if (activeSource === 'script') {
 			return {
@@ -158,10 +186,56 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 				.slice(0, 3),
 		[coreProjectHost, inlineDiagnostics, story]
 	);
+	const passageTags = React.useMemo(() => storyPassageTags(story), [story]);
 
 	React.useEffect(() => {
 		setLocalText(source.value);
 	}, [source.id, source.value]);
+
+	function handleAddTag(name: string) {
+		if (!selectedPassage) {
+			return;
+		}
+
+		coreProjectHost.applyStoryCommand({
+			type: 'batch',
+			commands: [
+				...(passageTags.includes(name)
+					? []
+					: [
+							setStoryTagColorCommand(
+								story.id,
+								name,
+								colorString(name)
+							)
+						]),
+				setPassageTagsCommand(story.id, selectedPassage.id, [
+					...selectedPassage.tags,
+					name
+				])
+			]
+		});
+	}
+
+	function handleChangeTagColor(name: string, color: Color) {
+		coreProjectHost.applyStoryCommand(
+			setStoryTagColorCommand(story.id, name, color === 'none' ? null : color)
+		);
+	}
+
+	function handleRemoveTag(name: string) {
+		if (!selectedPassage) {
+			return;
+		}
+
+		coreProjectHost.applyStoryCommand(
+			setPassageTagsCommand(
+				story.id,
+				selectedPassage.id,
+				selectedPassage.tags.filter(tag => tag !== name)
+			)
+		);
+	}
 
 	const commitText = React.useCallback(
 		(text: string, sourceTab: StorySourceTab, passage: Passage | undefined) => {
@@ -266,6 +340,16 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 					<Badge mono tone="neutral">
 						{story.storyFormat} {story.storyFormatVersion}
 					</Badge>
+					<Button
+						aria-label={t('routes.storyEdit.workspace.findInEditor')}
+						icon="search"
+						onClick={() => setSearchRequestKey(key => key + 1)}
+						size="sm"
+						title={t('routes.storyEdit.workspace.findInEditor')}
+						variant="ghost"
+					>
+						{t('routes.storyEdit.workspace.find')}
+					</Button>
 					{activeSource === 'passage' ? (
 						<>
 							{selectedPassage && onTestPassage && (
@@ -308,6 +392,17 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 							{source.value.split(/\r?\n/).length} lines
 						</Badge>
 					)}
+					{activeSource === 'passage' && selectedPassage && (
+						<TagCardButton
+							allTags={passageTags}
+							id={`story-text-passage-tag-input-${selectedPassage.id}`}
+							onAdd={handleAddTag}
+							onChangeColor={handleChangeTagColor}
+							onRemove={handleRemoveTag}
+							tagColors={story.tagColors}
+							tags={selectedPassage.tags}
+						/>
+					)}
 				</div>
 			</header>
 			<div className="story-edit-text-editor">
@@ -321,6 +416,7 @@ export const StoryTextPanel: React.FC<StoryTextPanelProps> = props => {
 					memoryKey={source.memoryKey}
 					onChange={handleChangeText}
 					placeholderText={t('dialogs.passageEdit.passageTextPlaceholder')}
+					searchRequestKey={searchRequestKey}
 					selfLinkName={
 						activeSource === 'passage' ? selectedPassage?.name : undefined
 					}

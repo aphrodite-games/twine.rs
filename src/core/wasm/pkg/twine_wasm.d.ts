@@ -11,6 +11,8 @@ export class TwineWasmProjectSession {
     query_graph_projection(story_id: string, options: any): any;
     query_story_index(story_id: string, options: any): any;
     redo(): any;
+    revision(): number;
+    set_revision(revision: number): void;
     snapshot(): any;
     undo(): any;
 }
@@ -33,6 +35,8 @@ export interface InitOutput {
     readonly twinewasmprojectsession_query_graph_projection: (a: number, b: number, c: number, d: any) => [number, number, number];
     readonly twinewasmprojectsession_query_story_index: (a: number, b: number, c: number, d: any) => [number, number, number];
     readonly twinewasmprojectsession_redo: (a: number) => [number, number, number];
+    readonly twinewasmprojectsession_revision: (a: number) => number;
+    readonly twinewasmprojectsession_set_revision: (a: number, b: number) => void;
     readonly twinewasmprojectsession_snapshot: (a: number) => [number, number, number];
     readonly twinewasmprojectsession_undo: (a: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;

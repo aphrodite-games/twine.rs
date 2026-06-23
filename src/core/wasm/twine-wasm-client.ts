@@ -2,7 +2,6 @@ import type {CoreGraphProjection} from '../bindings/CoreGraphProjection';
 import type {CoreGraphProjectionOptions} from '../bindings/CoreGraphProjectionOptions';
 import type {CoreStoryIndex} from '../bindings/CoreStoryIndex';
 import type {CoreStoryIndexOptions} from '../bindings/CoreStoryIndexOptions';
-import type {PatchBatch} from '../bindings/PatchBatch';
 import type {ProjectSnapshot} from '../bindings/ProjectSnapshot';
 import type {StoryCommand} from '../bindings/StoryCommand';
 import {recordCoreBridgeMetric} from './performance';
@@ -10,6 +9,7 @@ import type {CoreBridgeMode} from './performance';
 import TwineWasmWorker from './twine-wasm-worker?worker';
 import type {
 	WasmWorkerFailure,
+	WasmWorkerMutationResult,
 	WasmWorkerRequest,
 	WasmWorkerResponse,
 	WasmWorkerSuccess
@@ -25,6 +25,8 @@ type CacheEntry<T> = {
 	result: T;
 	revision: number;
 };
+
+export type CoreSessionMutationResult = WasmWorkerMutationResult;
 
 function stableJson(value: unknown): string {
 	if (!value || typeof value !== 'object') {
@@ -165,7 +167,10 @@ export class WasmCoreWorkerClient {
 		this.clearQueryCaches();
 	}
 
-	async apply(command: StoryCommand, revision: number): Promise<PatchBatch> {
+	async apply(
+		command: StoryCommand,
+		revision: number
+	): Promise<CoreSessionMutationResult> {
 		const response = await this.send({
 			command,
 			id: 0,
@@ -178,12 +183,12 @@ export class WasmCoreWorkerClient {
 		}
 
 		this.clearQueryCaches();
-		this.readyRevision = revision + 1;
+		this.readyRevision = response.result.revision;
 
 		return response.result;
 	}
 
-	async undo(revision: number): Promise<PatchBatch | null> {
+	async undo(revision: number): Promise<CoreSessionMutationResult | null> {
 		const response = await this.send({
 			id: 0,
 			kind: 'undo',
@@ -196,13 +201,13 @@ export class WasmCoreWorkerClient {
 
 		if (response.result) {
 			this.clearQueryCaches();
-			this.readyRevision = revision + 1;
+			this.readyRevision = response.result.revision;
 		}
 
 		return response.result;
 	}
 
-	async redo(revision: number): Promise<PatchBatch | null> {
+	async redo(revision: number): Promise<CoreSessionMutationResult | null> {
 		const response = await this.send({
 			id: 0,
 			kind: 'redo',
@@ -215,7 +220,7 @@ export class WasmCoreWorkerClient {
 
 		if (response.result) {
 			this.clearQueryCaches();
-			this.readyRevision = revision + 1;
+			this.readyRevision = response.result.revision;
 		}
 
 		return response.result;

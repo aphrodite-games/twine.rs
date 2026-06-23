@@ -4,8 +4,23 @@ import {formatWithNameAndVersion, newestFormatNamed} from '../story-formats';
 
 const validPreferenceValues: Partial<Record<keyof PrefsState, string[]>> = {
 	cloudSaveIntegration: ['off', 'manual'],
+	codeEditorTheme: [
+		'twine',
+		'one-dark',
+		'solarized-light',
+		'solarized-dark',
+		'high-contrast'
+	],
 	editorFocusPreference: ['restore', 'passage-start', 'none'],
-	graphDefaultCardSize: ['small', 'narrow', 'medium', 'large', 'tall', 'wide'],
+	graphDefaultCardSize: [
+		'twine',
+		'small',
+		'narrow',
+		'medium',
+		'large',
+		'tall',
+		'wide'
+	],
 	hostingPublishIntegration: ['off', 'manual'],
 	keybindingPreset: ['default', 'emacs', 'vim'],
 	passageTagDisplay: ['color', 'name'],

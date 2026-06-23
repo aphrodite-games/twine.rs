@@ -761,13 +761,18 @@ const Inspector: React.FC<{
 	const backlinks = selection.backlinks;
 	const symbolsByName = React.useMemo(() => {
 		const result = new Map<string, number>();
+		const scopedSymbols = passage
+			? index.symbols.filter(symbol => symbol.passageId === passage.id)
+			: index.symbols;
 
-		for (const symbol of index.symbols) {
+		for (const symbol of scopedSymbols) {
 			result.set(symbol.name, (result.get(symbol.name) ?? 0) + 1);
 		}
 
-		return Array.from(result).slice(0, 8);
-	}, [index.symbols]);
+		return Array.from(result)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.slice(0, 8);
+	}, [index.symbols, passage]);
 
 	return (
 		<div className="story-edit-inspector">
@@ -1254,26 +1259,6 @@ export const StoryWorkspaceShell: React.FC<
 		if (!passageTextLoaded) {
 			return () => {
 				active = false;
-			};
-		}
-
-		if (coreProjectHost.runtimeMode() !== 'wasm-worker') {
-			if (story.passages.length <= deferIndexPassageThreshold) {
-				setFullIndex(coreProjectHost.queryStoryIndex(story.id));
-				return () => {
-					active = false;
-				};
-			}
-
-			const cancelIdleWork = scheduleIdleWork(() => {
-				if (active) {
-					setFullIndex(coreProjectHost.queryStoryIndex(story.id));
-				}
-			});
-
-			return () => {
-				active = false;
-				cancelIdleWork();
 			};
 		}
 

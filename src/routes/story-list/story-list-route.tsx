@@ -17,9 +17,9 @@ import {
 import {
 	deleteStoryCommand,
 	storyLinkFacts,
-	storyToCoreIndex,
 	useCoreProjectHost
 } from '../../core';
+import type {CoreStoryIndex} from '../../core';
 import {
 	AppDonationDialog,
 	DialogsContextProvider,
@@ -64,8 +64,11 @@ function allTags(stories: Story[]) {
 	return Array.from(new Set(stories.flatMap(story => story.tags))).sort();
 }
 
-function storyHealth(story: Story) {
-	const index = storyToCoreIndex(story);
+function storyHealth(index: CoreStoryIndex | undefined) {
+	if (!index) {
+		return {brokenLinks: 0, errors: 0};
+	}
+
 	const errors = index.diagnostics.filter(
 		diagnostic => diagnostic.severity === 'error'
 	).length;
@@ -138,7 +141,36 @@ function ProjectMiniMap({story}: {story: Story}) {
 }
 
 function HealthBadges({story}: {story: Story}) {
-	const health = storyHealth(story);
+	const coreProjectHost = useCoreProjectHost();
+	const [index, setIndex] = React.useState<CoreStoryIndex>();
+	const health = storyHealth(index);
+
+	React.useEffect(() => {
+		let active = true;
+
+		setIndex(undefined);
+		void coreProjectHost
+			.queryStoryIndexAsync(story.id, {
+				includeAssets: false,
+				includeContents: false,
+				includeFiles: false,
+				includePassageNames: false,
+				includePassageText: false,
+				includeScript: false,
+				includeStylesheet: false,
+				includeTags: false,
+				includeVariables: false
+			})
+			.then(index => {
+				if (active) {
+					setIndex(index);
+				}
+			});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, story.id, story]);
 
 	return (
 		<div className="story-list-launcher__health">

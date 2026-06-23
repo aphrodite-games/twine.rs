@@ -250,13 +250,13 @@ describe('<StorySearchDialog>', () => {
 		);
 	});
 
-	it('shows the number of matching passages for the search', () => {
+	it('shows the number of matching passages for the search', async () => {
 		const story = fakeStory(1);
 
 		story.passages[0].text = 'aaa';
 		renderComponent({find: 'a'}, {stories: [story]});
 		expect(
-			screen.getByText('dialogs.storySearch.matchCount')
+			await screen.findByText('dialogs.storySearch.matchCount')
 		).toBeInTheDocument();
 		expect(
 			screen.queryByText('dialogs.storySearch.noMatches')
@@ -329,22 +329,28 @@ describe('<StorySearchDialog>', () => {
 			{stories: [story]}
 		);
 
-		const replaceButton = screen.getByText('dialogs.storySearch.replaceAll');
+		const replaceButton = await screen.findByText(
+			'dialogs.storySearch.replaceAll'
+		);
 
-		expect(replaceButton).not.toBeDisabled();
+		await waitFor(() => expect(replaceButton).not.toBeDisabled());
 		fireEvent.click(replaceButton);
-		expect(
-			screen.getByTestId(`passage-${story.passages[0].id}`)
-		).toHaveTextContent('mock-replace');
+		await waitFor(() =>
+			expect(
+				screen.getByTestId(`passage-${story.passages[0].id}`)
+			).toHaveTextContent('mock-replace')
+		);
 	});
 
-	it('opens a source dialog for a non-passage search result', () => {
+	it('opens a source dialog for a non-passage search result', async () => {
 		const story = fakeStory(1);
 
 		story.passages[0].text = '';
 		story.script = 'const mockFind = true;';
 		renderComponent({find: 'mockFind'}, {stories: [story]});
-		fireEvent.click(screen.getByRole('button', {name: /Story JavaScript/}));
+		fireEvent.click(
+			await screen.findByRole('button', {name: /Story JavaScript/})
+		);
 		expect(
 			screen.getByRole('textbox', {
 				name: 'dialogs.storyJavaScript.editorLabel'

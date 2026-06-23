@@ -12,6 +12,7 @@ import {
 	setStoryTagColorCommand,
 	useCoreProjectHost
 } from '../core';
+import type {CoreStoryIndex} from '../core';
 import './passage-tags.css';
 
 export interface PassageTagsDialogProps extends DialogComponentProps {
@@ -25,10 +26,35 @@ export const PassageTagsDialog: React.FC<PassageTagsDialogProps> = props => {
 
 	const story = storyWithId(stories, storyId);
 	const coreProjectHost = useCoreProjectHost();
-	const tags = React.useMemo(
-		() => coreProjectHost.queryStoryIndex(story.id).tagEntries,
-		[coreProjectHost, story]
-	);
+	const [tags, setTags] = React.useState<CoreStoryIndex['tagEntries']>([]);
+	React.useEffect(() => {
+		let active = true;
+
+		setTags([]);
+		void coreProjectHost
+			.queryStoryIndexAsync(story.id, {
+				includeAssets: false,
+				includeContents: false,
+				includeDiagnostics: false,
+				includeFiles: false,
+				includeGraph: false,
+				includePassageNames: false,
+				includePassageText: false,
+				includeScript: false,
+				includeStylesheet: false,
+				includeTags: true,
+				includeVariables: false
+			})
+			.then(index => {
+				if (active) {
+					setTags(index.tagEntries);
+				}
+			});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, story.id, story]);
 	const tagNames = React.useMemo(() => tags.map(tag => tag.name), [tags]);
 
 	function handleChangeColor(tagName: string, color: Color) {

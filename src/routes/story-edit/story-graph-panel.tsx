@@ -11,8 +11,11 @@ import {
 	TablerIcon
 } from '../../components/design-system';
 import {
+	emptyGraphProjection,
 	movePassagesCommand,
 	saveGeneratedLayoutCommand,
+	setStorySnapToGridCommand,
+	setStoryZoomCommand,
 	useCoreProjectHost
 } from '../../core';
 import {setPref, usePrefsContext} from '../../store/prefs';
@@ -34,6 +37,8 @@ export interface StoryGraphPanelProps {
 	onSelect: (passage: Passage, exclusive: boolean) => void;
 	onSelectIds: (passageIds: string[], additive: boolean) => void;
 	onTestPassage?: (passage: Passage) => void;
+	revealPassageId?: string;
+	revealRequestKey?: number;
 	selectedPassageId?: string;
 	story: Story;
 	visibleZoom: number;
@@ -49,6 +54,7 @@ const graphSizePresets: Record<
 	GraphSizePreset,
 	{height: number; label: string; width: number}
 > = {
+	twine: {height: 100, label: 'Twine 100 x 100', width: 100},
 	small: {height: 92, label: 'Small', width: 150},
 	narrow: {height: 132, label: 'Narrow', width: 150},
 	medium: {height: 110, label: 'Medium', width: 184},
@@ -96,21 +102,27 @@ interface ViewportState {
 
 interface AsyncProjectionState {
 	projection: CoreGraphProjection;
-	queryKey: string;
-	story: Story;
+	storyId: string;
 }
 
 const minimapSize = {height: 120, width: 170};
 const canvasPad = 900;
-const graphSnapGridSize = 26;
+const graphSnapGridSize = 25;
+const graphSnapMajorGridSize = graphSnapGridSize * 5;
 const largeStoryPassageCount = 500;
 const maxExcerptNodes = 160;
 const exposeEdgeRouteDebug = process.env.NODE_ENV === 'test';
 const graphInteractiveSelector =
 	'.story-edit-graph-node, .story-edit-graph-toolbar, .story-edit-graph-status, .story-edit-graph-minimap, .story-edit-graph-card-tools';
 const resizeSnapActivationDistance = 18;
+const graphResizeMinimum = 40;
 const graphProjectionTileSize = 600;
 const graphProjectionOverscan = 1200;
+const graphMinZoom = 0.25;
+const graphMaxZoom = 2;
+const graphWheelZoomFactor = 1.12;
+const graphDragClickTolerance = 3;
+const noFocusedPassageIds: string[] = [];
 
 function excerpt(text: string) {
 	let compact = '';
@@ -159,6 +171,30 @@ function validRect(rect: CoreRect) {
 		rect.height > 0 &&
 		rect.width > 0
 	);
+}
+
+function unionRects(rects: CoreRect[]): CoreRect | null {
+	const validRects = rects.filter(validRect);
+
+	if (validRects.length === 0) {
+		return null;
+	}
+
+	const left = Math.min(...validRects.map(rect => rect.left));
+	const top = Math.min(...validRects.map(rect => rect.top));
+	const right = Math.max(...validRects.map(rect => rect.left + rect.width));
+	const bottom = Math.max(...validRects.map(rect => rect.top + rect.height));
+
+	return {
+		height: bottom - top,
+		left,
+		top,
+		width: right - left
+	};
+}
+
+function storyPassageBounds(passages: Passage[]) {
+	return unionRects(passages.map(passageRect));
 }
 
 function bufferedViewport(rect: CoreRect): CoreRect {
@@ -322,33 +358,8 @@ function selectedPresetForSize(
 	return entry?.[0];
 }
 
-function nearestPresetForSize(size: {height: number; width: number}) {
-	return graphSizePresetEntries.reduce<{
-		preset: GraphSizePreset;
-		score: number;
-	}>(
-		(best, [preset, dimensions]) => {
-			const widthScore = (size.width - dimensions.width) / 48;
-			const heightScore = (size.height - dimensions.height) / 48;
-			const aspectScore =
-				size.height > 0
-					? size.width / size.height - dimensions.width / dimensions.height
-					: 0;
-			const score =
-				widthScore * widthScore +
-				heightScore * heightScore +
-				aspectScore * aspectScore * 0.4;
-
-			return score < best.score ? {preset, score} : best;
-		},
-		{preset: 'medium', score: Number.POSITIVE_INFINITY}
-	).preset;
-}
-
-function displaySizeLimits(orientation: GraphOrientation) {
-	return orientation === 'down' || orientation === 'up'
-		? {height: 110, width: 74}
-		: {height: 74, width: 110};
+function displaySizeLimits() {
+	return {height: graphResizeMinimum, width: graphResizeMinimum};
 }
 
 function displaySizeForLogicalSize(
@@ -369,19 +380,15 @@ function logicalSizeFromDisplaySize(
 		: size;
 }
 
-function displaySizeForPreset(
-	preset: GraphSizePreset,
-	orientation: GraphOrientation
-) {
-	return displaySizeForLogicalSize(graphSizePresets[preset], orientation);
-}
-
-function snappedResizeDisplaySize(
+function freeResizeDisplaySize(
 	size: {height: number; width: number},
 	orientation: GraphOrientation
 ) {
-	return displaySizeForPreset(
-		nearestPresetForSize(logicalSizeFromDisplaySize(size, orientation)),
+	return displaySizeForLogicalSize(
+		logicalSizeFromDisplaySize({
+			height: Math.round(size.height),
+			width: Math.round(size.width)
+		}, orientation),
 		orientation
 	);
 }
@@ -450,6 +457,35 @@ function center(rect: CoreRect) {
 		left: rect.left + rect.width / 2,
 		top: rect.top + rect.height / 2
 	};
+}
+
+function rectCenterVisible(
+	rect: CoreRect,
+	viewport: CoreRect,
+	padding: number
+) {
+	const rectCenter = center(rect);
+
+	return (
+		rectCenter.left >= viewport.left + padding &&
+		rectCenter.left <= viewport.left + viewport.width - padding &&
+		rectCenter.top >= viewport.top + padding &&
+		rectCenter.top <= viewport.top + viewport.height - padding
+	);
+}
+
+function clampZoom(zoom: number) {
+	return Math.max(graphMinZoom, Math.min(graphMaxZoom, zoom));
+}
+
+function roundedZoom(zoom: number) {
+	return Math.round(zoom * 100) / 100;
+}
+
+function wheelZoom(currentZoom: number, deltaY: number) {
+	const factor = deltaY < 0 ? graphWheelZoomFactor : 1 / graphWheelZoomFactor;
+
+	return roundedZoom(clampZoom(currentZoom * factor));
 }
 
 function horizontalEdgeCurve(source: CoreRect, target: CoreRect) {
@@ -589,6 +625,7 @@ interface GraphEdgesCanvasProps {
 	drawBounds: CoreRect;
 	edges: CoreGraphEdge[];
 	nodeById: Map<string, CoreGraphNode>;
+	selectedNodeIds: Set<string>;
 	visibleZoom: number;
 }
 
@@ -596,9 +633,19 @@ const GraphEdgesCanvas: React.FC<GraphEdgesCanvasProps> = ({
 	drawBounds,
 	edges,
 	nodeById,
+	selectedNodeIds,
 	visibleZoom
 }) => {
 	const canvasRef = React.useRef<HTMLCanvasElement>(null);
+	const connectedEdgeCount = React.useMemo(
+		() =>
+			edges.filter(
+				edge =>
+					selectedNodeIds.has(edge.sourceId) ||
+					(!!edge.targetId && selectedNodeIds.has(edge.targetId))
+			).length,
+		[edges, selectedNodeIds]
+	);
 	const edgeKinds = React.useMemo(
 		() => Array.from(new Set(edges.map(edge => edge.kind))).join(' '),
 		[edges]
@@ -642,14 +689,24 @@ const GraphEdgesCanvas: React.FC<GraphEdgesCanvasProps> = ({
 				styles.getPropertyValue('--sem-error').trim() || 'rgb(214, 85, 74)',
 			resolved:
 				styles.getPropertyValue('--sem-link').trim() || 'rgb(92, 151, 255)',
+			selected:
+				styles.getPropertyValue('--focus-ring').trim() || 'rgb(80, 184, 118)',
 			selfLink:
 				styles.getPropertyValue('--sem-generated').trim() || 'rgb(92, 180, 220)'
 		};
+		const hasSelection = selectedNodeIds.size > 0;
 
 		for (const edge of edges) {
 			const curve = edgeCurve(edge, nodeById);
-			const color = colors[edge.kind] ?? colors.resolved;
+			const connected =
+				selectedNodeIds.has(edge.sourceId) ||
+				(!!edge.targetId && selectedNodeIds.has(edge.targetId));
+			const color = connected
+				? colors.selected
+				: colors[edge.kind] ?? colors.resolved;
 
+			context.globalAlpha = hasSelection && !connected ? 0.35 : 1;
+			context.lineWidth = connected ? 3.5 : 2;
 			context.strokeStyle = color;
 			context.fillStyle = color;
 			context.setLineDash(edge.kind === 'broken' ? [6, 5] : []);
@@ -667,6 +724,7 @@ const GraphEdgesCanvas: React.FC<GraphEdgesCanvasProps> = ({
 			context.setLineDash([]);
 			drawArrow(context, curve.c2x, curve.c2y, curve.tx, curve.ty);
 		}
+		context.globalAlpha = 1;
 	}, [
 		drawBounds.height,
 		drawBounds.left,
@@ -674,6 +732,7 @@ const GraphEdgesCanvas: React.FC<GraphEdgesCanvasProps> = ({
 		drawBounds.width,
 		edges,
 		nodeById,
+		selectedNodeIds,
 		visibleZoom
 	]);
 
@@ -681,9 +740,11 @@ const GraphEdgesCanvas: React.FC<GraphEdgesCanvasProps> = ({
 		<canvas
 			aria-hidden
 			className="story-edit-graph-edges"
+			data-connected-edge-count={connectedEdgeCount}
 			data-edge-count={edges.length}
 			data-edge-kinds={edgeKinds}
 			data-edge-routes={edgeRoutes}
+			data-selected-node-count={selectedNodeIds.size}
 			data-testid="story-graph-edges-canvas"
 			ref={canvasRef}
 			style={{
@@ -742,6 +803,25 @@ function eventHasModifier(event: DraggableEvent | React.MouseEvent) {
 
 function selectedIdKey(ids: string[]) {
 	return ids.join('\u0000');
+}
+
+function graphProjectionStoryKey(story: Story) {
+	return [
+		story.id,
+		story.startPassage,
+		...story.passages.map(passage =>
+			[
+				passage.id,
+				passage.name,
+				passage.text,
+				passage.left,
+				passage.top,
+				passage.width,
+				passage.height,
+				passage.tags.join('\u0002')
+			].join('\u0001')
+		)
+	].join('\u0000');
 }
 
 function interactionBounds(
@@ -805,10 +885,11 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		onSelect,
 		onSelectIds,
 		onTestPassage,
+		revealPassageId,
+		revealRequestKey,
 		selectedPassageId,
 		story,
-		visibleZoom,
-		zoom
+		visibleZoom
 	} = props;
 	const host = useCoreProjectHost();
 	const {dispatch: prefsDispatch, prefs} = usePrefsContext();
@@ -839,6 +920,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	const minimapRef = React.useRef<HTMLDivElement>(null);
 	const viewportFrame = React.useRef<number>();
 	const lastAutoCenteredSelection = React.useRef<string>();
+	const lastRevealRequestKey = React.useRef<number>();
 	const optimisticSelectedIds = React.useRef<Set<string>>();
 	const selectionHandledOnPointerDown = React.useRef<string>();
 	const [optimisticSelectionKey, setOptimisticSelectionKey] =
@@ -871,6 +953,10 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	const persistedSelectionKey = React.useMemo(
 		() => selectedIdKey(selectedPassageIds),
 		[selectedPassageIds]
+	);
+	const graphStoryKey = React.useMemo(
+		() => graphProjectionStoryKey(story),
+		[story]
 	);
 	const selectedIdSet = React.useMemo(
 		() => optimisticSelectedIds.current ?? new Set(selectedPassageIds),
@@ -918,56 +1004,48 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	}, [projectionViewportKey]);
 	const queryViewport =
 		focusSelection || orientation !== 'right' ? null : projectionViewport;
+	const focusPassageIds = focusSelection
+		? selectedPassageIds
+		: noFocusedPassageIds;
 	const projectionQuery = React.useMemo(
 		() => ({
 			focus:
-				focusSelection && selectedPassageIds.length > 0
+				focusPassageIds.length > 0
 					? {
 							direction: 'both' as const,
-							passageIds: selectedPassageIds,
+							passageIds: focusPassageIds,
 							radius: 1
 						}
 					: null,
 			layers,
 			viewport: queryViewport
 		}),
-		[focusSelection, layers, queryViewport, selectedPassageIds]
+		[focusPassageIds, layers, queryViewport]
 	);
 	const projectionQueryKey = React.useMemo(
 		() => JSON.stringify(projectionQuery),
 		[projectionQuery]
 	);
-	const projectionSnapshot = React.useMemo(
-		() => host.queryGraphProjection(story.id, projectionQuery),
-		[host, projectionQuery, projectionQueryKey, story.id, story]
-	);
 	const projection =
-		asyncProjection?.story === story &&
-		asyncProjection.queryKey === projectionQueryKey
+		asyncProjection?.storyId === story.id
 			? asyncProjection.projection
-			: projectionSnapshot;
+			: emptyGraphProjection();
 
 	React.useEffect(() => {
-		if (host.runtimeMode() !== 'wasm-worker') {
-			setAsyncProjection(undefined);
-			return;
-		}
-
 		let active = true;
-		const queryKey = projectionQueryKey;
 
 		void host
 			.queryGraphProjectionAsync(story.id, projectionQuery)
 			.then(projection => {
 				if (active) {
-					setAsyncProjection({projection, queryKey, story});
+					setAsyncProjection({projection, storyId: story.id});
 				}
 			});
 
 		return () => {
 			active = false;
 		};
-	}, [host, projectionQuery, projectionQueryKey, story.id, story]);
+	}, [graphStoryKey, host, projectionQuery, projectionQueryKey, story.id]);
 
 	React.useEffect(() => {
 		if (projection.nodes.length > 0 || projection.bounds) {
@@ -978,17 +1056,21 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		() => new Map(projection.nodes.map(node => [node.id, node])),
 		[projection.nodes]
 	);
+	const logicalGraphBounds = React.useMemo(
+		() => storyPassageBounds(story.passages) ?? projection.bounds,
+		[projection.bounds, story.passages]
+	);
 	const displayBounds = React.useMemo(
-		() => orientedBounds(projection.bounds, orientation),
-		[orientation, projection.bounds]
+		() => orientedBounds(logicalGraphBounds, orientation),
+		[logicalGraphBounds, orientation]
 	);
 	const displayNodes = React.useMemo(
 		() =>
 			projection.nodes.map(node => ({
 				...node,
-				bounds: displayRect(node.bounds, orientation, projection.bounds)
+				bounds: displayRect(node.bounds, orientation, logicalGraphBounds)
 			})),
-		[orientation, projection.bounds, projection.nodes]
+		[logicalGraphBounds, orientation, projection.nodes]
 	);
 	const displayNodeById = React.useMemo(
 		() => new Map(displayNodes.map(node => [node.id, node])),
@@ -1001,13 +1083,13 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				sourceBounds: displayRect(
 					edge.sourceBounds,
 					orientation,
-					projection.bounds
+					logicalGraphBounds
 				),
 				targetBounds: edge.targetBounds
-					? displayRect(edge.targetBounds, orientation, projection.bounds)
+					? displayRect(edge.targetBounds, orientation, logicalGraphBounds)
 					: edge.targetBounds
 			})),
-		[orientation, projection.bounds, projection.edges]
+		[logicalGraphBounds, orientation, projection.edges]
 	);
 	const liveNodeById = React.useMemo(() => {
 		if (!drag && !resize) {
@@ -1108,13 +1190,13 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				return validRect(bounds)
 					? [
 							{
-								bounds: displayRect(bounds, orientation, projection.bounds),
+								bounds: displayRect(bounds, orientation, logicalGraphBounds),
 								id: passage.id
 							}
 						]
 					: [];
 			}),
-		[orientation, projection.bounds, story.passages]
+		[logicalGraphBounds, orientation, story.passages]
 	);
 	const showSaveLayoutAction =
 		projection.layoutState !== 'generated' ||
@@ -1238,15 +1320,40 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			return;
 		}
 
+		const forceReveal =
+			revealPassageId === selectedPassageId &&
+			revealRequestKey !== undefined &&
+			lastRevealRequestKey.current !== revealRequestKey;
+
 		if (
 			!element ||
 			!bounds ||
-			lastAutoCenteredSelection.current === selectedPassageId
+			(!forceReveal &&
+				lastAutoCenteredSelection.current === selectedPassageId)
 		) {
 			return;
 		}
 
+		if (forceReveal) {
+			lastRevealRequestKey.current = revealRequestKey;
+		}
 		lastAutoCenteredSelection.current = selectedPassageId;
+
+		const visibleRect = {
+			height: element.clientHeight / visibleZoom,
+			left: element.scrollLeft / visibleZoom,
+			top: element.scrollTop / visibleZoom,
+			width: element.clientWidth / visibleZoom
+		};
+		const padding = Math.min(
+			40 / visibleZoom,
+			visibleRect.width / 4,
+			visibleRect.height / 4
+		);
+
+		if (rectCenterVisible(bounds, visibleRect, Math.max(0, padding))) {
+			return;
+		}
 
 		const left =
 			(bounds.left + bounds.width / 2) * visibleZoom - element.clientWidth / 2;
@@ -1265,6 +1372,8 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	}, [
 		displayNodeById,
 		orientation,
+		revealPassageId,
+		revealRequestKey,
 		selectedPassage,
 		selectedPassageId,
 		visibleZoom
@@ -1298,19 +1407,23 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 
 		if (point) {
 			onCreate(
-				displayPointToLogical(point, orientation, projection.bounds),
+				displayPointToLogical(point, orientation, logicalGraphBounds),
 				defaultCardSize
 			);
 		}
 	}
 
 	function handleContextMenu(event: React.MouseEvent<HTMLDivElement>) {
+		if (!prefs.graphRightClickCreatePassage) {
+			return;
+		}
+
 		const point = pointFromEvent(event);
 
 		if (point && !panRef.current?.moved) {
 			event.preventDefault();
 			onCreate(
-				displayPointToLogical(point, orientation, projection.bounds),
+				displayPointToLogical(point, orientation, logicalGraphBounds),
 				defaultCardSize
 			);
 		}
@@ -1454,6 +1567,38 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		panRef.current = undefined;
 	}
 
+	function handleViewportWheel(event: React.WheelEvent<HTMLDivElement>) {
+		if (event.deltaY === 0) {
+			return;
+		}
+
+		const nextZoom = wheelZoom(story.zoom, event.deltaY);
+
+		event.preventDefault();
+
+		if (nextZoom === story.zoom) {
+			return;
+		}
+
+		const element = viewportRef.current;
+
+		if (element) {
+			const bounds = element.getBoundingClientRect();
+			const localLeft = event.clientX - bounds.left;
+			const localTop = event.clientY - bounds.top;
+			const logicalLeft = (element.scrollLeft + localLeft) / visibleZoom;
+			const logicalTop = (element.scrollTop + localTop) / visibleZoom;
+
+			window.requestAnimationFrame(() => {
+				element.scrollLeft = Math.max(logicalLeft * nextZoom - localLeft, 0);
+				element.scrollTop = Math.max(logicalTop * nextZoom - localTop, 0);
+				updateViewport();
+			});
+		}
+
+		host.applyStoryCommand(setStoryZoomCommand(story.id, nextZoom));
+	}
+
 	function idsInMarqueeRect(rect: Rect) {
 		return displayNodes.flatMap(node => {
 			const bounds = interactionBounds(
@@ -1581,6 +1726,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			return undefined;
 		}
 
+		lastAutoCenteredSelection.current = node.id;
 		const next = nextSelectionIds(event, passage);
 
 		updateOptimisticSelection(next);
@@ -1630,8 +1776,16 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				return undefined;
 			}
 
-			const displayDeltaLeft = (current.left - current.startLeft) / zoom;
-			const displayDeltaTop = (current.top - current.startTop) / zoom;
+			const screenDeltaLeft = current.left - current.startLeft;
+			const screenDeltaTop = current.top - current.startTop;
+			const moved = Math.hypot(screenDeltaLeft, screenDeltaTop);
+
+			if (moved < graphDragClickTolerance) {
+				return undefined;
+			}
+
+			const displayDeltaLeft = screenDeltaLeft / visibleZoom;
+			const displayDeltaTop = screenDeltaTop / visibleZoom;
 			const {left: deltaLeft, top: deltaTop} = displayDeltaToLogical(
 				displayDeltaLeft,
 				displayDeltaTop,
@@ -1718,7 +1872,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				return current;
 			}
 
-			const minimum = displaySizeLimits(orientation);
+			const minimum = displaySizeLimits();
 			const corner = resizeCorner(orientation);
 			const widthDelta =
 				(corner === 'bottom-left' || corner === 'top-left'
@@ -1737,7 +1891,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				};
 			}
 
-			const displaySize = snappedResizeDisplaySize(
+			const displaySize = freeResizeDisplaySize(
 				{
 					height: Math.max(minimum.height, current.height + heightDelta),
 					width: Math.max(minimum.width, current.width + widthDelta)
@@ -1823,6 +1977,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		const passage = passagesById.get(node.id);
 
 		if (passage) {
+			lastAutoCenteredSelection.current = node.id;
 			onEdit(passage);
 		}
 	}
@@ -1847,8 +2002,22 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 		);
 	}
 
+	const graphLayerStyle = {
+		'--story-edit-snap-grid-size': `${graphSnapGridSize}px`,
+		'--story-edit-snap-major-grid-size': `${graphSnapMajorGridSize}px`
+	} as React.CSSProperties;
+
 	return (
-		<section className="story-edit-graph-layer" aria-label="Story graph">
+		<section
+			className={classNames(
+				'story-edit-graph-layer',
+				story.snapToGrid
+					? 'story-edit-graph-layer--snap-on'
+					: 'story-edit-graph-layer--snap-off'
+			)}
+			aria-label="Story graph"
+			style={graphLayerStyle}
+		>
 			<div
 				className={classNames(
 					'story-edit-graph-viewport',
@@ -1861,6 +2030,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 				onPointerMove={handleViewportPointerMove}
 				onPointerUp={stopPanning}
 				onPointerCancel={stopPanning}
+				onWheel={handleViewportWheel}
 				ref={viewportRef}
 			>
 				<div
@@ -1876,6 +2046,7 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 						drawBounds={edgeDrawBounds}
 						edges={displayEdges}
 						nodeById={liveNodeById}
+						selectedNodeIds={displaySelectedIdSet}
 						visibleZoom={visibleZoom}
 					/>
 					{marquee && (
@@ -1952,7 +2123,9 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 												height: bounds.height,
 												width: bounds.width
 											}}
-											tags={renderedDensity === 'structure' ? [] : tagColors}
+											tagColors={story.tagColors}
+											tagDisplay={prefs.passageTagDisplay}
+											tags={renderedDensity === 'structure' ? [] : node.tags}
 											title={node.name}
 										/>
 										{selectedIdSet.has(node.id) && (
@@ -2044,6 +2217,18 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 						icon="focus-2"
 						label="Focus selected passages"
 						onClick={() => setFocusSelection(value => !value)}
+						size="sm"
+						tooltipPosition="bottom"
+					/>
+					<IconButton
+						active={story.snapToGrid}
+						icon="grid-dots"
+						label="Snap to grid"
+						onClick={() =>
+							host.applyStoryCommand(
+								setStorySnapToGridCommand(story.id, !story.snapToGrid)
+							)
+						}
 						size="sm"
 						tooltipPosition="bottom"
 					/>

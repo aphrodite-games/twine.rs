@@ -12,11 +12,9 @@ import {
 } from '@codemirror/commands';
 import {
 	bracketMatching,
-	defaultHighlightStyle,
 	foldGutter,
 	foldKeymap,
-	indentOnInput,
-	syntaxHighlighting
+	indentOnInput
 } from '@codemirror/language';
 import {
 	autocompletion,
@@ -27,7 +25,11 @@ import {
 import {css} from '@codemirror/lang-css';
 import {html} from '@codemirror/lang-html';
 import {javascript} from '@codemirror/lang-javascript';
-import {highlightSelectionMatches, searchKeymap} from '@codemirror/search';
+import {
+	highlightSelectionMatches,
+	openSearchPanel,
+	searchKeymap
+} from '@codemirror/search';
 import {
 	Decoration,
 	DecorationSet,
@@ -45,7 +47,11 @@ import {
 	ViewUpdate
 } from '@codemirror/view';
 import * as React from 'react';
+import type {CodeEditorThemePreference} from '../../../store/prefs';
+import {usePrefsContext} from '../../../store/prefs';
+import {useComputedTheme} from '../../../store/prefs/use-computed-theme';
 import './source-editor.css';
+import {sourceEditorThemeExtension} from './themes';
 
 export type SourceEditorLanguage =
 	| 'css'
@@ -64,6 +70,7 @@ export interface SourceEditorProps {
 	onChange: (value: string) => void;
 	placeholderText?: string;
 	readOnly?: boolean;
+	searchRequestKey?: number;
 	selfLinkName?: string;
 	value: string;
 }
@@ -80,6 +87,7 @@ const readOnlyCompartment = new Compartment();
 const autocompleteCompartment = new Compartment();
 const twineDecorationCompartment = new Compartment();
 const wrappingCompartment = new Compartment();
+const themeCompartment = new Compartment();
 const diagnosticMarker = new (class extends GutterMarker {
 	toDOM() {
 		const marker = document.createElement('span');
@@ -133,6 +141,26 @@ function saveMemory(memoryKey: string | undefined, memory: SourceEditorMemory) {
 	} catch {
 		// Memory is a convenience; storage failures should not block editing.
 	}
+}
+
+function clampedMemoryPosition(value: unknown, docLength: number) {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		return undefined;
+	}
+
+	return Math.max(0, Math.min(Math.trunc(value), docLength));
+}
+
+function selectionFromMemory(
+	memory: SourceEditorMemory,
+	doc: string
+): {anchor: number; head: number} | undefined {
+	const anchor = clampedMemoryPosition(memory.anchor, doc.length);
+	const head = clampedMemoryPosition(memory.head, doc.length);
+
+	return anchor !== undefined && head !== undefined
+		? {anchor, head}
+		: undefined;
 }
 
 function completionSource(passageNames: string[] = []) {
@@ -267,12 +295,13 @@ function twineTokenDecorations(
 						}> = [
 							{
 								className: 'cm-twine-macro',
-								regexp: /(?:\(|<<)\s*[A-Za-z][\w-]*/g
+								regexp:
+									/<<\s*\/?=?\s*[$A-Za-z_][\w$.-]*(?:\s+[^>\n\r]*)?>>|\([A-Za-z][\w-]*\s*:/g
 							},
 							{
 								className: 'cm-twine-variable',
 								regexp:
-									/(^|[^A-Za-z0-9_])(\$[A-Za-z_]\w*|_[A-Za-z_]\w*|\?[A-Za-z_]\w*|\|[A-Za-z_]\w*>)/g,
+									/(^|[^A-Za-z0-9_])(\$[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*|_[A-Za-z_]\w*|\?[A-Za-z_]\w*|\|[A-Za-z_]\w*>)/g,
 								tokenGroup: 2
 							},
 							{
@@ -357,7 +386,11 @@ function twineTokenDecorations(
 	];
 }
 
-function baseExtensions(props: SourceEditorProps): Extension[] {
+function baseExtensions(
+	props: SourceEditorProps,
+	codeEditorTheme: CodeEditorThemePreference,
+	appTheme: ReturnType<typeof useComputedTheme>
+): Extension[] {
 	return [
 		lineNumbers(),
 		highlightActiveLineGutter(),
@@ -371,7 +404,7 @@ function baseExtensions(props: SourceEditorProps): Extension[] {
 		highlightActiveLine(),
 		highlightSelectionMatches(),
 		placeholder(props.placeholderText ?? ''),
-		syntaxHighlighting(defaultHighlightStyle, {fallback: true}),
+		themeCompartment.of(sourceEditorThemeExtension(codeEditorTheme, appTheme)),
 		autocompleteCompartment.of(
 			autocompletion({
 				override: [completionSource(props.autocompletePassageNames)]
@@ -402,6 +435,8 @@ export const SourceEditor: React.FC<SourceEditorProps> = props => {
 	const editorContainer = React.useRef<HTMLDivElement>(null);
 	const viewRef = React.useRef<EditorView>();
 	const onChange = React.useRef(props.onChange);
+	const {prefs} = usePrefsContext();
+	const appTheme = useComputedTheme();
 
 	React.useEffect(() => {
 		onChange.current = props.onChange;
@@ -417,12 +452,9 @@ export const SourceEditor: React.FC<SourceEditorProps> = props => {
 			parent: editorContainer.current,
 			state: EditorState.create({
 				doc: props.value,
-				selection:
-					memory.anchor !== undefined && memory.head !== undefined
-						? {anchor: memory.anchor, head: memory.head}
-						: undefined,
+				selection: selectionFromMemory(memory, props.value),
 				extensions: [
-					...baseExtensions(props),
+					...baseExtensions(props, prefs.codeEditorTheme, appTheme),
 					EditorView.updateListener.of(update => {
 						if (update.docChanged) {
 							onChange.current(update.state.doc.toString());
@@ -467,6 +499,16 @@ export const SourceEditor: React.FC<SourceEditorProps> = props => {
 		// The editor must be recreated when the memory key changes to restore the
 		// correct selection for a newly selected passage.
 	}, [props.memoryKey]);
+
+	React.useEffect(() => {
+		const view = viewRef.current;
+
+		view?.dispatch({
+			effects: themeCompartment.reconfigure(
+				sourceEditorThemeExtension(prefs.codeEditorTheme, appTheme)
+			)
+		});
+	}, [appTheme, prefs.codeEditorTheme]);
 
 	React.useEffect(() => {
 		const view = viewRef.current;
@@ -525,6 +567,17 @@ export const SourceEditor: React.FC<SourceEditorProps> = props => {
 			)
 		});
 	}, [props.brokenLinkNames, props.language, props.selfLinkName]);
+
+	React.useEffect(() => {
+		const view = viewRef.current;
+
+		if (!view || !props.searchRequestKey) {
+			return;
+		}
+
+		openSearchPanel(view);
+		view.focus();
+	}, [props.searchRequestKey]);
 
 	return (
 		<div className="source-editor">

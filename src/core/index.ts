@@ -14,8 +14,6 @@ import type {StorySnapshot} from './bindings/StorySnapshot';
 import {createUntitledPassage, Story} from '../store/stories';
 import {storyToSnapshot} from './project-snapshot';
 
-export * from './story-index';
-export * from './graph-projection';
 export * from './project-host';
 export * from './project-snapshot';
 export * from './view-models';

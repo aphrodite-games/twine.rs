@@ -22,8 +22,10 @@ describe('<AppPrefsDialog>', () => {
 				<PrefInspector name="appTheme" />
 				<PrefInspector name="codeEditorFontFamily" />
 				<PrefInspector name="codeEditorFontScale" />
+				<PrefInspector name="codeEditorTheme" />
 				<PrefInspector name="dialogWidth" />
 				<PrefInspector name="editorCursorBlinks" />
+				<PrefInspector name="graphRightClickCreatePassage" />
 				<PrefInspector name="locale" />
 				<PrefInspector name="passageEditorFontFamily" />
 				<PrefInspector name="passageEditorFontScale" />
@@ -115,6 +117,33 @@ describe('<AppPrefsDialog>', () => {
 		expect(
 			screen.getByTestId('pref-inspector-passageTagDisplay')
 		).toHaveTextContent('name');
+	});
+
+	it('changes the right-click graph creation preference when clicked', () => {
+		renderComponent({graphRightClickCreatePassage: true});
+		fireEvent.click(
+			screen.getByText('dialogs.appPrefs.graphRightClickCreatePassage')
+		);
+		expect(
+			screen.getByTestId('pref-inspector-graphRightClickCreatePassage')
+		).toHaveTextContent('false');
+	});
+
+	it('displays the code editor theme preference', () => {
+		renderComponent({codeEditorTheme: 'one-dark'});
+		expect(
+			screen.getByLabelText('dialogs.appPrefs.codeEditorTheme')
+		).toHaveValue('one-dark');
+	});
+
+	it('changes the code editor theme preference when changed', () => {
+		renderComponent({codeEditorTheme: 'twine'});
+		fireEvent.change(screen.getByLabelText('dialogs.appPrefs.codeEditorTheme'), {
+			target: {value: 'solarized-dark'}
+		});
+		expect(
+			screen.getByTestId('pref-inspector-codeEditorTheme')
+		).toHaveTextContent('solarized-dark');
 	});
 
 	it('displays the editor cursor blink preference', () => {

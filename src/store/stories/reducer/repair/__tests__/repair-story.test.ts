@@ -157,6 +157,18 @@ describe('repairStory', () => {
 		expect(repairStory(story, [story], allFormats, defaultFormat)).toBe(story);
 	});
 
+	it('preserves the version from SugarCube local/offline imports', () => {
+		allFormats[1].name = 'SugarCube';
+		allFormats[1].version = '2.35.0';
+		story.storyFormat = 'SugarCube 2 (local/offline)';
+		story.storyFormatVersion = '2.35.0';
+
+		expect(repairStory(story, [story], allFormats, defaultFormat)).toEqual({
+			...story,
+			storyFormat: 'SugarCube'
+		});
+	});
+
 	it('preserves a bundled format name when its version is unavailable', () => {
 		allFormats = [defaultFormat];
 		story.storyFormat = 'sugarcube';

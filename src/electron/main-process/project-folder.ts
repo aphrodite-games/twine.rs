@@ -31,10 +31,15 @@ import {
 	listNativeProjectAssets,
 	loadNativeProjectFolder,
 	nativeProjectFileManifest,
+	nativeProjectDiagnostic,
 	prepareNativeHtmlImport,
 	prepareNativeProjectImport,
 	saveNativeProjectFolder
 } from './native';
+import {
+	forgetProjectFolder,
+	rememberProjectFolder
+} from './project-library-index';
 import {getStoryDirectoryPath} from './story-directory';
 
 export interface NativeProjectFolderResult {
@@ -239,6 +244,26 @@ const obviousImportAssetDirectoryNames = new Set([
 	'video',
 	'videos'
 ]);
+
+function legacyProjectFallbackEnabled() {
+	const setting = process.env.TWINE_LEGACY_PROJECT_FALLBACK?.toLowerCase();
+
+	if (setting) {
+		return ['1', 'true', 'on', 'yes'].includes(setting);
+	}
+
+	return process.env.NODE_ENV === 'test';
+}
+
+function requireNativeProjectBackend(operation: string): never {
+	const diagnostic = nativeProjectDiagnostic();
+
+	throw new Error(
+		`${operation} requires a native Rust project backend result${
+			diagnostic ? `: ${diagnostic}` : '.'
+		} Set TWINE_LEGACY_PROJECT_FALLBACK=1 only for legacy compatibility.`
+	);
+}
 
 function pathSlug(value: string) {
 	return (
@@ -1280,6 +1305,10 @@ async function projectFileManifest(
 		return nativeManifest;
 	}
 
+	if (!legacyProjectFallbackEnabled()) {
+		requireNativeProjectBackend('Project file manifest scanning');
+	}
+
 	const files: NativeProjectFileEntry[] = [];
 	const scans = [
 		scanProjectFiles(rootPath, 'twine.toml', 'manifest', files),
@@ -1318,6 +1347,10 @@ function projectSessionConflicts(
 
 	if (nativeConflicts) {
 		return nativeConflicts;
+	}
+
+	if (!legacyProjectFallbackEnabled()) {
+		requireNativeProjectBackend('Project session conflict detection');
 	}
 
 	const previous = new Map(previousFiles.map(file => [file.path, file]));
@@ -1522,6 +1555,10 @@ async function readProjectFolder(
 
 	if (nativeResult) {
 		return mergeNativeProjectMetadata(rootPath, nativeResult);
+	}
+
+	if (!legacyProjectFallbackEnabled()) {
+		requireNativeProjectBackend('Project folder loading');
 	}
 
 	const manifestSource = await readTextIfPresent(join(rootPath, 'twine.toml'));
@@ -1804,30 +1841,36 @@ export async function createProjectFolder(
 ): Promise<NativeProjectFolderResult> {
 	const rootPath = projectRootForStory(story, preferredParent);
 
-	await writeProjectFolder(rootPath, story);
+	const writtenProject = await writeProjectFolder(rootPath, story);
 	await refreshProjectSessionBaseline(rootPath, [story.id]);
 
-	return {
+	const result = writtenProject ?? {
 		passageTextLoaded: true,
 		rootPath,
 		stories: [story],
 		storyIds: [story.id]
 	};
+
+	rememberProjectFolder(result);
+	return result;
 }
 
 export async function saveProjectFolder(
 	rootPath: string,
 	story: Story
 ): Promise<NativeProjectFolderResult> {
-	await writeProjectFolder(rootPath, story);
+	const writtenProject = await writeProjectFolder(rootPath, story);
 	await refreshProjectSessionBaseline(rootPath, [story.id]);
 
-	return {
+	const result = writtenProject ?? {
 		passageTextLoaded: true,
 		rootPath,
 		stories: [story],
 		storyIds: [story.id]
 	};
+
+	rememberProjectFolder(result);
+	return result;
 }
 
 export async function prepareProjectImport(
@@ -1863,6 +1906,10 @@ export async function prepareProjectImport(
 			});
 
 			return preparedImport;
+		}
+
+		if (!legacyProjectFallbackEnabled()) {
+			requireNativeProjectBackend('Project import preparation');
 		}
 
 		if (sourceKind === 'zip') {
@@ -1940,8 +1987,14 @@ export async function prepareProjectImport(
 }
 
 async function writeProjectFolder(rootPath: string, story: Story) {
-	if (saveNativeProjectFolder(rootPath, story)) {
-		return;
+	const nativeResult = saveNativeProjectFolder(rootPath, story);
+
+	if (nativeResult) {
+		return nativeResult;
+	}
+
+	if (!legacyProjectFallbackEnabled()) {
+		requireNativeProjectBackend('Project folder saving');
 	}
 
 	const storySlug = pathSlug(story.name);
@@ -1987,6 +2040,8 @@ async function writeProjectFolder(rootPath: string, story: Story) {
 		projectToml(story, passageFiles),
 		'utf8'
 	);
+
+	return undefined;
 }
 
 export async function openProjectFolder(
@@ -2020,6 +2075,7 @@ export async function openProjectFolder(
 		stories: projectFolder.stories,
 		storyIds: projectFolder.storyIds
 	});
+	rememberProjectFolder(projectFolder);
 
 	return projectFolder;
 }
@@ -2036,12 +2092,15 @@ export async function hydrateProjectFolder(
 		? stories.filter(story => storyIds.includes(story.id))
 		: stories;
 
-	return {
+	const result = {
 		passageTextLoaded: true,
 		rootPath: projectFolder.rootPath,
 		stories: filteredStories,
 		storyIds: filteredStories.map(story => story.id)
 	};
+
+	rememberProjectFolder(result);
+	return result;
 }
 
 export async function copyProjectImportAssets(
@@ -2103,6 +2162,10 @@ export async function listProjectAssets(rootPath: string) {
 		return nativeAssets.sort((left, right) =>
 			left.path.localeCompare(right.path)
 		);
+	}
+
+	if (!legacyProjectFallbackEnabled()) {
+		requireNativeProjectBackend('Project asset scanning');
 	}
 
 	const assets: CoreAssetInventoryEntry[] = [];
@@ -2211,6 +2274,7 @@ export async function deleteProjectFolder(rootPath: string) {
 
 	stopProjectSession(absoluteRootPath);
 	await remove(absoluteRootPath);
+	forgetProjectFolder(absoluteRootPath);
 }
 
 export async function projectSessionSnapshot(

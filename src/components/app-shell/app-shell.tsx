@@ -9,6 +9,7 @@ import {
 	markSavedCommand,
 	useCoreProjectHost
 } from '../../core';
+import type {CoreStoryIndex} from '../../core';
 import {storyFileName} from '../../electron/shared';
 import {useStorySaveStatus} from '../../store/persistence/save-status';
 import {usePrefsContext} from '../../store/prefs';
@@ -188,6 +189,7 @@ export const AppShell: React.FC = ({children}) => {
 	const [dirty, setDirty] = React.useState(() => coreProjectHost.isDirty());
 	const [patchVersion, setPatchVersion] = React.useState(0);
 	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
+	const [storyIndex, setStoryIndex] = React.useState<CoreStoryIndex>();
 	const storySaveStatus = useStorySaveStatus();
 	const [buildState, setBuildState] = React.useState<BuildState>({
 		kind: 'idle',
@@ -208,13 +210,6 @@ export const AppShell: React.FC = ({children}) => {
 		[toolbar]
 	);
 	const shouldQueryDiagnostics = drawerOpen;
-	const storyIndex = React.useMemo(
-		() =>
-			currentStory && shouldQueryDiagnostics
-				? coreProjectHost.queryStoryIndex(currentStory.id)
-				: undefined,
-		[coreProjectHost, currentStory, patchVersion, shouldQueryDiagnostics]
-	);
 	const dismissedDiagnosticIds = React.useMemo(
 		() =>
 			currentStory
@@ -257,6 +252,29 @@ export const AppShell: React.FC = ({children}) => {
 		currentStory,
 		currentStoryHydration?.passageTextLoaded
 	]);
+
+	React.useEffect(() => {
+		let active = true;
+
+		if (!currentStory || !shouldQueryDiagnostics) {
+			setStoryIndex(undefined);
+			return () => {
+				active = false;
+			};
+		}
+
+		setStoryIndex(undefined);
+
+		void coreProjectHost.queryStoryIndexAsync(currentStory.id).then(index => {
+			if (active) {
+				setStoryIndex(index);
+			}
+		});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, currentStory, patchVersion, shouldQueryDiagnostics]);
 	const saveStatus =
 		storySaveStatus.kind === 'error'
 			? {

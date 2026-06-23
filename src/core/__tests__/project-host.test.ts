@@ -1,25 +1,93 @@
 import {renderHook} from '@testing-library/react-hooks';
 import * as React from 'react';
 import {
-	deleteAssetCommand,
-	importAssetCommand,
-	insertAssetSnippetCommand,
+	CoreAssetInventoryEntry,
+	PatchBatch,
 	queryGraphProjectionCommand,
-	renameAssetCommand,
 	renameStoryCommand,
-	saveGeneratedLayoutCommand,
 	setStoryFormatCommand,
 	setStorySnapToGridCommand,
-	setStoryZoomCommand
+	setStoryZoomCommand,
+	StoryCommand,
+	updatePassageTextCommand
 } from '..';
-import {StoreCoreProjectHost, useCoreProjectHost} from '../project-host';
+import {
+	knownAssetInventoryForStory,
+	StoreCoreProjectHost,
+	useCoreProjectHost
+} from '../project-host';
 import {reducer as storiesReducer} from '../../store/stories/reducer';
 import {StoriesContext, StoriesState} from '../../store/stories';
 import {StoriesActionOrThunk} from '../../store/undoable-stories';
 import {fakePassage, fakeStory} from '../../test-util';
 
 describe('StoreCoreProjectHost asset commands', () => {
-	function hostWithStory() {
+	function batch(patches: PatchBatch['patches'], label = 'Rust Command') {
+		return {
+			label,
+			patches,
+			transactionId: BigInt(1)
+		};
+	}
+
+	function asset(path: string): CoreAssetInventoryEntry {
+		return {
+			durationMs: null,
+			exists: true,
+			height: null,
+			kind: 'image',
+			missing: false,
+			modifiedAt: null,
+			normalizedPath: path,
+			path,
+			previewUrl: null,
+			publish: {
+				copy: true,
+				outputPath: path,
+				reason: 'Copy asset into published output'
+			},
+			referenceCount: 0,
+			references: [],
+			sizeBytes: null,
+			snippet: {
+				label: path,
+				mediaType: 'image/png',
+				text: `<img src="${path}" alt="">`
+			},
+			thumbnailUrl: null,
+			unused: true,
+			width: null
+		};
+	}
+
+	function fakeWasmClient(
+		apply: (command: StoryCommand, revision: number) => Promise<PatchBatch>
+	) {
+		return {
+			apply: jest.fn(async (command: StoryCommand, revision: number) => ({
+				batch: await apply(command, revision),
+				revision: revision + 1
+			})),
+			cachedGraphProjection: jest.fn(),
+			cachedStoryIndex: jest.fn(),
+			enabled: true,
+			lastGraphProjection: jest.fn(),
+			mode: 'wasm-worker',
+			queryGraphProjection: jest.fn(),
+			queryStoryIndex: jest.fn(),
+			redo: jest.fn(),
+			replaceProject: jest.fn().mockResolvedValue(undefined),
+			undo: jest.fn()
+		};
+	}
+
+	async function flushCommand() {
+		for (let i = 0; i < 8; i++) {
+			await Promise.resolve();
+		}
+	}
+
+	function hostWithStory(options: {wasmClient?: any} = {}) {
 		const story = fakeStory(0);
 		const start = fakePassage({
 			id: 'start',
@@ -41,7 +109,9 @@ describe('StoreCoreProjectHost asset commands', () => {
 
 			hostRef.current?.update(stories, dispatch);
 		});
-		const host = new StoreCoreProjectHost(stories, dispatch);
+		const host = new StoreCoreProjectHost(stories, dispatch, {
+			wasmClient: options.wasmClient
+		});
 
 		hostRef.current = host;
 
@@ -56,70 +126,140 @@ describe('StoreCoreProjectHost asset commands', () => {
 		};
 	}
 
-	it('imports, inserts, renames, and deletes asset references through commands', () => {
-		const context = hostWithStory();
-
-		context.host.applyStoryCommand(
-			importAssetCommand(context.story.id, '/tmp/cover.png', {
-				targetPath: 'assets/cover.png'
-			})
+	it('sends commands to Rust and applies only returned passage patches', async () => {
+		const apply = jest.fn(async (command: StoryCommand) =>
+			batch([
+				{
+					changes: {layout: null, name: null, tags: null, text: 'from-rust'},
+					passage_id: 'start',
+					story_id: (command as any).story_id,
+					type: 'passageUpdated'
+				},
+				{dirty: true, type: 'dirtyStateChanged'}
+			])
+		);
+		const wasmClient = fakeWasmClient(apply);
+		const context = hostWithStory({wasmClient});
+		const command = updatePassageTextCommand(
+			context.story.id,
+			'start',
+			'from-command'
 		);
 
-		expect(
-			context.host.queryStoryIndex(context.story.id).assetInventory
-		).toEqual([
+		context.host.applyStoryCommand(command);
+		await flushCommand();
+
+		expect(wasmClient.replaceProject).toHaveBeenCalledWith(
 			expect.objectContaining({
-				exists: true,
-				path: 'assets/cover.png',
-				thumbnailUrl: 'file:///tmp/cover.png',
-				unused: true
-			})
-		]);
-
-		context.host.applyStoryCommand(
-			insertAssetSnippetCommand(
-				context.story.id,
-				'assets/cover.png',
-				context.start.id,
-				0,
-				{passageId: context.start.id}
-			)
+				stories: [expect.objectContaining({id: context.story.id})]
+			}),
+			1
 		);
-
-		expect(context.stories[0].passages[0].text).toContain(
-			'<img src="assets/cover.png" alt="">'
-		);
-
-		context.host.applyStoryCommand(
-			renameAssetCommand(
-				context.story.id,
-				'assets/cover.png',
-				'assets/hero.png'
-			)
-		);
-
-		expect(context.stories[0].passages[0].text).toContain('assets/hero.png');
-		expect(
-			context.host.queryStoryIndex(context.story.id).assetInventory
-		).toEqual([
+		expect(apply).toHaveBeenCalledWith(command, 1);
+		expect(context.stories[0].passages[0].text).toBe('from-rust');
+		expect(context.stories[0].passages[0].text).not.toBe('from-command');
+		expect(context.host.isDirty()).toBe(true);
+		expect(context.dispatch).toHaveBeenCalledWith(
 			expect.objectContaining({
-				path: 'assets/hero.png',
-				referenceCount: 1,
-				unused: false
-			})
-		]);
-
-		context.host.applyStoryCommand(
-			deleteAssetCommand(context.story.id, 'assets/hero.png', true)
-		);
-
-		expect(context.stories[0].passages[0].text).not.toContain(
-			'assets/hero.png'
+				passageId: 'start',
+				props: {text: 'from-rust'},
+				type: 'updatePassage'
+			}),
+			'undoChange.editPassage'
 		);
 	});
 
-	it('publishes graph projection and layout save patches through commands', () => {
-		const context = hostWithStory();
+	it('uses the worker-advanced revision for follow-up commands', async () => {
+		const wasmClient = {
+			apply: jest
+				.fn()
+				.mockResolvedValueOnce({batch: batch([]), revision: 9})
+				.mockResolvedValueOnce({batch: batch([]), revision: 10}),
+			cachedGraphProjection: jest.fn(),
+			cachedStoryIndex: jest.fn(),
+			enabled: true,
+			lastGraphProjection: jest.fn(),
+			mode: 'wasm-worker',
+			queryGraphProjection: jest.fn(),
+			queryStoryIndex: jest.fn(),
+			redo: jest.fn(),
+			replaceProject: jest.fn().mockResolvedValue(undefined),
+			undo: jest.fn()
+		};
+		const context = hostWithStory({wasmClient});
+
+		context.host.applyStoryCommand(
+			updatePassageTextCommand(context.story.id, 'start', 'first')
+		);
+		await flushCommand();
+		context.host.applyStoryCommand(
+			updatePassageTextCommand(context.story.id, 'start', 'second')
+		);
+		await flushCommand();
+
+		expect(wasmClient.apply.mock.calls.map(call => call[1])).toEqual([1, 9]);
+	});
+
+	it('applies asset inventory effects from returned patch batches', async () => {
+		const cover = asset('assets/cover.png');
+		const wasmClient = fakeWasmClient(async command =>
+			batch([
+				{
+					asset: cover,
+					story_id: (command as any).story_id,
+					type: 'assetImported'
+				},
+				{
+					inventory: [cover],
+					story_id: (command as any).story_id,
+					type: 'assetInventoryUpdated'
+				}
+			])
+		);
+		const context = hostWithStory({wasmClient});
+
+		context.host.applyStoryCommand({
+			overwrite: false,
+			source_path: '/tmp/ignored.png',
+			story_id: context.story.id,
+			target_path: 'assets/ignored.png',
+			type: 'importAsset'
+		});
+		await flushCommand();
+
+		expect(wasmClient.apply).toHaveBeenCalled();
+		expect(knownAssetInventoryForStory(context.story.id)).toEqual([cover]);
+		expect(context.dispatch).not.toHaveBeenCalled();
+	});
+
+	it('publishes returned non-state patches without dispatching reducer actions', async () => {
+		const context = hostWithStory({
+			wasmClient: fakeWasmClient(async command =>
+				batch([
+					{
+						projection: {
+							bounds: null,
+							edges: [],
+							layoutState: 'saved',
+							nodes: [],
+							stats: {
+								brokenLinks: 0,
+								emptyPassages: 0,
+								links: 0,
+								orphanPassages: 0,
+								passages: 1,
+								resolvedLinks: 0,
+								selfLinks: 0,
+								taggedPassages: 0,
+								unreachablePassages: 0
+							}
+						},
+						story_id: (command as any).story_id,
+						type: 'graphProjectionUpdated'
+					}
+				])
+			)
+		});
 		const listener = jest.fn();
 
 		context.host.subscribeToPatches(listener);
@@ -130,13 +270,15 @@ describe('StoreCoreProjectHost asset commands', () => {
 				viewport: null
 			})
 		);
+		await flushCommand();
+
 		expect(listener).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				patches: [
 					expect.objectContaining({
 						projection: expect.objectContaining({
 							layoutState: 'saved',
-							nodes: [expect.objectContaining({id: 'start'})]
+							nodes: []
 						}),
 						story_id: context.story.id,
 						type: 'graphProjectionUpdated'
@@ -144,36 +286,50 @@ describe('StoreCoreProjectHost asset commands', () => {
 				]
 			})
 		);
-
-		context.host.applyStoryCommand(
-			saveGeneratedLayoutCommand(context.story.id)
-		);
-		expect(listener).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				patches: [
-					expect.objectContaining({
-						projection: expect.objectContaining({layoutState: 'saved'}),
-						story_id: context.story.id,
-						type: 'layoutSaved'
-					})
-				]
-			})
-		);
+		expect(context.dispatch).not.toHaveBeenCalled();
 	});
 
-	it('applies story metadata commands through the host boundary', () => {
-		const context = hostWithStory();
+	it('applies story metadata patches returned by Rust', async () => {
+		const wasmClient = fakeWasmClient(async command => {
+			const zoom = command.type === 'setStoryZoom' ? command.zoom : null;
+
+			return batch([
+				{
+					changes: {
+						name: command.type === 'renameStory' ? command.name : null,
+						snapToGrid:
+							command.type === 'setStorySnapToGrid' ? command.enabled : null,
+						storyFormat:
+							command.type === 'setStoryFormat' ? command.story_format : null,
+						storyFormatVersion:
+							command.type === 'setStoryFormat'
+								? command.story_format_version
+								: null,
+						tagColors: null,
+						tags: null,
+						zoom
+					},
+					story_id: (command as any).story_id,
+					type: 'storyMetadataUpdated'
+				}
+			]);
+		});
+		const context = hostWithStory({wasmClient});
 
 		context.host.applyStoryCommand(
 			renameStoryCommand(context.story.id, 'Renamed Story')
 		);
+		await flushCommand();
 		context.host.applyStoryCommand(
 			setStoryFormatCommand(context.story.id, 'Chapbook', '2.2.0')
 		);
+		await flushCommand();
 		context.host.applyStoryCommand(
 			setStorySnapToGridCommand(context.story.id, false)
 		);
+		await flushCommand();
 		context.host.applyStoryCommand(setStoryZoomCommand(context.story.id, 0.6));
+		await flushCommand();
 
 		expect(context.stories[0]).toEqual(
 			expect.objectContaining({
@@ -233,6 +389,49 @@ describe('StoreCoreProjectHost asset commands', () => {
 			context.story.id,
 			2
 		);
+	});
+
+	it('keeps Rust graph caches live for selection-only store updates', () => {
+		const context = hostWithStory();
+		const cachedProjection = {cached: true};
+		const fakeWasmClient = {
+			cachedGraphProjection: jest.fn(
+				(_storyId: string, _options: unknown, revision: number) =>
+					revision === 1 ? cachedProjection : undefined
+			),
+			enabled: true,
+			lastGraphProjection: jest.fn()
+		};
+
+		(context.host as any).wasmClient = fakeWasmClient;
+
+		expect(context.host.queryGraphProjection(context.story.id)).toBe(
+			cachedProjection
+		);
+
+		context.host.update(
+			[
+				{
+					...context.stories[0],
+					passages: context.stories[0].passages.map(passage => ({
+						...passage,
+						selected: true
+					})),
+					selected: true
+				}
+			],
+			context.dispatch
+		);
+
+		expect(context.host.queryGraphProjection(context.story.id)).toBe(
+			cachedProjection
+		);
+		expect(fakeWasmClient.cachedGraphProjection).toHaveBeenLastCalledWith(
+			context.story.id,
+			expect.any(Object),
+			1
+		);
+		expect(fakeWasmClient.lastGraphProjection).not.toHaveBeenCalled();
 	});
 
 	it('ignores stale worker story index caches after story updates', () => {

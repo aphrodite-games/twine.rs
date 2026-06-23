@@ -101,7 +101,9 @@ describe('storyToCoreIndex', () => {
 			name: 'Start',
 			story: story.id,
 			tags: ['chapter-one', 'scene'],
-			text: 'Set $score and _turn. <img src="assets/cover.png">'
+			text:
+				'Set $score and $player.score and _turn. ' +
+				'?sidebar <img src="assets/cover.png">'
 		});
 		const next = fakePassage({
 			id: 'next',
@@ -117,9 +119,12 @@ describe('storyToCoreIndex', () => {
 
 		const index = storyToCoreIndex(story);
 
-		expect(index.symbols.map(symbol => symbol.name)).toEqual(
-			expect.arrayContaining(['$score', '_turn'])
-		);
+			expect(index.symbols.map(symbol => symbol.name)).toEqual(
+				expect.arrayContaining(['$score', '$player.score'])
+			);
+			expect(index.symbols.map(symbol => symbol.name)).not.toEqual(
+				expect.arrayContaining(['_turn', '?sidebar'])
+			);
 		expect(index.assets).toEqual([
 			expect.objectContaining({kind: 'image', path: 'assets/cover.png'})
 		]);

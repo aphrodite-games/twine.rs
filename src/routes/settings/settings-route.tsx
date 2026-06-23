@@ -12,11 +12,13 @@ import type {TwineElectronWindow} from '../../electron/shared';
 import type {
 	NativeBackupResult,
 	NativePlatformSettings,
-	NativePlatformSettingsUpdate
+	NativePlatformSettingsUpdate,
+	NativeScratchAssetStrategy
 } from '../../electron/shared';
 import {useStoryFormatsContext} from '../../store/story-formats';
 import {setPref, usePrefsContext} from '../../store/prefs';
 import type {
+	CodeEditorThemePreference,
 	EditorFocusPreference,
 	GraphCardSizePreference,
 	IntegrationPreference,
@@ -65,6 +67,7 @@ const editorFocusOptions = [
 ];
 
 const graphCardSizeOptions = [
+	{label: 'Twine 100 x 100', value: 'twine'},
 	{label: 'Small', value: 'small'},
 	{label: 'Narrow', value: 'narrow'},
 	{label: 'Medium', value: 'medium'},
@@ -89,6 +92,14 @@ const fontScaleOptions = [
 	{label: '100%', value: '1'},
 	{label: '110%', value: '1.1'},
 	{label: '125%', value: '1.25'}
+];
+
+const codeEditorThemeOptions = [
+	{label: 'Twine adaptive', value: 'twine'},
+	{label: 'CodeMirror One Dark', value: 'one-dark'},
+	{label: 'Solarized Light', value: 'solarized-light'},
+	{label: 'Solarized Dark', value: 'solarized-dark'},
+	{label: 'High Contrast', value: 'high-contrast'}
 ];
 
 const backupCadenceOptions = [
@@ -119,6 +130,11 @@ const cacheCleanupOptions = [
 	{label: '7 days', value: '7'},
 	{label: '14 days', value: '14'},
 	{label: '30 days', value: '30'}
+];
+
+const scratchAssetStrategyOptions = [
+	{label: 'Link folders, copy fallback', value: 'link'},
+	{label: 'Copy asset files', value: 'copy'}
 ];
 
 const sharingModeOptions = [
@@ -211,6 +227,7 @@ export const SettingsRoute: React.FC = () => {
 		fullscreenPersistence: true,
 		lastWindowFullscreen: false,
 		linkHandlingMode: 'system',
+		scratchAssetStrategy: 'link',
 		storyLibraryFolderPath: storyLibraryFolder || 'Native desktop default'
 	};
 
@@ -496,6 +513,13 @@ export const SettingsRoute: React.FC = () => {
 								dispatch(setPref('graphGeneratedLayoutSavePrompt', value))
 							}
 						/>
+						<Switch
+							checked={prefs.graphRightClickCreatePassage}
+							label="Right-click creates passages"
+							onChange={value =>
+								dispatch(setPref('graphRightClickCreatePassage', value))
+							}
+						/>
 						<div className="settings-route__field">
 							<span>Passage cards</span>
 							<Select
@@ -549,6 +573,22 @@ export const SettingsRoute: React.FC = () => {
 								}
 								options={fontScaleOptions}
 								value={String(prefs.codeEditorFontScale)}
+							/>
+						</div>
+						<div className="settings-route__field">
+							<span>Code theme</span>
+							<Select
+								ariaLabel="Code editor theme"
+								onChange={value =>
+									dispatch(
+										setPref(
+											'codeEditorTheme',
+											value as CodeEditorThemePreference
+										)
+									)
+								}
+								options={codeEditorThemeOptions}
+								value={prefs.codeEditorTheme}
 							/>
 						</div>
 					</div>
@@ -646,6 +686,20 @@ export const SettingsRoute: React.FC = () => {
 							label="Fallback API"
 							value="Filesystem"
 						/>
+						<div className="settings-route__field">
+							<span>Preview assets</span>
+							<Select
+								ariaLabel="Preview assets"
+								disabled={!platformControlsAvailable}
+								onChange={value =>
+									void updatePlatformSettings({
+										scratchAssetStrategy: value as NativeScratchAssetStrategy
+									})
+								}
+								options={scratchAssetStrategyOptions}
+								value={platformView.scratchAssetStrategy}
+							/>
+						</div>
 						<div className="settings-route__field">
 							<span>Cache cleanup</span>
 							<Select

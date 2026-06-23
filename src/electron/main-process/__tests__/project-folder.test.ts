@@ -35,11 +35,15 @@ import {
 import {
 	diffNativeProjectFileManifest,
 	findNativeTwineHtmlFiles,
+	forgetNativeProjectFolder,
 	listNativeProjectAssets,
+	listRememberedNativeProjectFolders,
 	loadNativeProjectFolder,
+	nativeProjectDiagnostic,
 	nativeProjectFileManifest,
 	prepareNativeHtmlImport,
 	prepareNativeProjectImport,
+	rememberNativeProjectFolder,
 	saveNativeProjectFolder
 } from '../native';
 
@@ -49,11 +53,15 @@ jest.mock('fs-extra');
 jest.mock('../native', () => ({
 	diffNativeProjectFileManifest: jest.fn(),
 	findNativeTwineHtmlFiles: jest.fn(),
+	forgetNativeProjectFolder: jest.fn(),
 	listNativeProjectAssets: jest.fn(),
+	listRememberedNativeProjectFolders: jest.fn(),
 	loadNativeProjectFolder: jest.fn(),
+	nativeProjectDiagnostic: jest.fn(),
 	nativeProjectFileManifest: jest.fn(),
 	prepareNativeHtmlImport: jest.fn(),
 	prepareNativeProjectImport: jest.fn(),
+	rememberNativeProjectFolder: jest.fn(),
 	saveNativeProjectFolder: jest.fn()
 }));
 jest.mock('../story-directory', () => ({
@@ -76,12 +84,18 @@ describe('project-folder native bridge', () => {
 	const diffNativeProjectFileManifestMock =
 		diffNativeProjectFileManifest as jest.Mock;
 	const findNativeTwineHtmlFilesMock = findNativeTwineHtmlFiles as jest.Mock;
+	const forgetNativeProjectFolderMock = forgetNativeProjectFolder as jest.Mock;
 	const listNativeProjectAssetsMock = listNativeProjectAssets as jest.Mock;
+	const listRememberedNativeProjectFoldersMock =
+		listRememberedNativeProjectFolders as jest.Mock;
 	const loadNativeProjectFolderMock = loadNativeProjectFolder as jest.Mock;
+	const nativeProjectDiagnosticMock = nativeProjectDiagnostic as jest.Mock;
 	const nativeProjectFileManifestMock = nativeProjectFileManifest as jest.Mock;
 	const prepareNativeHtmlImportMock = prepareNativeHtmlImport as jest.Mock;
 	const prepareNativeProjectImportMock =
 		prepareNativeProjectImport as jest.Mock;
+	const rememberNativeProjectFolderMock =
+		rememberNativeProjectFolder as jest.Mock;
 	const saveNativeProjectFolderMock = saveNativeProjectFolder as jest.Mock;
 
 	beforeEach(() => {
@@ -97,11 +111,17 @@ describe('project-folder native bridge', () => {
 		readJsonMock.mockResolvedValue({});
 		diffNativeProjectFileManifestMock.mockReturnValue(undefined);
 		findNativeTwineHtmlFilesMock.mockReturnValue(undefined);
+		forgetNativeProjectFolderMock.mockReturnValue(undefined);
 		listNativeProjectAssetsMock.mockReturnValue(undefined);
+		listRememberedNativeProjectFoldersMock.mockReturnValue([]);
 		loadNativeProjectFolderMock.mockReturnValue(undefined);
+		nativeProjectDiagnosticMock.mockReturnValue(
+			'Native project backend was not built.'
+		);
 		nativeProjectFileManifestMock.mockReturnValue(undefined);
 		prepareNativeHtmlImportMock.mockReturnValue(undefined);
 		prepareNativeProjectImportMock.mockReturnValue(undefined);
+		rememberNativeProjectFolderMock.mockReturnValue(undefined);
 		saveNativeProjectFolderMock.mockReturnValue(undefined);
 		readdirMock.mockRejectedValue(
 			Object.assign(new Error('missing'), {code: 'ENOENT'})
@@ -294,6 +314,42 @@ describe('project-folder native bridge', () => {
 			'/native/moon-castle.twine.rs/twine.toml',
 			'utf8'
 		);
+		expect(rememberNativeProjectFolderMock).toHaveBeenCalledWith(
+			'mock-story-library/.twine/native-projects.json',
+			expect.objectContaining({
+				rootPath: '/native/moon-castle.twine.rs',
+				storyIds: [story.id]
+			})
+		);
+	});
+
+	it('does not run TypeScript project scans when legacy fallback is disabled', async () => {
+		const previousFallback = process.env.TWINE_LEGACY_PROJECT_FALLBACK;
+
+		process.env.TWINE_LEGACY_PROJECT_FALLBACK = '0';
+
+		try {
+			await expect(
+				openProjectFolder('/native/moon-castle.twine.rs')
+			).rejects.toThrow('native Rust project backend');
+			await expect(
+				listProjectAssets('/native/moon-castle.twine.rs')
+			).rejects.toThrow('native Rust project backend');
+			await expect(
+				prepareProjectImport('/imports/Transylvania.html')
+			).rejects.toThrow('native Rust project backend');
+
+			expect(readFileMock).not.toHaveBeenCalled();
+			expect(readJsonMock).not.toHaveBeenCalled();
+			expect(readdirMock).not.toHaveBeenCalled();
+			expect(extractZipMock).not.toHaveBeenCalled();
+		} finally {
+			if (previousFallback === undefined) {
+				delete process.env.TWINE_LEGACY_PROJECT_FALLBACK;
+			} else {
+				process.env.TWINE_LEGACY_PROJECT_FALLBACK = previousFallback;
+			}
+		}
 	});
 
 	it('repairs native SugarCube project shells mislabeled as Harlowe', async () => {

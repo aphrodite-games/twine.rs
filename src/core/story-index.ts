@@ -457,7 +457,7 @@ function symbolsInSource(
 ): CoreSymbol[] {
 	const symbols: CoreSymbol[] = [];
 	const matcher =
-		/(^|[^A-Za-z0-9_])(\$[A-Za-z_]\w*|_[A-Za-z_]\w*|\|[A-Za-z_]\w*>|\?[A-Za-z_]\w*)/g;
+		/(^|[^A-Za-z0-9_])(\$[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/g;
 
 	for (let match = matcher.exec(source); match; match = matcher.exec(source)) {
 		const start = match.index + match[1].length;
@@ -467,11 +467,7 @@ function symbolsInSource(
 		symbols.push({
 			end,
 			excerpt: excerptAround(source, start, name.length),
-			kind: name.startsWith('$')
-				? 'variable'
-				: name.startsWith('_')
-					? 'temporaryVariable'
-					: 'hook',
+			kind: 'variable',
 			line: lineNumberAt(source, start),
 			name,
 			passageId,

@@ -1,5 +1,7 @@
 import {importStories, importStoriesAsync} from '../import';
+import {publishStory} from '../publish';
 import {TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE} from '../story-graph-metadata';
+import {fakeAppInfo} from '../../test-util';
 
 const testHtml = `
 <tw-storydata name="Test" startnode="1" zoom="1.5" creator="Twine" creator-version="2.0.11" ifid="3AE380EE-4B34-4D0D-A8E2-BE624EB271C9" format="SugarCube" options="" hidden><tw-tag name="my-tag" color="purple" /><style role="stylesheet" id="twine-user-stylesheet" type="text/twine-css">* { color: red }
@@ -12,6 +14,59 @@ const testHtml = `
 `;
 
 const bareTestHtml = '<tw-storydata name="Test" hidden></tw-storydata>';
+const expectedRoundTripMetadataDifferences = new Set([
+	'creator',
+	'creator-version',
+	TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE
+]);
+
+function storyDataElement(html: string) {
+	const container = document.createElement('div');
+
+	container.innerHTML = html;
+
+	const storyData = container.querySelector('tw-storydata');
+
+	if (!storyData) {
+		throw new Error('HTML has no <tw-storydata> element');
+	}
+
+	return storyData;
+}
+
+function comparableAttributes(
+	element: Element,
+	ignoredAttributes = expectedRoundTripMetadataDifferences
+) {
+	return Object.fromEntries(
+		element
+			.getAttributeNames()
+			.filter(name => !ignoredAttributes.has(name))
+			.sort()
+			.map(name => [name, element.getAttribute(name)])
+	);
+}
+
+function comparableStoryData(html: string) {
+	const storyData = storyDataElement(html);
+
+	return {
+		attributes: comparableAttributes(storyData),
+		passages: Array.from(storyData.querySelectorAll('tw-passagedata')).map(
+			passage => ({
+				attributes: comparableAttributes(passage, new Set()),
+				text: passage.textContent
+			})
+		),
+		script: storyData.querySelector('[role="script"]')?.textContent ?? '',
+		stylesheet:
+			storyData.querySelector('[role="stylesheet"]')?.textContent ?? '',
+		tagColors: Array.from(storyData.querySelectorAll('tw-tag')).map(tag => ({
+			color: tag.getAttribute('color'),
+			name: tag.getAttribute('name')
+		}))
+	};
+}
 
 describe('importStories', () => {
 	it('creates a JavaScript object representation of HTML data', () => {
@@ -131,6 +186,34 @@ describe('importStories', () => {
 				storyFormat: 'SugarCube',
 				storyFormatVersion: ''
 			})
+		);
+	});
+
+	it('exports imported SugarCube HTML with only expected metadata differences', () => {
+		const sourceHtml = `
+			<tw-storydata name="Trigaea" startnode="1" creator="Twine" creator-version="2.10.0" ifid="TRIGAEA-IFID" format="SugarCube" format-version="2.37.3" options="" tags="demo restored" zoom="1.25" hidden>
+				<tw-tag name="earth" color="green"></tw-tag>
+				<style role="stylesheet" id="twine-user-stylesheet" type="text/twine-css">body { color: #123; }</style>
+				<script role="script" id="twine-user-script" type="text/twine-javascript">State.variables.ready = true;</script>
+				<tw-passagedata pid="1" name="Start" tags="earth hub" position="100,200" size="140,120">Welcome to [[Field]].
+
+&lt;&lt;set $visited to true&gt;&gt;</tw-passagedata>
+				<tw-passagedata pid="2" name="Field" tags="" position="320,240" size="160,110">&lt;&lt;if $visited&gt;&gt;The field remembers.&lt;&lt;/if&gt;&gt;</tw-passagedata>
+			</tw-storydata>
+		`;
+		const [story] = importStories(sourceHtml);
+		const exportedHtml = publishStory(
+			story,
+			fakeAppInfo({name: 'twine.rs', version: '0.1.0'}),
+			{includeStoryGraph: true}
+		);
+		const exportedStoryData = storyDataElement(exportedHtml);
+
+		expect(
+			exportedStoryData.getAttribute(TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE)
+		).toBeTruthy();
+		expect(comparableStoryData(exportedHtml)).toEqual(
+			comparableStoryData(sourceHtml)
 		);
 	});
 

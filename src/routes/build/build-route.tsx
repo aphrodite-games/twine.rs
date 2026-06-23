@@ -13,6 +13,7 @@ import {
 	loadDismissedDiagnosticIds,
 	useCoreProjectHost
 } from '../../core';
+import type {CoreStoryIndex} from '../../core';
 import {FormatLoader} from '../../store/format-loader';
 import {
 	formatWithNameAndVersion,
@@ -205,15 +206,35 @@ export const BuildRoute: React.FC = () => {
 		}
 	]);
 	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
+	const [storyIndex, setStoryIndex] = React.useState<CoreStoryIndex>();
 	const definition = targetDefinition(target);
-	const storyIndex = React.useMemo(
-		() => (story ? coreProjectHost.queryStoryIndex(story.id) : undefined),
-		[coreProjectHost, story]
-	);
 	const dismissedDiagnosticIds = React.useMemo(
 		() => (story ? loadDismissedDiagnosticIds(story.id) : new Set<string>()),
 		[dismissalsVersion, story]
 	);
+
+	React.useEffect(() => {
+		let active = true;
+
+		if (!story) {
+			setStoryIndex(undefined);
+			return () => {
+				active = false;
+			};
+		}
+
+		setStoryIndex(undefined);
+
+		void coreProjectHost.queryStoryIndexAsync(story.id).then(index => {
+			if (active) {
+				setStoryIndex(index);
+			}
+		});
+
+		return () => {
+			active = false;
+		};
+	}, [coreProjectHost, story]);
 	const format = React.useMemo(() => {
 		if (!story) {
 			return undefined;

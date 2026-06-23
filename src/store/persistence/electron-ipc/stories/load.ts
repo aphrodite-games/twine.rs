@@ -1,6 +1,31 @@
-import {TwineElectronWindow} from '../../../../electron/shared';
+import {
+	ElectronLoadedStoryEntry,
+	ElectronNativeProjectStoryEntry,
+	TwineElectronWindow
+} from '../../../../electron/shared';
 import {Story} from '../../../stories/stories.types';
 import {importStoriesAsync} from '../../../../util/import';
+import {markProjectStoryHydration} from '../../../project-hydration';
+import {saveProjectMetadata} from '../../../project-metadata';
+
+function isNativeProjectStoryEntry(
+	entry: ElectronLoadedStoryEntry
+): entry is ElectronNativeProjectStoryEntry {
+	return entry?.kind === 'native-project';
+}
+
+function reviveNativeProjectStory(entry: ElectronNativeProjectStoryEntry) {
+	const story = entry.story;
+
+	return {
+		...story,
+		lastUpdate: new Date(story.lastUpdate),
+		passages: story.passages.map(passage => ({
+			...passage,
+			story: passage.story || story.id
+		}))
+	};
+}
 
 export async function load(): Promise<Story[]> {
 	const {twineElectron} = window as TwineElectronWindow;
@@ -15,6 +40,26 @@ export async function load(): Promise<Story[]> {
 		const result: Story[] = [];
 
 		for (const file of stories) {
+			if (isNativeProjectStoryEntry(file)) {
+				const story = reviveNativeProjectStory(file);
+
+				saveProjectMetadata(story.id, {
+					rootPath: file.rootPath,
+					status: 'file-backed',
+					storageKind: 'electron-project-folder'
+				});
+				markProjectStoryHydration(story.id, {
+					passageTextLoaded: file.passageTextLoaded,
+					rootPath: file.rootPath
+				});
+				result.push(story);
+				continue;
+			}
+
+			if (typeof file?.htmlSource !== 'string') {
+				continue;
+			}
+
 			const story = await importStoriesAsync(file.htmlSource, file.mtime);
 
 			if (story[0]) {

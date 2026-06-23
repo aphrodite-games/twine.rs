@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import * as React from 'react';
 import {useTranslation} from 'react-i18next';
 import {useAppShellContext} from '../components/app-shell';
@@ -130,7 +131,14 @@ export const StoryEditActions: React.FC<StoryEditActionsProps> = props => {
 						onClick={() => onChangeRightDockCollapsed?.(!rightDockCollapsed)}
 					/>
 				</div>
-				{mode !== 'text' && <ZoomButtons story={story} />}
+				<div
+					className={classNames(
+						'story-edit-zoom-slot',
+						mode === 'text' && 'story-edit-zoom-slot--empty'
+					)}
+				>
+					{mode !== 'text' && <ZoomButtons story={story} />}
+				</div>
 				<UndoRedoButtons />
 			</>
 		),

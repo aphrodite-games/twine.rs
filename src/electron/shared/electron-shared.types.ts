@@ -45,6 +45,7 @@ export type NativeProjectSessionResolution =
 	| 'keepApp';
 
 export type NativeLinkHandlingMode = 'block' | 'system';
+export type NativeScratchAssetStrategy = 'copy' | 'link';
 
 export interface NativeBackupResult {
 	backupDirectoryName: string;
@@ -64,6 +65,7 @@ export interface NativePlatformSettings {
 	fullscreenPersistence: boolean;
 	lastWindowFullscreen: boolean;
 	linkHandlingMode: NativeLinkHandlingMode;
+	scratchAssetStrategy: NativeScratchAssetStrategy;
 	storyLibraryFolderPath: string;
 }
 
@@ -77,6 +79,7 @@ export interface NativePlatformSettingsUpdate {
 	fullscreenPersistence?: boolean;
 	lastWindowFullscreen?: boolean;
 	linkHandlingMode?: NativeLinkHandlingMode;
+	scratchAssetStrategy?: NativeScratchAssetStrategy;
 }
 
 export interface NativeCommandLineOpenResult {
@@ -112,6 +115,24 @@ export interface NativeProjectImportSource {
 	sourcePath: string;
 }
 
+export interface ElectronLegacyStoryFile {
+	htmlSource: string;
+	kind?: 'legacy-html';
+	mtime: Date;
+}
+
+export interface ElectronNativeProjectStoryEntry {
+	kind: 'native-project';
+	passageTextLoaded: boolean;
+	rootPath: string;
+	story: Story;
+	storyIds: string[];
+}
+
+export type ElectronLoadedStoryEntry =
+	| ElectronLegacyStoryFile
+	| ElectronNativeProjectStoryEntry;
+
 export interface TwineElectronWindow extends Window {
 	twineElectron?: {
 		chooseAssetFile(defaultPath?: string): Promise<string | undefined>;
@@ -142,7 +163,7 @@ export interface TwineElectronWindow extends Window {
 			storyIds?: string[]
 		): Promise<NativeProjectFolderResult>;
 		loadPrefs(): Promise<any>;
-		loadStories(): Promise<any>;
+		loadStories(): Promise<ElectronLoadedStoryEntry[]>;
 		loadStoryFormats(): Promise<any>;
 		listProjectAssets(rootPath: string): Promise<CoreAssetInventoryEntry[]>;
 		jsonp(

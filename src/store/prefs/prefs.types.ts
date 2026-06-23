@@ -7,6 +7,7 @@ export type GraphCardSizePreference =
 	| 'narrow'
 	| 'small'
 	| 'tall'
+	| 'twine'
 	| 'wide';
 
 export type StoryEditModePreference = 'auto' | 'graph' | 'split' | 'text';
@@ -16,6 +17,13 @@ export type EditorFocusPreference = 'none' | 'passage-start' | 'restore';
 export type SharingModePreference = 'off' | 'local-file' | 'published-url';
 
 export type IntegrationPreference = 'manual' | 'off';
+
+export type CodeEditorThemePreference =
+	| 'twine'
+	| 'one-dark'
+	| 'solarized-light'
+	| 'solarized-dark'
+	| 'high-contrast';
 
 export type PrefsAction =
 	| {type: 'init'; state: Partial<PrefsState>}
@@ -46,6 +54,10 @@ export interface PrefsState {
 	 * Font scale (1 being 100%) for the story JS and stylesheet editor.
 	 */
 	codeEditorFontScale: number;
+	/**
+	 * Syntax theme for CodeMirror source editors.
+	 */
+	codeEditorTheme: CodeEditorThemePreference;
 	/**
 	 * Width of side dialogs in pixels.
 	 */
@@ -86,6 +98,10 @@ export interface PrefsState {
 	 * Whether generated graph layouts should be treated as explicit save candidates.
 	 */
 	graphGeneratedLayoutSavePrompt: boolean;
+	/**
+	 * Whether right-clicking empty graph space creates a passage.
+	 */
+	graphRightClickCreatePassage: boolean;
 	/**
 	 * Timestamp when the app was first run.
 	 */

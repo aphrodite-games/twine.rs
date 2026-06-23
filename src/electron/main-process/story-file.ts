@@ -10,8 +10,17 @@ import {
 } from 'fs-extra';
 import {basename, join} from 'path';
 import {i18n} from './locales';
+import {openProjectFolder} from './project-folder';
+import {
+	forgetProjectFolder,
+	rememberedProjectFolders
+} from './project-library-index';
 import {getStoryDirectoryPath} from './story-directory';
 import {Story} from '../../store/stories/stories.types';
+import type {
+	ElectronLegacyStoryFile,
+	ElectronLoadedStoryEntry
+} from '../shared';
 import {storyFileName} from '../shared/story-filename';
 import {
 	stopTrackingFile,
@@ -19,19 +28,67 @@ import {
 	wasFileChangedExternally
 } from './track-file-changes';
 
-export interface StoryFile {
-	htmlSource: string;
-	mtime: Date;
+export interface StoryFile extends ElectronLegacyStoryFile {}
+
+async function loadRememberedProjectStories(
+	result: ElectronLoadedStoryEntry[]
+) {
+	for (const project of rememberedProjectFolders()) {
+		try {
+			const openedProject = await openProjectFolder(project.rootPath, {
+				loadPassageText: false
+			});
+
+			if (!openedProject) {
+				continue;
+			}
+
+			for (const story of openedProject.stories) {
+				result.push({
+					kind: 'native-project',
+					passageTextLoaded: openedProject.passageTextLoaded !== false,
+					rootPath: openedProject.rootPath,
+					story,
+					storyIds: openedProject.storyIds
+				});
+			}
+		} catch (error) {
+			console.warn(
+				`Could not load remembered native project ${project.rootPath}: ${
+					(error as Error).message
+				}`
+			);
+
+			const code = (error as NodeJS.ErrnoException).code;
+
+			if (code === 'ENOENT' || code === 'ENOTDIR') {
+				forgetProjectFolder(project.rootPath);
+			}
+		}
+	}
 }
 
 /**
- * Returns a promise resolving to an array of HTML strings to load from the
- * story directory. Each string corresponds to an individual story.
+ * Returns native project stories remembered by the project library index, then
+ * legacy HTML story files from the story directory.
  */
 export async function loadStories() {
 	const storyPath = getStoryDirectoryPath();
-	const result: StoryFile[] = [];
-	const files = await readdir(storyPath);
+	const result: ElectronLoadedStoryEntry[] = [];
+
+	await loadRememberedProjectStories(result);
+
+	let files: string[];
+
+	try {
+		files = await readdir(storyPath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			return result;
+		}
+
+		throw error;
+	}
 
 	await Promise.all(
 		files

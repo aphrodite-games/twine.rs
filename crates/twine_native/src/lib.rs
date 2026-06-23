@@ -8,6 +8,7 @@ use std::{
     collections::BTreeMap,
     fs::{self, File},
     io,
+    io::ErrorKind,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -43,6 +44,21 @@ struct NativeProjectFolderResult {
     root_path: String,
     stories: Vec<NativeStory>,
     story_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeRememberedProjectFolder {
+    root_path: String,
+    story_ids: Vec<String>,
+    updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeProjectLibraryIndex {
+    version: u32,
+    projects: Vec<NativeRememberedProjectFolder>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -173,6 +189,7 @@ pub fn health_json() -> String {
             "html-import-assets",
             "zip-import",
             "project-save",
+            "project-library-index",
         ],
         ok: true,
         version: env!("CARGO_PKG_VERSION"),
@@ -243,6 +260,62 @@ pub fn save_project_folder_json(root_path: String, story_json: String) -> Native
         story_ids: vec![story.id.as_ref().to_owned()],
     })
     .map_err(native_error)
+}
+
+#[napi(js_name = "rememberProjectFolderJson")]
+pub fn remember_project_folder_json(
+    index_path: String,
+    project_json: String,
+) -> NativeResult<String> {
+    let index_path = PathBuf::from(index_path);
+    let project =
+        serde_json::from_str::<NativeProjectFolderResult>(&project_json).map_err(native_error)?;
+    let story_ids = if project.story_ids.is_empty() {
+        project
+            .stories
+            .iter()
+            .map(|story| story.id.clone())
+            .collect::<Vec<_>>()
+    } else {
+        project.story_ids
+    };
+    let mut index = read_project_library_index(&index_path).map_err(native_error)?;
+    let entry = NativeRememberedProjectFolder {
+        root_path: project.root_path,
+        story_ids,
+        updated_at: now_iso(),
+    };
+
+    index
+        .projects
+        .retain(|project| project.root_path != entry.root_path);
+    index.projects.push(entry.clone());
+    index
+        .projects
+        .sort_by(|left, right| left.root_path.cmp(&right.root_path));
+    write_project_library_index(&index_path, &index).map_err(native_error)?;
+
+    json_string(&entry).map_err(native_error)
+}
+
+#[napi(js_name = "forgetProjectFolderJson")]
+pub fn forget_project_folder_json(index_path: String, root_path: String) -> NativeResult<String> {
+    let index_path = PathBuf::from(index_path);
+    let mut index = read_project_library_index(&index_path).map_err(native_error)?;
+
+    index
+        .projects
+        .retain(|project| project.root_path != root_path);
+    write_project_library_index(&index_path, &index).map_err(native_error)?;
+
+    json_string(&index.projects).map_err(native_error)
+}
+
+#[napi(js_name = "listRememberedProjectFoldersJson")]
+pub fn list_remembered_project_folders_json(index_path: String) -> NativeResult<String> {
+    let index = read_project_library_index(Path::new(&index_path)).map_err(native_error)?;
+
+    json_string(&index.projects).map_err(native_error)
 }
 
 #[napi(js_name = "listProjectAssetsJson")]
@@ -528,6 +601,53 @@ fn write_renderer_project_sidecar(
     }
 
     fs::rename(temp_path, sidecar_path)?;
+    Ok(())
+}
+
+fn default_project_library_index() -> NativeProjectLibraryIndex {
+    NativeProjectLibraryIndex {
+        version: 1,
+        projects: Vec::new(),
+    }
+}
+
+fn read_project_library_index(path: &Path) -> Result<NativeProjectLibraryIndex, NativeBoxError> {
+    match fs::read_to_string(path) {
+        Ok(source) => {
+            let mut index =
+                serde_json::from_str::<NativeProjectLibraryIndex>(&source).map_err(native_error)?;
+
+            index
+                .projects
+                .sort_by(|left, right| left.root_path.cmp(&right.root_path));
+            Ok(index)
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(default_project_library_index()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn write_project_library_index(
+    path: &Path,
+    index: &NativeProjectLibraryIndex,
+) -> Result<(), NativeBoxError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "native-projects.json".into());
+    let temp_path = path.with_file_name(format!("{file_name}.{}.tmp", timestamp_nanos()));
+
+    fs::write(&temp_path, format!("{}\n", json_string(index)?))?;
+
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+
+    fs::rename(temp_path, path)?;
     Ok(())
 }
 
@@ -1379,6 +1499,70 @@ mod tests {
         assert!(!sidecar.contains("A very important passage body"));
 
         fs::remove_dir_all(root).expect("project should be removed");
+    }
+
+    #[test]
+    fn remembers_project_folders_in_native_library_index() {
+        let root = temp_path("project-library-index");
+        let index_path = root.join(".twine/native-projects.json");
+        let first_project = serde_json::json!({
+            "passageTextLoaded": true,
+            "rootPath": "/projects/b.twine.rs",
+            "stories": [],
+            "storyIds": ["story-b"]
+        });
+        let second_project = serde_json::json!({
+            "passageTextLoaded": true,
+            "rootPath": "/projects/a.twine.rs",
+            "stories": [],
+            "storyIds": ["story-a"]
+        });
+        let updated_first_project = serde_json::json!({
+            "passageTextLoaded": true,
+            "rootPath": "/projects/b.twine.rs",
+            "stories": [],
+            "storyIds": ["story-b2"]
+        });
+
+        remember_project_folder_json(
+            index_path.to_string_lossy().into_owned(),
+            first_project.to_string(),
+        )
+        .expect("first project should be remembered");
+        remember_project_folder_json(
+            index_path.to_string_lossy().into_owned(),
+            second_project.to_string(),
+        )
+        .expect("second project should be remembered");
+        remember_project_folder_json(
+            index_path.to_string_lossy().into_owned(),
+            updated_first_project.to_string(),
+        )
+        .expect("project should be updated");
+
+        let listed =
+            list_remembered_project_folders_json(index_path.to_string_lossy().into_owned())
+                .expect("remembered project list should load");
+        let listed: Vec<NativeRememberedProjectFolder> =
+            serde_json::from_str(&listed).expect("remembered project list should parse");
+
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].root_path, "/projects/a.twine.rs");
+        assert_eq!(listed[1].root_path, "/projects/b.twine.rs");
+        assert_eq!(listed[1].story_ids, vec!["story-b2"]);
+
+        let listed = forget_project_folder_json(
+            index_path.to_string_lossy().into_owned(),
+            "/projects/a.twine.rs".into(),
+        )
+        .expect("project should be forgotten");
+        let listed: Vec<NativeRememberedProjectFolder> =
+            serde_json::from_str(&listed).expect("remembered project list should parse");
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].root_path, "/projects/b.twine.rs");
+
+        fs::remove_dir_all(root).expect("index root should be removed");
     }
 
     #[test]

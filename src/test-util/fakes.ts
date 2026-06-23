@@ -116,6 +116,7 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 		appTheme: faker.helpers.arrayElement(['light', 'dark', 'system']),
 		codeEditorFontFamily: faker.lorem.words(2),
 		codeEditorFontScale: 0.8 + faker.number.int(0.5),
+		codeEditorTheme: 'twine',
 		dialogWidth: faker.number.int(600),
 		disabledStoryFormatEditorExtensions: [
 			{name: faker.lorem.words(2), version: faker.system.semver()}
@@ -126,8 +127,9 @@ export function fakePrefs(overrides?: Partial<PrefsState>): PrefsState {
 		defaultAssetFolder: '',
 		defaultProjectFolder: '',
 		firstRunTime: new Date().getTime(),
-		graphDefaultCardSize: 'medium',
+		graphDefaultCardSize: 'twine',
 		graphGeneratedLayoutSavePrompt: true,
+		graphRightClickCreatePassage: true,
 		highContrast: faker.datatype.boolean(),
 		keybindingPreset: 'default',
 		keyboardOnlyEditing: true,

@@ -1,5 +1,5 @@
 .source-editor {
-	background: var(--ink-3);
+	background: var(--source-editor-bg, var(--ink-3));
 	display: flex;
 	flex: 1;
 	min-height: 0;
@@ -8,8 +8,8 @@
 }
 
 .source-editor .cm-editor {
-	background: var(--ink-3);
-	color: var(--tx-2);
+	background: var(--source-editor-bg, var(--ink-3));
+	color: var(--source-editor-fg, var(--tx-2));
 	flex: 1;
 	font-family: var(--font-mono);
 	font-size: 13px;
@@ -28,8 +28,13 @@
 }
 
 .source-editor .cm-content {
-	caret-color: var(--acc-blue);
+	caret-color: var(--source-editor-active-line-border, var(--acc-blue));
 	padding: 10px 0;
+}
+
+.source-editor .cm-cursor {
+	border-left-color: var(--source-editor-active-line-border, var(--acc-blue));
+	border-left-width: 2px;
 }
 
 .source-editor .cm-line {
@@ -43,13 +48,13 @@
 .source-editor .cm-focused .cm-selectionBackground,
 .source-editor .cm-selectionBackground,
 .source-editor .cm-content ::selection {
-	background: var(--sel-wash);
+	background: var(--source-editor-selection-bg, var(--sel-wash));
 }
 
 .source-editor .cm-gutters {
-	background: var(--ink-2);
-	border-right: 1px solid var(--line-1);
-	color: var(--tx-4);
+	background: var(--source-editor-gutter-bg, var(--ink-2));
+	border-right: 1px solid var(--source-editor-gutter-border, var(--line-1));
+	color: var(--source-editor-gutter-fg, var(--tx-4));
 	font-family: var(--font-mono);
 	min-width: 52px;
 }
@@ -59,114 +64,129 @@
 }
 
 .source-editor .cm-foldGutter {
-	color: var(--tx-4);
+	color: var(--source-editor-gutter-fg, var(--tx-4));
 }
 
 .source-editor .cm-activeLine {
-	background: oklch(0.62 0.12 248 / 0.07);
-	box-shadow: inset 2px 0 0 var(--acc-blue);
+	background: var(
+		--source-editor-active-line-bg,
+		oklch(0.62 0.12 248 / 0.07)
+	);
+	box-shadow: inset 2px 0 0
+		var(--source-editor-active-line-border, var(--acc-blue));
 }
 
 .source-editor .cm-activeLineGutter {
-	background: var(--ink-3);
-	color: var(--tx-2);
+	background: var(--source-editor-active-line-gutter-bg, var(--ink-3));
+	color: var(--source-editor-fg, var(--tx-2));
 }
 
 .source-editor .cm-placeholder {
-	color: var(--tx-4);
+	color: var(--source-editor-placeholder, var(--tx-4));
 }
 
 .source-editor .cm-specialChar {
-	color: var(--sem-var);
+	color: var(--source-editor-special-char, var(--sem-var));
 }
 
 .source-editor .cm-matchingBracket,
 .source-editor .cm-nonmatchingBracket {
-	background: var(--sem-link-soft);
-	color: var(--tx-1);
-	outline: 1px solid var(--sem-link);
+	background: var(--source-editor-bracket-bg, var(--sem-link-soft));
+	color: var(--source-editor-bracket-fg, var(--tx-1));
+	outline: 1px solid var(--source-editor-bracket-outline, var(--sem-link));
 }
 
 .source-editor .cm-searchMatch {
-	background: var(--sem-warn-soft);
-	outline: 1px solid var(--sem-warn);
+	background: var(--source-editor-search-bg, var(--sem-warn-soft));
+	outline: 1px solid var(--source-editor-search-outline, var(--sem-warn));
 }
 
 .source-editor .cm-selectionMatch {
-	background: var(--sem-link-soft);
+	background: var(--source-editor-selection-match-bg, var(--sem-link-soft));
 }
 
 .source-editor .cm-tooltip {
-	background: var(--bg-pop);
-	border: 1px solid var(--line-2);
+	background: var(--source-editor-tooltip-bg, var(--bg-pop));
+	border: 1px solid var(--source-editor-tooltip-border, var(--line-2));
 	border-radius: var(--r-sm);
 	box-shadow: var(--shadow-pop);
-	color: var(--tx-2);
+	color: var(--source-editor-tooltip-fg, var(--tx-2));
 	font-family: var(--font-ui);
 }
 
 .source-editor .cm-tooltip-autocomplete ul li[aria-selected] {
-	background: var(--sem-link-soft);
-	color: var(--tx-1);
+	background: var(--source-editor-tooltip-selected-bg, var(--sem-link-soft));
+	color: var(--source-editor-tooltip-selected-fg, var(--tx-1));
 }
 
 .source-editor .cm-twine-link {
-	color: var(--sem-link);
+	color: var(--source-editor-link, var(--sem-link));
 	text-decoration: underline;
-	text-decoration-color: var(--sem-link-soft);
+	text-decoration-color: var(--source-editor-link-underline, var(--sem-link-soft));
 	text-underline-offset: 2px;
 }
 
 .source-editor .cm-twine-link-self {
-	background: var(--sem-saved-soft);
+	background: var(--source-editor-self-link-bg, var(--sem-saved-soft));
 	border-radius: 2px;
-	color: var(--sem-saved);
+	color: var(--source-editor-self-link, var(--sem-saved));
 }
 
 .source-editor .cm-twine-link-broken {
-	color: var(--sem-error);
-	text-decoration: underline wavy var(--sem-error);
+	color: var(--source-editor-broken-link, var(--sem-error));
+	text-decoration: underline wavy
+		var(--source-editor-broken-link, var(--sem-error));
 	text-underline-offset: 2px;
 }
 
 .source-editor .cm-twine-variable {
-	background: var(--sem-var-soft);
+	background: var(--source-editor-variable-bg, var(--sem-var-soft));
 	border-radius: 2px;
-	color: var(--sem-var);
+	color: var(--source-editor-variable, var(--sem-var));
 	font-weight: 600;
 	padding: 0 1px;
 }
 
 .source-editor .cm-twine-macro {
-	color: var(--sem-build);
+	color: var(--source-editor-macro, var(--sem-build));
 	font-weight: 600;
 }
 
 .source-editor .cm-twine-tag {
-	background: var(--sem-tag-soft);
+	background: var(--source-editor-tag-bg, var(--sem-tag-soft));
 	border-radius: 2px;
-	color: var(--sem-tag);
+	color: var(--source-editor-tag, var(--sem-tag));
 	padding: 0 1px;
 }
 
 .source-editor .cm-twine-diagnostic-line {
-	background: color-mix(in oklab, var(--sem-error-soft) 46%, transparent);
+	background: var(
+		--source-editor-diagnostic-bg,
+		color-mix(in oklab, var(--sem-error-soft) 46%, transparent)
+	);
 }
 
 .source-editor .cm-twine-diagnostic-gutter {
-	background: var(--ink-2);
-	border-right: 1px solid var(--line-1);
-	color: var(--sem-error);
+	background: var(--source-editor-diagnostic-gutter-bg, var(--source-editor-gutter-bg, var(--ink-2)));
+	border-right: 1px solid var(--source-editor-gutter-border, var(--line-1));
+	color: var(--source-editor-broken-link, var(--sem-error));
 	width: 18px;
 }
 
 .source-editor .cm-twine-diagnostic-marker {
 	align-items: center;
-	background: var(--sem-error-soft);
-	border: 1px solid color-mix(in oklab, var(--sem-error) 42%, transparent);
+	background: var(
+		--source-editor-diagnostic-marker-bg,
+		var(--sem-error-soft)
+	);
+	border: 1px solid
+		var(
+			--source-editor-diagnostic-border,
+			color-mix(in oklab, var(--sem-error) 42%, transparent)
+		);
 	border-radius: 50%;
 	box-sizing: border-box;
-	color: var(--sem-error);
+	color: var(--source-editor-broken-link, var(--sem-error));
 	display: inline-flex;
 	font-family: var(--font-ui);
 	font-size: 10px;

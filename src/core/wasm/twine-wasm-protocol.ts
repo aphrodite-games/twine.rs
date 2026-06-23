@@ -54,27 +54,32 @@ export type WasmWorkerRequest =
 			snapshot: ProjectSnapshot;
 	  };
 
+export type WasmWorkerMutationResult = {
+	batch: PatchBatch;
+	revision: number;
+};
+
 export type WasmWorkerSuccess =
 	| {
 			id: number;
 			kind: 'apply';
 			metrics: WasmWorkerMetricBase;
 			ok: true;
-			result: PatchBatch;
+			result: WasmWorkerMutationResult;
 	  }
 	| {
 			id: number;
 			kind: 'undo';
 			metrics: WasmWorkerMetricBase;
 			ok: true;
-			result: PatchBatch | null;
+			result: WasmWorkerMutationResult | null;
 	  }
 	| {
 			id: number;
 			kind: 'redo';
 			metrics: WasmWorkerMetricBase;
 			ok: true;
-			result: PatchBatch | null;
+			result: WasmWorkerMutationResult | null;
 	  }
 	| {
 			id: number;

@@ -13,7 +13,7 @@ import {
 	TablerIcon
 } from '../../components/design-system';
 import {storyFileName} from '../../electron/shared';
-import {usePrefsContext} from '../../store/prefs';
+import {defaults as prefsDefaults, usePrefsContext} from '../../store/prefs';
 import {
 	createStory,
 	importStories as importStoriesAction,
@@ -32,8 +32,13 @@ import {
 	projectStoryIdsForCurrentStories
 } from '../../store/merge-project-stories';
 import {markProjectStoryHydration} from '../../store/project-hydration';
-import {useStoryFormatsContext} from '../../store/story-formats';
+import {
+	formatWithNameAndVersion,
+	StoryFormat,
+	useStoryFormatsContext
+} from '../../store/story-formats';
 import {useStoriesRepair} from '../../store/use-stories-repair';
+import {repairStory} from '../../store/stories/reducer/repair/repair-story';
 import {importStoriesAsync as importStoriesFromHtml} from '../../util/import';
 import {
 	markPerformance,
@@ -185,6 +190,25 @@ function nativeFilePath(file: File) {
 
 function canPrepareNativeImport(file: File) {
 	return /\.(html?|zip)$/i.test(file.name);
+}
+
+function safeRepairFormat(
+	formats: StoryFormat[],
+	preferredFormat: {name: string; version: string}
+) {
+	for (const candidate of [preferredFormat, prefsDefaults().storyFormat]) {
+		try {
+			return formatWithNameAndVersion(
+				formats,
+				candidate.name,
+				candidate.version
+			);
+		} catch {
+			// Try the next known-safe format.
+		}
+	}
+
+	return undefined;
 }
 
 async function parseImportFile(file: File) {
@@ -535,7 +559,22 @@ export const NewProjectRoute: React.FC = () => {
 		}
 
 		try {
-			const storiesToImport = selectedStories.map(storyWithImportIdentity);
+			const identityStories = selectedStories.map(storyWithImportIdentity);
+			const defaultRepairFormat = safeRepairFormat(
+				formats,
+				prefs.storyFormat
+			);
+			const storiesToImport = defaultRepairFormat
+				? identityStories.map(story =>
+						repairStory(
+							story,
+							identityStories,
+							formats,
+							defaultRepairFormat
+						)
+					)
+				: identityStories;
+
 			setImporting(true);
 			setImportProgress({detail: 'Writing project folders', progress: 62});
 			const projectResults = await Promise.all(

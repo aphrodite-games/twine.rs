@@ -3,6 +3,8 @@ import {load} from '../load';
 import {Story} from '../../../../stories/stories.types';
 import {fakeAppInfo, fakeStory} from '../../../../../test-util';
 import {publishStory} from '../../../../../util/publish';
+import {projectStoryHydration} from '../../../../project-hydration';
+import {loadProjectMetadata} from '../../../../project-metadata';
 
 describe('stories Electron IPC load', () => {
 	const electronWindow = window as TwineElectronWindow;
@@ -20,6 +22,7 @@ describe('stories Electron IPC load', () => {
 	}
 
 	beforeEach(() => {
+		window.localStorage.clear();
 		stories = [fakeStory(), fakeStory()];
 		storydata = stories.map(story => ({
 			htmlSource: publishStory(story, fakeAppInfo()),
@@ -57,6 +60,36 @@ describe('stories Electron IPC load', () => {
 			expect(result.startPassage).toBe(result.passages[0].id);
 			expect(result.passages[0].story).toBe(result.id);
 		}
+	});
+
+	it('loads native project story entries without importing HTML', async () => {
+		const story = fakeStory(1);
+
+		mockLoadStories([
+			{
+				kind: 'native-project',
+				passageTextLoaded: false,
+				rootPath: '/native/moon-castle.twine.rs',
+				story,
+				storyIds: [story.id]
+			}
+		]);
+
+		expect(await load()).toEqual([story]);
+		expect(loadProjectMetadata(story.id)).toEqual(
+			expect.objectContaining({
+				rootPath: '/native/moon-castle.twine.rs',
+				status: 'file-backed',
+				storageKind: 'electron-project-folder',
+				storyId: story.id
+			})
+		);
+		expect(projectStoryHydration(story.id)).toEqual(
+			expect.objectContaining({
+				passageTextLoaded: false,
+				rootPath: '/native/moon-castle.twine.rs'
+			})
+		);
 	});
 
 	it("preserves stories' modification time", async () => {

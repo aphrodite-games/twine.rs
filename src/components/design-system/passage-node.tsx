@@ -8,6 +8,8 @@ export interface PassageNodeProps extends React.HTMLAttributes<HTMLDivElement> {
 	title: string;
 	excerpt?: string;
 	tags?: string[];
+	tagColors?: Record<string, string>;
+	tagDisplay?: 'color' | 'name';
 	links?: number;
 	broken?: number;
 	start?: boolean;
@@ -25,6 +27,8 @@ export const PassageNode: React.FC<PassageNodeProps> = ({
 	onKeyDown,
 	selected = false,
 	start = false,
+	tagColors,
+	tagDisplay = 'color',
 	tags = [],
 	title,
 	...rest
@@ -73,13 +77,28 @@ export const PassageNode: React.FC<PassageNodeProps> = ({
 				</div>
 				{excerpt && <div className="tw-node__excerpt">{excerpt}</div>}
 				{tags.length > 0 && (
-					<div className="tw-node__tags">
+					<div
+						className={classNames(
+							'tw-node__tags',
+							tagDisplay === 'name' && 'tw-node__tags--names'
+						)}
+					>
 						{tags.map((tag, index) => (
 							<span
-								className="tw-node__tag"
+								className={
+									tagDisplay === 'name'
+										? 'tw-node__tag-name'
+										: 'tw-node__tag'
+								}
 								key={`${tag}-${index}`}
-								style={{background: colorToCss(tag)}}
-							/>
+								style={
+									tagDisplay === 'name'
+										? {borderColor: colorToCss(tagColors?.[tag] ?? 'blue')}
+										: {background: colorToCss(tagColors?.[tag] ?? tag)}
+								}
+							>
+								{tagDisplay === 'name' ? tag : null}
+							</span>
 						))}
 					</div>
 				)}

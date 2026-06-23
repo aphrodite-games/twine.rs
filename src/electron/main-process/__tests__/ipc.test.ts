@@ -177,7 +177,8 @@ describe('initIpc()', () => {
 			externalEditorCommand: '',
 			fullscreenPersistence: true,
 			lastWindowFullscreen: false,
-			linkHandlingMode: 'system'
+			linkHandlingMode: 'system',
+			scratchAssetStrategy: 'link'
 		});
 		openProjectFolderMock.mockResolvedValue(undefined);
 		prepareProjectImportMock.mockResolvedValue({
@@ -213,7 +214,8 @@ describe('initIpc()', () => {
 			externalEditorCommand: '',
 			fullscreenPersistence: true,
 			lastWindowFullscreen: false,
-			linkHandlingMode: 'system'
+			linkHandlingMode: 'system',
+			scratchAssetStrategy: 'link'
 		});
 		revealBackupDirectoryMock.mockResolvedValue(undefined);
 		revealStoryDirectoryMock.mockResolvedValue(undefined);

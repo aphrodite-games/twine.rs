@@ -7,7 +7,7 @@
 		transparent 1.5px
 	);
 	background-color: var(--ink-void);
-	background-size: 26px 26px;
+	background-size: 25px 25px;
 
 	/*
 	These minimums are to guarantee that the passage map fills the viewport
