@@ -34,12 +34,27 @@ import {
 	graphSnapMajorGridSize,
 	snapToGraphGrid
 } from './graph-grid';
+import type {
+	StoryGraphDensity,
+	StoryGraphOrientation,
+	StoryGraphTool,
+	StoryGraphWorkspaceOptions,
+	StoryGraphWorkspaceView
+} from './workspace-state';
 
 export interface StoryGraphPanelProps {
+	graphOptions?: StoryGraphWorkspaceOptions;
+	graphView?: StoryGraphWorkspaceView;
 	onCreate: (point: Point, size?: {height: number; width: number}) => void;
 	onDeselect: (passage: Passage) => void;
 	onEdit: (passage: Passage) => void;
 	onEditPassages: (passages: Passage[]) => void;
+	onGraphOptionsChange?: React.Dispatch<
+		React.SetStateAction<StoryGraphWorkspaceOptions>
+	>;
+	onGraphViewChange?: React.Dispatch<
+		React.SetStateAction<StoryGraphWorkspaceView | undefined>
+	>;
 	onSelect: (passage: Passage, exclusive: boolean) => void;
 	onSelectIds: (passageIds: string[], additive: boolean) => void;
 	onTestPassage?: (passage: Passage) => void;
@@ -54,14 +69,10 @@ export interface StoryGraphPanelProps {
  * `x`/`y`; zoom changes `k` while keeping the world point under the cursor
  * pinned. There is no scrolling — see WORKBENCH_INTEGRATION.md.
  */
-interface GraphView {
-	k: number;
-	x: number;
-	y: number;
-}
-
-type GraphDensity = 'structure' | 'names' | 'excerpt';
-type GraphOrientation = 'right' | 'down' | 'left' | 'up';
+type GraphView = StoryGraphWorkspaceView;
+type GraphDensity = StoryGraphDensity;
+type GraphOrientation = StoryGraphOrientation;
+type GraphTool = StoryGraphTool;
 type GraphSizePreset = GraphCardSizePreference;
 type ResizeCorner = 'bottom-left' | 'bottom-right' | 'top-left';
 
@@ -444,6 +455,42 @@ function defaultGraphDensity(story: Story): GraphDensity {
 	return story.passages.length > largeStoryPassageCount
 		? 'structure'
 		: 'excerpt';
+}
+
+function initialGraphView(
+	story: Story,
+	workspaceView: StoryGraphWorkspaceView | undefined
+): GraphView {
+	return {
+		k: clampZoom(workspaceView?.k ?? (story.zoom || graphInitialView.k)),
+		x: workspaceView?.x ?? graphInitialView.x,
+		y: workspaceView?.y ?? graphInitialView.y
+	};
+}
+
+function graphLayers(
+	options: StoryGraphWorkspaceOptions | undefined
+): CoreLinkLayerOptions {
+	return {
+		broken: options?.layers?.broken ?? true,
+		resolved: options?.layers?.resolved ?? true,
+		selfLinks: options?.layers?.selfLinks ?? true
+	};
+}
+
+function sameGraphView(left: GraphView, right: GraphView) {
+	return left.k === right.k && left.x === right.x && left.y === right.y;
+}
+
+function sameGraphLayers(
+	left: CoreLinkLayerOptions,
+	right: CoreLinkLayerOptions
+) {
+	return (
+		left.broken === right.broken &&
+		left.resolved === right.resolved &&
+		left.selfLinks === right.selfLinks
+	);
 }
 
 function resizeOffset(
@@ -875,10 +922,14 @@ function minimapTransform(bounds: CoreRect | null) {
 
 export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	const {
+		graphOptions,
+		graphView,
 		onCreate,
 		onDeselect,
 		onEdit,
 		onEditPassages,
+		onGraphOptionsChange,
+		onGraphViewChange,
 		onSelect,
 		onSelectIds,
 		onTestPassage,
@@ -891,26 +942,26 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	// The whole graph (grid + edges + nodes) rides one transformed world layer.
 	// `view.k` is the live, un-animated zoom; `visibleZoom` aliases it so the
 	// projection / edge / resize math below stays unchanged.
-	const [view, setView] = React.useState<GraphView>(() => ({
-		...graphInitialView,
-		k: clampZoom(story.zoom || graphInitialView.k)
-	}));
+	const [view, setView] = React.useState<GraphView>(() =>
+		initialGraphView(story, graphView)
+	);
 	const visibleZoom = view.k;
 	const viewRef = React.useRef(view);
 	viewRef.current = view;
 	const persistZoomFrame = React.useRef<number>();
+	const persistGraphViewFrame = React.useRef<number>();
 	const {dispatch: prefsDispatch, prefs} = usePrefsContext();
-	const [density, setDensity] = React.useState<GraphDensity>(() =>
-		defaultGraphDensity(story)
+	const [density, setDensity] = React.useState<GraphDensity>(
+		() => graphOptions?.density ?? defaultGraphDensity(story)
 	);
-	const orientation: GraphOrientation = 'right';
+	const orientation: GraphOrientation = graphOptions?.orientation ?? 'right';
 	const defaultSize = prefs.graphDefaultCardSize;
-	const [focusSelection, setFocusSelection] = React.useState(false);
-	const [layers, setLayers] = React.useState<CoreLinkLayerOptions>({
-		broken: true,
-		resolved: true,
-		selfLinks: true
-	});
+	const [focusSelection, setFocusSelection] = React.useState(
+		graphOptions?.focusSelection ?? false
+	);
+	const [layers, setLayers] = React.useState<CoreLinkLayerOptions>(() =>
+		graphLayers(graphOptions)
+	);
 	const [drag, setDrag] = React.useState<DragState>();
 	const dragRef = React.useRef<DragState>();
 	const [marquee, setMarquee] = React.useState<MarqueeState>();
@@ -920,7 +971,9 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	>({});
 	const [resize, setResize] = React.useState<ResizeState>();
 	const [shiftSelecting, setShiftSelecting] = React.useState(false);
-	const [tool, setTool] = React.useState<'select' | 'pan'>('select');
+	const [tool, setTool] = React.useState<GraphTool>(
+		graphOptions?.tool ?? 'select'
+	);
 	const [spaceDown, setSpaceDown] = React.useState(false);
 	const [viewport, setViewport] = React.useState<ViewportState>({
 		height: 1,
@@ -1343,8 +1396,54 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 	}, [readViewport, updateViewport]);
 
 	React.useEffect(() => {
-		setDensity(defaultGraphDensity(story));
-	}, [story.id]);
+		const nextView = initialGraphView(story, graphView);
+		const nextDensity = graphOptions?.density ?? defaultGraphDensity(story);
+		const nextFocusSelection = graphOptions?.focusSelection ?? false;
+		const nextLayers = graphLayers(graphOptions);
+		const nextTool = graphOptions?.tool ?? 'select';
+
+		setView(current => (sameGraphView(current, nextView) ? current : nextView));
+		setDensity(current => (current === nextDensity ? current : nextDensity));
+		setFocusSelection(current =>
+			current === nextFocusSelection ? current : nextFocusSelection
+		);
+		setLayers(current =>
+			sameGraphLayers(current, nextLayers) ? current : nextLayers
+		);
+		setTool(current => (current === nextTool ? current : nextTool));
+	}, [graphOptions, graphView, story]);
+
+	React.useEffect(() => {
+		onGraphOptionsChange?.({
+			density,
+			focusSelection,
+			layers,
+			orientation,
+			tool
+		});
+	}, [
+		density,
+		focusSelection,
+		layers,
+		onGraphOptionsChange,
+		orientation,
+		tool
+	]);
+
+	React.useEffect(() => {
+		if (!onGraphViewChange) {
+			return;
+		}
+
+		if (persistGraphViewFrame.current !== undefined) {
+			window.clearTimeout(persistGraphViewFrame.current);
+		}
+
+		persistGraphViewFrame.current = window.setTimeout(() => {
+			persistGraphViewFrame.current = undefined;
+			onGraphViewChange(viewRef.current);
+		}, 400);
+	}, [onGraphViewChange, view]);
 
 	// The logical viewport (used for projection tiling + minimap) is a pure
 	// function of the transform, so recompute it whenever the view changes.
@@ -1357,8 +1456,14 @@ export const StoryGraphPanel: React.FC<StoryGraphPanelProps> = props => {
 			if (persistZoomFrame.current !== undefined) {
 				window.clearTimeout(persistZoomFrame.current);
 			}
+
+			if (persistGraphViewFrame.current !== undefined) {
+				window.clearTimeout(persistGraphViewFrame.current);
+			}
+
+			onGraphViewChange?.(viewRef.current);
 		},
-		[]
+		[onGraphViewChange]
 	);
 
 	React.useEffect(() => {

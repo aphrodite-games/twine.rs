@@ -109,7 +109,7 @@ describe('<StoryEditRoute>', () => {
 			'twine-story-edit-workspace',
 			JSON.stringify({mode: 'graph'})
 		);
-		const {container} = await renderComponent(story);
+		const {container, unmount} = await renderComponent(story);
 		let graphNode: HTMLElement | null = null;
 
 		await waitFor(
@@ -132,6 +132,69 @@ describe('<StoryEditRoute>', () => {
 			{timeout: 4000}
 		);
 		expect(container.querySelector('.passage-edit-stack')).toBeNull();
+
+		await waitFor(() =>
+			expect(
+				JSON.parse(
+					window.localStorage.getItem(
+						`twine-story-edit-workspace-${story.id}`
+					) ?? '{}'
+				)
+			).toEqual(
+				expect.objectContaining({
+					activeWindowId: `passage:${story.passages[0].id}`,
+					editorWindows: [{kind: 'passage', passageId: story.passages[0].id}],
+					mode: 'split'
+				})
+			)
+		);
+
+		unmount();
+
+		await renderComponent(story);
+		expect(
+			await screen.findByTestId(`story-editor-window-${story.passages[0].id}`)
+		).toBeInTheDocument();
+	});
+
+	it('restores persisted editor windows and prunes stale passage windows', async () => {
+		const story = fakeStory(2);
+
+		story.passages[0].id = 'start';
+		story.passages[0].name = 'Start';
+		story.passages[1].id = 'next';
+		story.passages[1].name = 'Next';
+		story.startPassage = 'start';
+		story.stylesheet = 'tw-story { color: red; }';
+		window.localStorage.setItem(
+			`twine-story-edit-workspace-${story.id}`,
+			JSON.stringify({
+				activeWindowId: 'stylesheet',
+				editorWindows: [
+					{kind: 'passage', passageId: 'start'},
+					{kind: 'stylesheet'},
+					{kind: 'passage', passageId: 'deleted'}
+				],
+				mode: 'split'
+			})
+		);
+
+		const {container} = await renderComponent(story);
+
+		expect(
+			await screen.findByTestId('story-editor-window-start')
+		).toBeInTheDocument();
+		expect(
+			screen.getByTestId(`story-editor-window-${story.id}:stylesheet`)
+		).toBeInTheDocument();
+		expect(
+			container.querySelector('#story-editor-window-deleted')
+		).not.toBeInTheDocument();
+		expect(
+			container.querySelector(
+				`.story-edit-editor-window.is-active #story-editor-window-${story.id}\\:stylesheet`
+			)
+		).toBeInTheDocument();
 	});
 
 	it('returns to graph mode after closing the last editor from split mode', async () => {

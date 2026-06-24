@@ -2,6 +2,7 @@ import {fakePassage, fakeStory} from '../../../test-util';
 import {
 	initialModeForStory,
 	preferredModeForStory,
+	readProjectWorkspaceForStory,
 	setStoryEditScrollMemory
 } from '../workspace-state';
 
@@ -76,6 +77,19 @@ describe('story edit workspace state', () => {
 		expect(initialModeForStory(story, undefined, 'split')).toBe('graph');
 	});
 
+	it('restores split workspace memory when open editor windows are present', () => {
+		const story = fakeStory();
+
+		story.passages = [
+			fakePassage({height: 100, left: 120, text: 'Once', top: 80, width: 100}),
+			fakePassage({height: 100, left: 320, text: 'Again', top: 80, width: 100})
+		];
+
+		expect(initialModeForStory(story, 'split', 'graph', 'auto', true)).toBe(
+			'split'
+		);
+	});
+
 	it('opens source-only stories in text mode before workspace mode memory', () => {
 		const story = fakeStory();
 
@@ -98,5 +112,55 @@ describe('story edit workspace state', () => {
 			graph: {left: 10, top: 20},
 			text: {left: 30, top: 40}
 		});
+	});
+
+	it('sanitizes stale editor windows and graph workspace state on read', () => {
+		const story = fakeStory(2);
+
+		story.id = 'story-1';
+		story.passages[0].id = 'start';
+		story.passages[1].id = 'next';
+
+		window.localStorage.setItem(
+			'twine-story-edit-workspace-story-1',
+			JSON.stringify({
+				activeWindowId: 'passage:missing',
+				editorWindows: [
+					{kind: 'passage', passageId: 'start'},
+					{kind: 'passage', passageId: 'missing'},
+					{kind: 'script'},
+					{kind: 'script'},
+					{kind: 'bogus'}
+				],
+				graphOptions: {
+					density: 'names',
+					focusSelection: true,
+					layers: {broken: false, resolved: true, selfLinks: false},
+					orientation: 'right',
+					tool: 'pan'
+				},
+				graphView: {k: 1.4, x: -120, y: 80},
+				mode: 'split'
+			})
+		);
+
+		expect(readProjectWorkspaceForStory(story)).toEqual(
+			expect.objectContaining({
+				activeWindowId: 'passage:start',
+				editorWindows: [
+					{kind: 'passage', passageId: 'start'},
+					{kind: 'script'}
+				],
+				graphOptions: {
+					density: 'names',
+					focusSelection: true,
+					layers: {broken: false, resolved: true, selfLinks: false},
+					orientation: 'right',
+					tool: 'pan'
+				},
+				graphView: {k: 1.4, x: -120, y: 80},
+				mode: 'split'
+			})
+		);
 	});
 });

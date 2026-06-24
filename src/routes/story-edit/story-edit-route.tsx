@@ -105,13 +105,6 @@ export const InnerStoryEditRoute: React.FC = () => {
 		key: 0,
 		passageId: ''
 	});
-	// The open editor buffers (the dock). `undefined` means "follow the
-	// selection" — the dock shows whichever passage is selected. Once the user
-	// explicitly opens/edits, it becomes a concrete, user-managed list.
-	const [editorWindows, setEditorWindows] = React.useState<
-		EditorWindowSpec[] | undefined
-	>();
-	const [activeWindowId, setActiveWindowId] = React.useState<string>();
 	const [revealRequests, setRevealRequests] = React.useState(
 		() => new Map<string, {key: number; position?: number}>()
 	);
@@ -132,25 +125,8 @@ export const InnerStoryEditRoute: React.FC = () => {
 	useInitialPassageCreation(story, getCenter);
 	useStoryEditScrollMemory(story.id, workspace.mode, mainContent);
 
-	const editorWindowsRef = React.useRef(editorWindows);
-	editorWindowsRef.current = editorWindows;
-
-	// Drop passage windows whose passage was deleted.
-	React.useEffect(() => {
-		setEditorWindows(current => {
-			if (!current) {
-				return current;
-			}
-
-			const availableIds = new Set(story.passages.map(passage => passage.id));
-			const next = current.filter(
-				window_ =>
-					window_.kind !== 'passage' || availableIds.has(window_.passageId)
-			);
-
-			return next.length === current.length ? current : next;
-		});
-	}, [story.passages]);
+	const editorWindowsRef = React.useRef(workspace.editorWindows);
+	editorWindowsRef.current = workspace.editorWindows;
 
 	const handleChoosePassage = React.useCallback(
 		(passage: Passage) => {
@@ -175,14 +151,14 @@ export const InnerStoryEditRoute: React.FC = () => {
 
 	const openEditorWindow = React.useCallback(
 		(spec: EditorWindowSpec) => {
-			setEditorWindows(current => {
+			workspace.setEditorWindows(current => {
 				const list = current ?? materializedWindows();
 
 				return list.some(window_ => editorWindowsEqual(window_, spec))
 					? list
 					: [...list, spec];
 			});
-			setActiveWindowId(editorWindowId(spec));
+			workspace.setActiveWindowId(editorWindowId(spec));
 
 			if (spec.kind === 'passage') {
 				workspace.setSelectedPassageId(spec.passageId);
@@ -214,7 +190,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 				})
 			);
 
-			setEditorWindows(current => {
+			workspace.setEditorWindows(current => {
 				const next = [...(current ?? materializedWindows())];
 
 				for (const spec of specs) {
@@ -226,7 +202,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 				return next;
 			});
 			workspace.setSelectedPassageId(passages[0].id);
-			setActiveWindowId(editorWindowId(specs[0]));
+			workspace.setActiveWindowId(editorWindowId(specs[0]));
 
 			if (workspace.mode === 'graph') {
 				workspace.setMode('split');
@@ -241,8 +217,8 @@ export const InnerStoryEditRoute: React.FC = () => {
 				window_ => !editorWindowsEqual(window_, spec)
 			);
 
-			setEditorWindows(next);
-			setActiveWindowId(current =>
+			workspace.setEditorWindows(next);
+			workspace.setActiveWindowId(current =>
 				current === id
 					? next.length
 						? editorWindowId(next[next.length - 1])
@@ -258,7 +234,7 @@ export const InnerStoryEditRoute: React.FC = () => {
 	);
 	const handleFocusEditorWindow = React.useCallback(
 		(id: string) => {
-			setActiveWindowId(id);
+			workspace.setActiveWindowId(id);
 
 			if (id.startsWith('passage:')) {
 				workspace.setSelectedPassageId(id.slice('passage:'.length));
@@ -276,9 +252,9 @@ export const InnerStoryEditRoute: React.FC = () => {
 			}
 
 			list.splice(to, 0, moved);
-			setEditorWindows(list);
+			workspace.setEditorWindows(list);
 		},
-		[materializedWindows]
+		[materializedWindows, workspace]
 	);
 	const handleRevealPassageInGraph = React.useCallback(
 		(passage: Passage) => {
@@ -438,7 +414,11 @@ export const InnerStoryEditRoute: React.FC = () => {
 					bottomDrawerOpen={workspace.bottomDrawerOpen}
 					graphPanel={
 						<StoryGraphPanel
+							graphOptions={workspace.graphOptions}
+							graphView={workspace.graphView}
 							onCreate={handleCreatePassage}
+							onGraphOptionsChange={workspace.setGraphOptions}
+							onGraphViewChange={workspace.setGraphView}
 							onDeselect={handleDeselectPassage}
 							onEdit={handleEditPassage}
 							onEditPassages={handleEditPassages}
@@ -453,8 +433,8 @@ export const InnerStoryEditRoute: React.FC = () => {
 					}
 					leftDockCollapsed={workspace.leftDockCollapsed}
 					mode={workspace.mode}
-					activeWindowId={activeWindowId}
-					editorWindows={editorWindows}
+					activeWindowId={workspace.activeWindowId}
+					editorWindows={workspace.editorWindows}
 					onChangeBottomDrawerOpen={workspace.setBottomDrawerOpen}
 					onChangeLeftDockCollapsed={workspace.setLeftDockCollapsed}
 					onChangeRightDockCollapsed={workspace.setRightDockCollapsed}

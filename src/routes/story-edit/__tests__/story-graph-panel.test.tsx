@@ -8,6 +8,10 @@ import {StoriesContext} from '../../../store/stories';
 import {UndoableStoriesContext} from '../../../store/undoable-stories';
 import {fakePassage, fakeStory} from '../../../test-util';
 import {StoryGraphPanel} from '../story-graph-panel';
+import type {
+	StoryGraphWorkspaceOptions,
+	StoryGraphWorkspaceView
+} from '../workspace-state';
 
 function graphStory(generatedLayout = false) {
 	const story = fakeStory(0);
@@ -56,6 +60,10 @@ function renderComponent(
 		visibleZoom?: number;
 		zoom?: number;
 		prefs?: Partial<PrefsState>;
+		graphOptions?: StoryGraphWorkspaceOptions;
+		graphView?: StoryGraphWorkspaceView;
+		onGraphOptionsChange?: jest.Mock;
+		onGraphViewChange?: jest.Mock;
 	} = {}
 ) {
 	const {next, start, story} = graphStory(generatedLayout);
@@ -105,10 +113,14 @@ function renderComponent(
 		return (
 			<TestProviders>
 				<StoryGraphPanel
+					graphOptions={options.graphOptions}
+					graphView={options.graphView}
 					onCreate={onCreate}
 					onDeselect={onDeselect}
 					onEdit={onEdit}
 					onEditPassages={onEditPassages}
+					onGraphOptionsChange={options.onGraphOptionsChange}
+					onGraphViewChange={options.onGraphViewChange}
 					onSelect={(passage, solo) => {
 						onSelect(passage, solo);
 
@@ -399,6 +411,66 @@ describe('<StoryGraphPanel>', () => {
 		expect(worldView(result.container)).toEqual({k: 1, x: 80, y: 60});
 	});
 
+	it('restores graph workspace view, tool, layers, focus, and density', async () => {
+		const querySpy = jest.spyOn(
+			StoreCoreProjectHost.prototype,
+			'queryGraphProjectionAsync'
+		);
+		const {result, start, story} = renderComponent(
+			false,
+			({start}) => {
+				start.selected = true;
+			},
+			{
+				graphOptions: {
+					density: 'structure',
+					focusSelection: true,
+					layers: {broken: false, resolved: true, selfLinks: false},
+					orientation: 'right',
+					tool: 'pan'
+				},
+				graphView: {k: 1.4, x: -140, y: 90},
+				zoom: 1.4
+			}
+		);
+
+		await waitForNode(result.container, 'start');
+
+		expect(worldView(result.container)).toEqual({k: 1.4, x: -140, y: 90});
+		expect(
+			screen.getByRole('button', {name: 'Pan tool (H, or hold Space)'})
+		).toHaveAttribute('aria-pressed', 'true');
+		expect(
+			screen.getByRole('button', {name: 'Select tool (V)'})
+		).not.toHaveAttribute('aria-pressed', 'true');
+		expect(
+			screen.getByRole('button', {name: 'Broken links'})
+		).not.toHaveAttribute('aria-pressed', 'true');
+		expect(
+			screen.getByRole('button', {name: 'Self links'})
+		).not.toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByRole('tab', {name: /Structure/})).toHaveAttribute(
+			'aria-selected',
+			'true'
+		);
+		await waitFor(() =>
+			expect(querySpy).toHaveBeenCalledWith(
+				story.id,
+				expect.objectContaining({
+					focus: expect.objectContaining({
+						passageIds: [start.id]
+					}),
+					layers: expect.objectContaining({
+						broken: false,
+						resolved: true,
+						selfLinks: false
+					}),
+					viewport: null
+				})
+			)
+		);
+	});
+
 	it('uses a bounded initial graph projection before viewport measurement', () => {
 		const querySpy = jest.spyOn(
 			StoreCoreProjectHost.prototype,
@@ -584,6 +656,65 @@ describe('<StoryGraphPanel>', () => {
 
 		expect(after.x).toBe(start.x - 50);
 		expect(after.y).toBe(start.y - 30);
+	});
+
+	it('persists graph workspace view through the debounced callback', async () => {
+		const onGraphViewChange = jest.fn();
+		const {result} = renderComponent(false, undefined, {onGraphViewChange});
+		const viewport = result.container.querySelector(
+			'.story-edit-graph-viewport'
+		) as HTMLElement;
+		const start = worldView(result.container);
+
+		fireEvent.pointerDown(
+			viewport,
+			new PointerEvent('pointerdown', {
+				button: 1,
+				clientX: 120,
+				clientY: 110,
+				pointerId: 9
+			})
+		);
+		fireEvent.pointerMove(
+			viewport,
+			new PointerEvent('pointermove', {
+				button: 1,
+				clientX: 70,
+				clientY: 80,
+				pointerId: 9
+			})
+		);
+
+		await waitFor(() =>
+			expect(onGraphViewChange).toHaveBeenCalledWith({
+				k: start.k,
+				x: start.x - 50,
+				y: start.y - 30
+			})
+		);
+	});
+
+	it('persists graph workspace options when toolbar state changes', async () => {
+		const onGraphOptionsChange = jest.fn();
+
+		renderComponent(false, undefined, {onGraphOptionsChange});
+		onGraphOptionsChange.mockClear();
+
+		fireEvent.click(
+			screen.getByRole('button', {name: 'Pan tool (H, or hold Space)'})
+		);
+		fireEvent.click(screen.getByRole('button', {name: 'Broken links'}));
+		fireEvent.click(screen.getByRole('tab', {name: /Names/}));
+
+		await waitFor(() =>
+			expect(onGraphOptionsChange).toHaveBeenCalledWith(
+				expect.objectContaining({
+					density: 'names',
+					layers: expect.objectContaining({broken: false}),
+					tool: 'pan'
+				})
+			)
+		);
 	});
 
 	it('shows pointer-down selection feedback and additive selection immediately', async () => {
