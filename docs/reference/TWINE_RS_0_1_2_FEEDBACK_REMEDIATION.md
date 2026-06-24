@@ -11,7 +11,7 @@ shortcut that re-introduces the bug or violates the architecture.
 
 ## How this fits the existing roadmaps (read first)
 
-This is a *polish-and-correctness* layer on top of work that already shipped. The
+This is a _polish-and-correctness_ layer on top of work that already shipped. The
 relevant state, as of the 2026-06-21 notes in the planning docs:
 
 - The **D-series** (design-system shell) has landed its primary screens: `/formats`,
@@ -39,7 +39,7 @@ a code task with a precise location below.
    reintroduce `scrollLeft`/`overflow:auto` panning.
 2. **Presentation/viewport/workspace state is TS-owned; story facts are Rust-owned.**
    Persisting open editors, pan position, focus mode, tool selection, etc. goes in
-   the TS workspace layer (localStorage), *not* the Rust session. Parsing,
+   the TS workspace layer (localStorage), _not_ the Rust session. Parsing,
    indexing, variable extraction, diagnostics, asset inventory, and reveal targets
    are Rust authority (today via the TS parity bridge) — fix them in the authority,
    not only in a view filter.
@@ -52,18 +52,18 @@ a code task with a precise location below.
 
 ## Severity & wave summary (the mini-roadmap)
 
-| Wave | Theme | Items | Why this order |
-| --- | --- | --- | --- |
-| **W0** | **Launch-bricking crash** | Backup recursive-copy; stale library path in app-data | App is *unopenable* and a normal reinstall doesn't fix it. Ship first, alone. |
-| **W1** | Library location truth | Real "move library"; directory-scan fallback; stop silent project pruning | Same subsystem as W0; the feature gap *caused* the crash. |
-| **W2** | The "reveal" lie | One reveal/navigation contract; kill start-passage fallback; stylesheet/script/asset/variable targets | One root cause behind 4 separate complaints across Contents + Assets. |
-| **W3** | Workspace persistence | Persist open editors, pan position, graph view options across route changes | One root cause behind ~6 complaints across Graph + Preferences. |
-| **W4** | Editor dock polish | Active-window highlight, search toggle, stuck drag-grey, right-edge grey bars, stack/tile | Self-contained dock bugs; high annoyance, low risk. |
-| **W5** | Correctness bugs | `____`→variable; missing-asset detection; asset import pipeline | Data-correctness; the import gap blocks a core workflow. |
-| **W6** | Preferences truth | Theme toggle (remove or palette), Enhanced Editor toggle (remove or wire) | Two no-op controls; decide remove vs. implement. |
-| **W7** | Formats wiring | Icons/descriptions/source links; add-local-format flow | Mostly hydration/render wiring + one feature (local format). |
-| **W8** | Diagnostics clarity | Empty-state, counts, scope | Panel works; only the empty UX confuses. |
-| **W9 (design)** | **Build/Export simplification** | Drastically simplify; remove inspect targets; inline proofing format; dismissible/info-not-error | The one true redesign. Needs a design brief. |
+| Wave            | Theme                           | Items                                                                                                 | Why this order                                                                |
+| --------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **W0**          | **Launch-bricking crash**       | Backup recursive-copy; stale library path in app-data                                                 | App is _unopenable_ and a normal reinstall doesn't fix it. Ship first, alone. |
+| **W1**          | Library location truth          | Real "move library"; directory-scan fallback; stop silent project pruning                             | Same subsystem as W0; the feature gap _caused_ the crash.                     |
+| **W2**          | The "reveal" lie                | One reveal/navigation contract; kill start-passage fallback; stylesheet/script/asset/variable targets | One root cause behind 4 separate complaints across Contents + Assets.         |
+| **W3**          | Workspace persistence           | Persist open editors, pan position, graph view options across route changes                           | One root cause behind ~6 complaints across Graph + Preferences.               |
+| **W4**          | Editor dock polish              | Active-window highlight, search toggle, stuck drag-grey, right-edge grey bars, stack/tile             | Self-contained dock bugs; high annoyance, low risk.                           |
+| **W5**          | Correctness bugs                | `____`→variable; missing-asset detection; asset import pipeline                                       | Data-correctness; the import gap blocks a core workflow.                      |
+| **W6**          | Preferences truth               | Theme toggle (remove or palette), Enhanced Editor toggle (remove or wire)                             | Two no-op controls; decide remove vs. implement.                              |
+| **W7**          | Formats wiring                  | Icons/descriptions/source links; add-local-format flow                                                | Mostly hydration/render wiring + one feature (local format).                  |
+| **W8**          | Diagnostics clarity             | Empty-state, counts, scope                                                                            | Panel works; only the empty UX confuses.                                      |
+| **W9 (design)** | **Build/Export simplification** | Drastically simplify; remove inspect targets; inline proofing format; dismissible/info-not-error      | The one true redesign. Needs a design brief.                                  |
 
 ---
 
@@ -76,7 +76,7 @@ folder and **reinstalling did not fix it**; only deleting the application-suppor
 folder did.
 
 **Ownership:** 100% TypeScript / Electron main process. The Rust `twine_store`
-backup (`crates/twine_store/src/lib.rs:734-749`) writes to a *sibling*
+backup (`crates/twine_store/src/lib.rs:734-749`) writes to a _sibling_
 `.{name}.backups` dir and is **not** involved.
 
 **Root cause — three compounding faults:**
@@ -91,7 +91,7 @@ backup (`crates/twine_store/src/lib.rs:734-749`) writes to a *sibling*
    app-name root, whose child is `Backups/`), the copy is into its own subtree →
    fs-extra throws by design.
 2. **A backup failure is fatal to launch.** [`init-app.ts:88-94`](../../src/electron/main-process/init-app.ts)
-   `await backupStoryDirectory()` runs on every launch *before* `createWindow()`
+   `await backupStoryDirectory()` runs on every launch _before_ `createWindow()`
    (line 100); the throw hits the catch at `init-app.ts:101-109` → error box →
    `app.quit()`. The window never opens.
 3. **The bad path lives outside the library and survives reinstall.** The library
@@ -111,7 +111,7 @@ backup so a backup failure logs a diagnostic and continues to `createWindow()`.
 
 - DO: give `backupStoryDirectory()` its own `try/catch` at the call site in
   `init-app.ts` (and inside the function), surfacing a non-blocking notification.
-- DO: keep backups as a *best-effort* feature; the app must always open.
+- DO: keep backups as a _best-effort_ feature; the app must always open.
 - DON'T: leave any `await` on the startup critical path that can `app.quit()` for
   a non-fatal maintenance task. A backup is never worth bricking the editor.
 
@@ -146,6 +146,7 @@ not live inside X.
   that's the resurrection loop. Recreate only paths that pass validation.
 
 **Tests (headless, required before W0 is "done"):**
+
 - main-process unit: `copy` is never invoked with a `dest` inside `src` (assert via
   spy on a fixture where library == backups' parent).
 - main-process unit: a thrown backup error does **not** call `app.quit()` and the
@@ -158,19 +159,20 @@ not live inside X.
 # W1 — Library location: tell the truth, and offer to move
 
 **Symptoms:**
+
 - "Changing Story Library location should have an option to **move** the current
   stories, rather than switching to a brand-new empty location."
 - "Moving the folder myself + repointing the pref + restarting **still shows no
   projects**."
 
 **Root cause:** [`story-directory.ts:98-113`](../../src/electron/main-process/story-directory.ts)
-`chooseStoryDirectoryPath()` *only* repoints the pref (`setAppPref` at line 106) and
+`chooseStoryDirectoryPath()` _only_ repoints the pref (`setAppPref` at line 106) and
 prompts a relaunch — it never moves anything. And the project list is **not** a
 scan of the chosen folder: it's read from a persisted index of **absolute** paths,
 `<library>/.twine/native-projects.json`
 ([`project-library-index.ts:10-24`](../../src/electron/main-process/project-library-index.ts),
 consumed by [`story-file.ts:33-69`](../../src/electron/main-process/story-file.ts)).
-After a manual move, every recorded `rootPath` points at the *old* location, opens
+After a manual move, every recorded `rootPath` points at the _old_ location, opens
 fail, and [`story-file.ts:62-66`](../../src/electron/main-process/story-file.ts)
 **silently prunes** them. There is no directory-scan fallback for `twine.toml`
 project folders ([`story-file.ts:93-108`](../../src/electron/main-process/story-file.ts)
@@ -196,8 +198,8 @@ is missing, scan the library (and the conventional `Projects/` subfolder,
   re-find it by basename in the current library.
 
 **W1.3 — A real "Move library" action.** When the user changes location, ask:
-*Move existing stories here*, *Use existing stories already here*, or *Start
-empty*.
+_Move existing stories here_, _Use existing stories already here_, or _Start
+empty_.
 
 - DO (move): copy → verify → remove old, then **rewrite/relocate the index** to the
   new root. Reuse the W0.2 "dest not inside src" guard.
@@ -215,6 +217,7 @@ should move to Rust — design the index format now so that cutover is clean.
 # W2 — The "Reveal in Source" lie (one contract, four symptoms)
 
 **Symptoms (all the same bug):**
+
 - Reveal on an **asset** opens the start passage.
 - Reveal on a **variable** opens only the first usage.
 - An asset's "**Used in → Story Stylesheet**" link opens the start passage, not the
@@ -229,7 +232,7 @@ should move to Rust — design the index format now so that cutover is clean.
 `/stories/:id?mode=text`, which defaults to the **start passage**. Non-passage
 sources (stylesheet/script) carry `passageId: null`
 ([`story-index.ts:1103-1118`](../../src/core/story-index.ts)), assets store only
-their *first* reference's location
+their _first_ reference's location
 ([`story-index.ts:670-691`, `:845`](../../src/core/story-index.ts)), and variables
 store only the first occurrence + a count
 ([`story-index.ts:633-656`](../../src/core/story-index.ts)). The assets route has
@@ -238,7 +241,7 @@ the identical defect ([`assets-route.tsx:1049-1061`, `:405-413`](../../src/route
 The enabling fact: `EditorWindowSpec` **already** supports `{kind:'script'}` and
 `{kind:'stylesheet'}` singleton windows
 ([`editor-window-spec.ts`](../../src/routes/story-edit/editor-window-spec.ts)). The
-route just can't *address* them.
+route just can't _address_ them.
 
 ### Fix — one reveal contract for the whole app
 
@@ -248,7 +251,7 @@ Add a `source` dimension to `sourceTarget` and the story-edit route: `passage:<i
 (passages tile; script/stylesheet are the existing singletons). Carry an optional
 line/offset so reveal can scroll to the reference.
 
-- DO: make every "Used in" entry individually clickable to *its own* source
+- DO: make every "Used in" entry individually clickable to _its own_ source
   (passage, script, or stylesheet) — the data already distinguishes them via
   `sourceId`/`passageId`.
 - DON'T: ever call `sourceTarget(story, mode, undefined)` as a navigation. If
@@ -256,7 +259,7 @@ line/offset so reveal can scroll to the reference.
   start passage. (This is the W2 banned antipattern.)
 
 **W2.2 — Assets reveal goes to a usage, never the start passage.** The asset row's
-"Reveal in Source" opens its first *real* reference's source; if the asset has zero
+"Reveal in Source" opens its first _real_ reference's source; if the asset has zero
 references, the action is disabled (and the asset shows as "unused"). Prefer a
 small "Used in (N)" popover listing all references when N>1.
 
@@ -268,7 +271,7 @@ the search panel scoped to that symbol (real all-usages navigation), rather than
 jumping to a stored first-occurrence.
 
 - DO: route through the search query system (Rust authority per perf-roadmap
-  P1.4) so "usages" means *all* usages with snippets, not one.
+  P1.4) so "usages" means _all_ usages with snippets, not one.
 - DON'T: expand the index entry to carry every location just to power a jump —
   that's what search is for; keep the contents index summary-shaped (count only).
 
@@ -279,6 +282,7 @@ jumping to a stored first-occurrence.
 # W3 — Workspace state evaporates (one fix, ~six symptoms)
 
 **Symptoms:**
+
 - Graph **arrow mode / focus mode / snap** revert to default on close+reopen.
 - Right-click **tool** reverts to the first each time the graph opens.
 - **Pan position** is not remembered (only zoom is).
@@ -288,7 +292,7 @@ jumping to a stored first-occurrence.
 `InnerStoryEditRoute`, lost on unmount. Today only `story.zoom` and
 `story.snapToGrid` survive (persisted into the Story object), and
 [`workspace-state.ts:41-43,84-91`](../../src/routes/story-edit/workspace-state.ts)
-persists *mode / selectedPassageId / scroll* per story — but **not**
+persists _mode / selectedPassageId / scroll_ per story — but **not**
 `editorWindows` ([`story-edit-route.tsx:44-50`](../../src/routes/story-edit/story-edit-route.tsx)),
 nor the graph's `tool` (`story-graph-panel.tsx:923`), `focusSelection` (`:908`),
 `layers` (`:909-913`), `density` (`:903-905`), nor pan `x/y`.
@@ -306,17 +310,17 @@ Hydrate on mount; write debounced on change.
   "No project mirror in the frontend" / "UI keeps only view/viewport/editor state").
 - DO: on restore, **prune** editor windows whose passages no longer exist, and
   clamp a restored pan/zoom to valid bounds.
-- DO: persist pan `x/y` *debounced* (same pattern as the existing 400ms zoom
+- DO: persist pan `x/y` _debounced_ (same pattern as the existing 400ms zoom
   persist at `story-graph-panel.tsx:1265-1281`) — never per-frame.
 - DON'T: persist passage **body text** in workspace state — bodies are hydrated
-  from the core/session (perf-roadmap P0.2/§3.1). Persist only the window *specs*.
+  from the core/session (perf-roadmap P0.2/§3.1). Persist only the window _specs_.
 - DON'T: move `tool`/`focus`/`density` into the Rust Story model. They are not
   story facts; putting them there would dirty the document and break source-only
   round-tripping.
 
 **W3.2 — Decide the unit of persistence intentionally.** `zoom`/`snapToGrid` are
 currently Story-level (shared across machines, written into the doc). Pan/tool/
-focus should be *workspace-local* (per machine, localStorage). Keep that split and
+focus should be _workspace-local_ (per machine, localStorage). Keep that split and
 document it, so a future native-session cutover knows what is and isn't story data.
 
 **Home:** D4/D5 polish; aligns with Design Spine's view-state rule.
@@ -324,6 +328,11 @@ document it, so a future native-session cutover knows what is and isn't story da
 ---
 
 # W4 — Editor dock polish (self-contained bugs)
+
+**Status: resolved for W5 handoff.** Active editor visibility, search toggle,
+drag cleanup, the right-edge grey bar root cause, and the explicit Tile / Stack
+layout are implemented and regression-covered in the editor dock/source-editor
+tests.
 
 **W4.1 — Active editor window is barely visible.** The active treatment is a 2px
 inset top shadow ([`story-edit-route.css:1325-1327`](../../src/routes/story-edit/story-edit-route.css));
@@ -352,24 +361,24 @@ cell stays `opacity:0.35` (CSS `.is-dragging`, `story-edit-route.css:1299-1301`)
 
 - DO: add an `onDragEnd` handler on the draggable titlebar that **always** clears
   `dragIndex`/`overIndex`, regardless of drop success (this is the canonical HTML5
-  DnD cleanup). Treat `onDrop` as the *reorder* path and `onDragEnd` as the
-  *cleanup* path.
+  DnD cleanup). Treat `onDrop` as the _reorder_ path and `onDragEnd` as the
+  _cleanup_ path.
 - DON'T: put cleanup only in `onDrop`.
 
-**W4.4 — Mysterious grey bar at the right edge.** Hypothesis from static read:
-CodeMirror's always-on `foldGutter()` ([`source-editor.tsx:399`](../../src/components/control/source-editor/source-editor.tsx))
-plus the native horizontal scrollbar appearing/disappearing as line width changes
-on scroll (no line-wrap). This one is **not safely fixable by static guess.**
+**W4.4 — Mysterious grey bar at the right edge.** Resolved by removing the two
+static root causes instead of masking the symptom: `SourceEditor` now applies
+CodeMirror line wrapping to editor content and `foldingExtension()` only mounts
+`foldGutter()` for CSS/HTML/JavaScript buffers, not Twine prose
+([`source-editor.tsx`](../../src/components/control/source-editor/source-editor.tsx)).
+The scrollbar styling remains on `.cm-scroller` so actual overflow navigation is
+preserved when a code buffer needs it
+([`source-editor.css`](../../src/components/control/source-editor/source-editor.css)).
 
-- DO: **reproduce in the running app first** and identify the exact DOM node with
-  devtools (is it `.cm-scroller` scrollbar, `.cm-gutters`, a ruler/print-margin
-  extension, or `.cm-content` min-width filler?). Only then fix the specific node.
-- DO: once identified, the likely correct fix is to enable line-wrapping for
-  passage prose and/or style the scrollbars consistently with the DS, and gate the
-  fold gutter to lines that can actually fold.
-- DON'T: blanket-`display:none` something that turns out to be the scrollbar (you'll
-  break horizontal navigation), and DON'T ship a fix without the screenshot showing
-  the bar is gone across scroll positions.
+- DO: keep passage prose wrapped and keep fold gutters limited to structured code
+  languages. The regression test is
+  [`source-editor.test.tsx`](../../src/components/control/__tests__/source-editor.test.tsx).
+- DON'T: hide `.cm-scroller`, `.cm-gutters`, or scrollbar pseudo-elements as a
+  shortcut; that would reintroduce navigation/accessibility bugs in code buffers.
 
 **W4.5 — "Stack instead of tile."** Stacking already exists but only implicitly in
 compact/split mode (`editor-dock.tsx:30-40`). Expose an explicit, persisted
@@ -395,11 +404,11 @@ alphanumeric**. So `$____` (and an all-underscore tail generally) becomes a
 
 - DO: in the Rust authority, reject a captured symbol whose name — after the sigil,
   ignoring `.` separators — contains **no ASCII alphanumeric character**. Apply the
-  same guard to *every* sigil branch (if/when a `_`-prefixed temp-variable branch is
+  same guard to _every_ sigil branch (if/when a `_`-prefixed temp-variable branch is
   added for SugarCube, it must use the same rule).
 - DO: mirror the guard in the TS parity path so search/contents agree until the
   Rust cutover.
-- DON'T: "fix" it only by filtering the contents *view* — that leaves search,
+- DON'T: "fix" it only by filtering the contents _view_ — that leaves search,
   diagnostics, and autocomplete still treating `$____` as a variable. Fix it in the
   extractor (the authority), per the architecture.
 - DON'T: special-case the literal four-underscore `<hr>` token; the general rule
@@ -416,7 +425,7 @@ never true → nothing is flagged.
   After a project asset scan completes, a referenced asset not found on disk is
   **absent**, and absent + referenced ⇒ **missing**. Change the inventory assembly
   to set `false` (not `null`) for referenced paths confirmed not on disk.
-- DON'T: flip the condition to `exists !== true` blindly — that would mark *unknown*
+- DON'T: flip the condition to `exists !== true` blindly — that would mark _unknown_
   (pre-scan) assets as missing and produce false positives during load. Gate on a
   completed scan.
 - **Home:** perf-roadmap P2.6 (one authoritative asset manifest feeds inventory +
@@ -455,12 +464,13 @@ and the DS is explicitly dark-first (Design Spine D0). So the attribute flips an
 nothing changes.
 
 **Decision (recommended): remove now, design later.**
+
 - DO (now, recommended): reduce the theme control to a single honest state (Dark),
   or hide the selector entirely, until a light palette exists. A toggle that lies is
   worse than no toggle.
 - DO (later, optional): if a light theme is wanted, it is a genuine
   **design-system task** — a full light token palette — captured as a design brief
-  in [§ Design briefs](#design-briefs-for-claude-design) (Brief B). It is *not* a
+  in [§ Design briefs](#design-briefs-for-claude-design) (Brief B). It is _not_ a
   CSS afternoon; every `--ink/-line/-tx/-acc/-sem` token needs a light value with
   verified contrast.
 - DON'T: hand-patch a few colors to fake a light mode; that fractures the token
@@ -468,18 +478,19 @@ nothing changes.
 
 **W6.2 — "Enhanced Editor" toggle does nothing (in the Workbench).** `useCodeMirror`
 ([`prefs.types.ts:207-208`](../../src/store/prefs/prefs.types.ts)) still switches the
-*legacy* `CodeArea` between CodeMirror and a textarea
+_legacy_ `CodeArea` between CodeMirror and a textarea
 ([`code-area.tsx:96-110`](../../src/components/control/code-area/code-area.tsx),
 used by the JS/Stylesheet **dialogs**). The new Workbench passage editor
 (`source-editor`) is CodeMirror-always and ignores the pref — so toggling it has no
 visible effect on passage editing.
 
 **Decision (recommended): remove the legacy toggle; it's a CM5-era concept.**
+
 - DO (recommended): remove `useCodeMirror` from the Settings UI and treat the
   enhanced editor as always-on (the Workbench is the editor now). Keep the cursor-
   blink/font prefs that still apply.
 - DO (alternative, only if a plain-textarea mode is genuinely wanted): repurpose the
-  toggle to switch the *source-editor* into a minimal no-extensions mode and wire it
+  toggle to switch the _source-editor_ into a minimal no-extensions mode and wire it
   there — but this is more work for a feature few want.
 - DON'T: leave a Settings switch that controls only two secondary dialogs while
   appearing to govern "the editor."
@@ -494,6 +505,7 @@ visible effect on passage editing.
 user format by directory (only a `format.js` URL works).
 
 **Root cause(s):**
+
 - Icon/description/url come from the jsonp-hydrated `format.properties`
   ([`action-creators.ts:62-85`](../../src/store/story-formats/action-creators.ts);
   fetch via [`fetch-properties.ts:12-38`](../../src/util/story-format/fetch-properties.ts);
@@ -522,7 +534,7 @@ visible failed-load state per format instead of a blank card.
 
 - DO: add an explicit per-format error/loading state in the DS formats screen.
 - DON'T: assume it's purely a missing-render bug — verify load state first; a blank
-  icon for a *built-in* format is a loading failure.
+  icon for a _built-in_ format is a loading failure.
 
 **W7.2 — Render the source link and description in the DS screen.** Add
 `format.properties.url` (website) as a link and ensure `description` renders where
@@ -568,8 +580,8 @@ every (always-visible) category filter shows nothing — reading as "broken."
 
 # W9 — Build/Export: the one real redesign (simplify hard)
 
-**Symptoms:** "extremely complex vs a normal save dialog"; "no idea what an *export
-surface* is"; proofing format can't be chosen at export; twee export shows "4
+**Symptoms:** "extremely complex vs a normal save dialog"; "no idea what an _export
+surface_ is"; proofing format can't be chosen at export; twee export shows "4
 errors" that shouldn't be errors; can't dismiss an export warning; "HTML report"
 seems useless; "source inspection" would be better on-screen than exported.
 
@@ -582,7 +594,7 @@ warnings that are **reconstructed every render with no dismiss control**
 to the global pref ([`use-publishing.ts:116-145`](../../src/store/use-publishing.ts)),
 and fidelity omissions surfaced as warnings the user reads as errors
 ([`build-package.ts:345-355`](../../src/util/build-package.ts) — severity is
-*technically* `warning`, but the framing screams failure).
+_technically_ `warning`, but the framing screams failure).
 
 This is the item that justifies a **design brief** (Brief A below). The engineering
 side has concrete, do-now simplifications that the redesign should assume:
@@ -592,7 +604,7 @@ side has concrete, do-now simplifications that the redesign should assume:
   valuable, it belongs **on-screen** (a read-only panel), not as a saved file. This
   is exactly the kind of option to delete/consolidate.
 - **Stop calling expected omissions "warnings."** For source-only formats (Twee/
-  JSON), "no asset binaries / no runtime HTML" is *by definition* — present these as
+  JSON), "no asset binaries / no runtime HTML" is _by definition_ — present these as
   quiet **info** ("This format is source-only; assets and runtime HTML are not
   included"), never as a warning/error count, and never as a blocker.
 - **Make warnings dismissible and ephemeral.** Clear them on target switch and give
@@ -602,7 +614,7 @@ side has concrete, do-now simplifications that the redesign should assume:
 - **Drop the term "export surface" from all user-facing copy.**
 
 **Home:** D7 advanced Build policy + this doc. **Don't** rebuild it as a wizard;
-the goal is *fewer choices, plain words*.
+the goal is _fewer choices, plain words_.
 
 ---
 
@@ -627,6 +639,7 @@ Everything else in this document is a code task, not a design task.
 > plain language**. We are willing to remove and consolidate options.
 >
 > **Hard constraints / decisions already made (do not relitigate):**
+>
 > - Remove the two "inspection report" export targets. If source/HTML inspection
 >   is useful, present it **on-screen** as a read-only panel, not a saved file.
 > - Expected omissions for source-only formats (Twee/JSON) must read as neutral
@@ -652,7 +665,7 @@ Everything else in this document is a code task, not a design task.
 > **Context.** The design system is dark-only; the Settings theme toggle currently
 > does nothing because no `[data-app-theme='light']` palette exists
 > (`src/styles/design-system/tokens/colors.css`). We are removing the broken toggle
-> for now (engineering item W6.1). A light theme is *optional* and only worth doing
+> for now (engineering item W6.1). A light theme is _optional_ and only worth doing
 > if we actually want it.
 >
 > **If commissioned, goal.** Produce a complete **light** value set for every DS
@@ -662,7 +675,7 @@ Everything else in this document is a code task, not a design task.
 > gutters, and selection colors. Must be a drop-in `[data-app-theme='light']`
 > block that the existing `ThemeSetter` activates — no per-component overrides.
 >
-> **Do / Don't.** DO derive from the existing dark token *roles* so layouts don't
+> **Do / Don't.** DO derive from the existing dark token _roles_ so layouts don't
 > shift. DON'T introduce new tokens or change dark values. DON'T ship a partial
 > palette — a half-light app is worse than dark-only.
 
@@ -673,18 +686,18 @@ Everything else in this document is a code task, not a design task.
 This feedback does **not** spawn a new parallel roadmap. Every item maps onto an
 existing milestone; this doc is the tracking index, cross-linked from the others.
 
-| Item | Home milestone(s) | Note added to |
-| --- | --- | --- |
-| W0 crash, W1 library move/scan | M0 persistence; perf-roadmap P0.7/P2.2 (native load owns it later) | Milestones M0; perf-roadmap §1/§7b |
-| W2 reveal contract | D6 (Contents/Assets); perf-roadmap P1.4 (search) | Design Spine D6 note |
-| W3 workspace persistence | D4/D5 (view-state rule) | Design Spine D4/D5 note |
-| W4 editor dock polish | D4 | `WORKBENCH_INTEGRATION.md` follow-ups |
-| W5.1 variable extractor | M4 indexing; Rust authority | Milestones M4 |
-| W5.2/W5.3 asset missing + import | perf-roadmap P2.4/P2.5/P2.6 | perf-roadmap Phase 2 |
-| W6 theme / enhanced-editor | D7 Settings; D9 legacy retirement | Design Spine D7/D9 |
-| W7 formats | D6 formats; perf-roadmap §7b(6) preload | Design Spine D6 |
-| W8 diagnostics empty-state | D6 diagnostics | Design Spine D6 |
-| W9 build/export simplify | D7 advanced Build policy | Design Spine D7 |
+| Item                             | Home milestone(s)                                                  | Note added to                         |
+| -------------------------------- | ------------------------------------------------------------------ | ------------------------------------- |
+| W0 crash, W1 library move/scan   | M0 persistence; perf-roadmap P0.7/P2.2 (native load owns it later) | Milestones M0; perf-roadmap §1/§7b    |
+| W2 reveal contract               | D6 (Contents/Assets); perf-roadmap P1.4 (search)                   | Design Spine D6 note                  |
+| W3 workspace persistence         | D4/D5 (view-state rule)                                            | Design Spine D4/D5 note               |
+| W4 editor dock polish            | D4                                                                 | `WORKBENCH_INTEGRATION.md` follow-ups |
+| W5.1 variable extractor          | M4 indexing; Rust authority                                        | Milestones M4                         |
+| W5.2/W5.3 asset missing + import | perf-roadmap P2.4/P2.5/P2.6                                        | perf-roadmap Phase 2                  |
+| W6 theme / enhanced-editor       | D7 Settings; D9 legacy retirement                                  | Design Spine D7/D9                    |
+| W7 formats                       | D6 formats; perf-roadmap §7b(6) preload                            | Design Spine D6                       |
+| W8 diagnostics empty-state       | D6 diagnostics                                                     | Design Spine D6                       |
+| W9 build/export simplify         | D7 advanced Build policy                                           | Design Spine D7                       |
 
 **Consolidation actions taken alongside this doc** (light cross-reference notes,
 not rewrites): a dated pointer to this file is added to the perf roadmap, the

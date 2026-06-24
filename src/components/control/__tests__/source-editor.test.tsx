@@ -111,4 +111,34 @@ describe('<SourceEditor>', () => {
 			expect(container.querySelector('.cm-search')).not.toBeInTheDocument()
 		);
 	});
+
+	it('wraps passage prose without showing a fold gutter', async () => {
+		const {container, rerender} = render(
+			<SourceEditor
+				id="story-start-editor"
+				label="Passage text"
+				onChange={jest.fn()}
+				value="A very long passage line should wrap instead of forcing a horizontal scrollbar."
+			/>
+		);
+
+		await waitFor(() =>
+			expect(container.querySelector('.cm-lineWrapping')).toBeInTheDocument()
+		);
+		expect(container.querySelector('.cm-foldGutter')).not.toBeInTheDocument();
+
+		rerender(
+			<SourceEditor
+				id="story-start-editor"
+				label="Passage text"
+				language="css"
+				onChange={jest.fn()}
+				value=".story { color: red; }"
+			/>
+		);
+
+		await waitFor(() =>
+			expect(container.querySelector('.cm-foldGutter')).toBeInTheDocument()
+		);
+	});
 });

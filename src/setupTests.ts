@@ -65,3 +65,21 @@ afterEach(() => delete (window as any).matchMedia);
 window.Element.prototype.releasePointerCapture = () => {};
 window.Element.prototype.setPointerCapture = () => {};
 window.Element.prototype.scrollTo = () => {};
+
+// CodeMirror measures text ranges during animation frames. jsdom doesn't
+// implement these Range APIs, so provide inert geometry to keep editor tests
+// focused on DOM/state behavior.
+if (typeof window.Range !== 'undefined') {
+	window.Range.prototype.getBoundingClientRect = () =>
+		({
+			bottom: 0,
+			height: 0,
+			left: 0,
+			right: 0,
+			top: 0,
+			width: 0,
+			x: 0,
+			y: 0
+		}) as DOMRect;
+	window.Range.prototype.getClientRects = () => [] as any;
+}
