@@ -1,7 +1,7 @@
 import {saveAs} from 'file-saver';
 
 export function saveFile(
-	source: string,
+	source: BlobPart,
 	filename: string,
 	type = 'text/plain;charset=utf-8'
 ) {

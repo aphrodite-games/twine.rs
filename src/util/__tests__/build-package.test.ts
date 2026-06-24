@@ -105,7 +105,7 @@ describe('M6 build package', () => {
 				role: 'primary'
 			})
 		]);
-		expect(JSON.parse(result.files[0].contents)).toEqual(
+		expect(JSON.parse(result.files[0].contents as string)).toEqual(
 			expect.objectContaining({
 				id: story.id,
 				ifid: story.ifid,
@@ -117,6 +117,16 @@ describe('M6 build package', () => {
 		);
 	});
 
+	it('can compact JSON export packages', () => {
+		const result = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+			formatProperties: fakeStoryFormatProperties(),
+			jsonPretty: false,
+			target: 'export-json'
+		});
+
+		expect(result.files[0].contents as string).not.toContain('\n  ');
+	});
+
 	it('builds package targets with a manifest, compatibility outputs, and assets', () => {
 		const story = fakeStory();
 		const result = createStoryBuildPackage(story, fakeAppInfo(), {
@@ -124,8 +134,11 @@ describe('M6 build package', () => {
 			formatProperties: fakeStoryFormatProperties(),
 			target: 'package'
 		});
-		const manifest = JSON.parse(result.files[0].contents);
-		const archive = JSON.parse(result.files[1].contents);
+		const manifest = JSON.parse(result.files[0].contents as string);
+		const archive = result.files[1].contents as Uint8Array;
+		const archiveText = Array.from(archive, byte =>
+			String.fromCharCode(byte)
+		).join('');
 
 		expect(result.files.map(file => file.kind)).toEqual([
 			'package-manifest',
@@ -143,16 +156,15 @@ describe('M6 build package', () => {
 		expect(manifest.assets).toEqual([
 			expect.objectContaining({outputPath: 'assets/cover.png'})
 		]);
-		expect(archive).toEqual(
+		expect(result.files[1]).toEqual(
 			expect.objectContaining({
-				type: 'twine.rs/project-archive',
-				files: expect.arrayContaining([
-					expect.objectContaining({
-						contents: expect.stringContaining('twine.rs/story-graph/v1')
-					})
-				])
+				filename: `${story.name}.zip`,
+				mediaType: 'application/zip'
 			})
 		);
+		expect([...archive.slice(0, 4)]).toEqual([0x50, 0x4b, 0x03, 0x04]);
+		expect(archiveText).toContain('asset-copy-plan.json');
+		expect(archiveText).toContain('twine.rs/story-graph/v1');
 		expect(result.report.outputs.map(output => output.kind)).toEqual([
 			'package-manifest',
 			'archive',
@@ -184,55 +196,55 @@ describe('M6 build package', () => {
 		]);
 	});
 
-	it('builds compatibility exports without twine.rs StoryData graph metadata', () => {
+	it('reports missing assets as non-blocking warnings', () => {
 		const result = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+			assetInventory: [
+				asset({
+					exists: false,
+					missing: true
+				})
+			],
 			formatProperties: fakeStoryFormatProperties(),
-			target: 'compatibility-export'
+			target: 'export-html'
 		});
 
-		expect(result.files.map(file => file.kind)).toEqual(['html', 'twee']);
-		expect(result.files[0].contents).not.toContain('data-twine-rs-story-graph');
-		expect(result.files[1].contents).not.toContain('"twine.rs"');
+		expect(result.files[0].kind).toBe('html');
+		expect(result.report.diagnostics).toEqual([
+			expect.objectContaining({
+				code: 'missing-asset',
+				severity: 'warning'
+			})
+		]);
+	});
+
+	it('builds HTML compatibility exports without twine.rs StoryData graph metadata', () => {
+		const result = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+			formatProperties: fakeStoryFormatProperties(),
+			htmlCompatibility: true,
+			target: 'export-html'
+		});
+
+		expect(result.files.map(file => file.kind)).toEqual(['html']);
+		expect(result.files[0].contents as string).not.toContain(
+			'data-twine-rs-story-graph'
+		);
 		expect(result.report.fidelity.omits).toContain(
 			'twine.rs StoryData graph metadata carrier'
 		);
-		expect(result.report.diagnostics).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					code: 'fidelity-omission',
-					severity: 'warning'
-				})
-			])
-		);
+		expect(result.report.diagnostics).toEqual([]);
 	});
 
-	it('builds source and HTML inspection reports', () => {
-		const sourceInspection = createStoryBuildPackage(
-			fakeStory(),
-			fakeAppInfo(),
-			{
-				formatProperties: fakeStoryFormatProperties(),
-				target: 'inspect-source'
-			}
-		);
-		const htmlInspection = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
+	it('builds default HTML exports with twine.rs StoryData graph metadata', () => {
+		const result = createStoryBuildPackage(fakeStory(), fakeAppInfo(), {
 			formatProperties: fakeStoryFormatProperties(),
-			target: 'inspect-html'
+			target: 'export-html'
 		});
 
-		expect(sourceInspection.files[0]).toEqual(
-			expect.objectContaining({
-				kind: 'inspection',
-				role: 'primary',
-				contents: expect.stringContaining('Source inspection')
-			})
+		expect(result.files[0].contents as string).toContain(
+			'data-twine-rs-story-graph'
 		);
-		expect(htmlInspection.files[0]).toEqual(
-			expect.objectContaining({
-				kind: 'inspection',
-				role: 'primary',
-				contents: expect.stringContaining('HTML inspection')
-			})
+		expect(result.report.fidelity.preserves).toContain(
+			'twine.rs StoryData graph metadata carrier'
 		);
 	});
 
@@ -260,7 +272,8 @@ describe('M6 build package', () => {
 		expect(() =>
 			createStoryBuildPackage(story, fakeAppInfo(), {
 				formatProperties: properties,
-				target: 'compatibility-export'
+				htmlCompatibility: true,
+				target: 'export-html'
 			})
 		).toThrow('not publish-safe');
 

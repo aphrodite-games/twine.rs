@@ -1,10 +1,12 @@
 import * as React from 'react';
-import {useParams} from 'react-router-dom';
+import {useHistory, useParams} from 'react-router-dom';
 import {
 	Badge,
 	Button,
-	Panel,
+	IconButton,
+	SegmentedControl,
 	Select,
+	Switch,
 	TablerIcon
 } from '../../components/design-system';
 import {
@@ -17,135 +19,125 @@ import type {CoreStoryIndex} from '../../core';
 import {FormatLoader} from '../../store/format-loader';
 import {
 	formatWithNameAndVersion,
-	StoryFormatProperties,
+	type StoryFormat,
+	type StoryFormatProperties,
 	useStoryFormatsContext
 } from '../../store/story-formats';
-import {Story, useStoriesContext} from '../../store/stories';
-import {usePublishing} from '../../store/use-publishing';
-import {useStoryLaunch} from '../../store/use-story-launch';
+import {type Story, useStoriesContext} from '../../store/stories';
 import {
+	type ProofingFormatSelection,
+	usePublishing
+} from '../../store/use-publishing';
+import {useStoryLaunch} from '../../store/use-story-launch';
+import type {
+	StoryBuildFile,
 	StoryBuildPackage,
-	StoryBuildTarget,
-	StoryBuildFile
+	StoryBuildTarget
 } from '../../util/build-package';
+import {saveFile} from '../../util/save-file';
 import {
 	inspectStoryFormatPublishSafety,
 	storyFormatCapabilities
 } from '../../util/story-format';
-import {saveFile} from '../../util/save-file';
+import {TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE} from '../../util/story-graph-metadata';
+import {storyToTwee} from '../../util/twee';
 import './build-route.css';
 
-type TargetGroup = 'Export' | 'Run';
-
-interface BuildTargetDefinition {
-	description: string;
-	group: TargetGroup;
-	icon: string;
-	label: string;
-	target: StoryBuildTarget;
-}
+type BuildView = 'export' | 'preview';
+type ExportFormat = 'html' | 'twee' | 'json' | 'archive';
+type InspectTab = 'source' | 'html';
+type PreviewAction = 'play' | 'test' | 'proof';
+type NoteTone = 'ok' | 'warn' | 'error' | 'info';
 
 interface BuildLogEntry {
 	line: string;
 	time: string;
 }
 
-const buildTargets: BuildTargetDefinition[] = [
+interface ExportFormatDefinition {
+	description: string;
+	format: ExportFormat;
+	icon: string;
+	label: string;
+	sourceOnly: boolean;
+}
+
+interface BuildNote {
+	actionLabel?: string;
+	detail: string;
+	dismissible?: boolean;
+	icon: string;
+	id: string;
+	onAction?: () => void;
+	title: string;
+	tone: NoteTone;
+}
+
+interface ExportFormatOptions {
+	htmlCompatibility: boolean;
+	htmlInlineAssets: boolean;
+	jsonPretty: boolean;
+}
+
+const exportFormats: ExportFormatDefinition[] = [
 	{
-		description: 'Launch an app-owned iframe preview using the story runtime.',
-		group: 'Run',
-		icon: 'player-play',
-		label: 'Play',
-		target: 'play'
+		description: 'One self-contained file that plays in any browser.',
+		format: 'html',
+		icon: 'world',
+		label: 'Playable HTML',
+		sourceOnly: false
 	},
 	{
-		description: 'Launch with debug output and a selected starting passage.',
-		group: 'Run',
-		icon: 'tool',
-		label: 'Test From Selection',
-		target: 'test'
-	},
-	{
-		description: 'Build the proofing format for review and editing passes.',
-		group: 'Run',
-		icon: 'book',
-		label: 'Proof',
-		target: 'proof'
-	},
-	{
-		description: 'Single-file runtime HTML for sharing or publishing.',
-		group: 'Export',
-		icon: 'file-code',
-		label: 'Export HTML',
-		target: 'export-html'
-	},
-	{
-		description: 'Readable Twee source with standard Twine metadata.',
-		group: 'Export',
+		description: 'Readable Twine source text with standard metadata.',
+		format: 'twee',
 		icon: 'file-text',
-		label: 'Export Twee',
-		target: 'export-twee'
+		label: 'Twee Source',
+		sourceOnly: true
 	},
 	{
-		description:
-			'Normal Twine HTML plus Twee without the twine.rs StoryData graph carrier.',
-		group: 'Export',
-		icon: 'file-import',
-		label: 'Compatibility Export',
-		target: 'compatibility-export'
-	},
-	{
-		description: 'Current app story JSON for tooling and inspection.',
-		group: 'Export',
+		description: 'Structured story data for tooling and version control.',
+		format: 'json',
 		icon: 'braces',
-		label: 'Export JSON',
-		target: 'export-json'
+		label: 'JSON',
+		sourceOnly: true
 	},
 	{
-		description:
-			'Text report for generated HTML structure and publish markers.',
-		group: 'Export',
-		icon: 'search',
-		label: 'Inspect HTML',
-		target: 'inspect-html'
-	},
-	{
-		description: 'Text report for source structure, passages, and metadata.',
-		group: 'Export',
-		icon: 'list-details',
-		label: 'Inspect Source',
-		target: 'inspect-source'
-	},
-	{
-		description:
-			'Archive descriptor plus HTML, JSON, project-fidelity Twee, and assets.',
-		group: 'Export',
-		icon: 'file-zip',
-		label: 'Package',
-		target: 'package'
-	},
-	{
-		description: 'Publish-bound HTML with strict dev-code safety checks.',
-		group: 'Export',
-		icon: 'upload',
-		label: 'Publish',
-		target: 'publish'
+		description: 'The playable HTML, source, and asset plan together.',
+		format: 'archive',
+		icon: 'package',
+		label: 'Archive (.zip)',
+		sourceOnly: false
 	}
 ];
 
 const publishBoundTargets: StoryBuildTarget[] = [
 	'publish',
 	'export-html',
-	'compatibility-export',
 	'package'
 ];
 
-function targetDefinition(target: StoryBuildTarget) {
-	return buildTargets.find(definition => definition.target === target)!;
-}
-
 function storyForId(stories: Story[], storyId: string | undefined) {
 	return stories.find(story => story.id === storyId);
+}
+
+function exportDefinition(format: ExportFormat) {
+	return exportFormats.find(definition => definition.format === format)!;
+}
+
+function targetForExport(format: ExportFormat): StoryBuildTarget {
+	switch (format) {
+		case 'html':
+			return 'export-html';
+
+		case 'twee':
+			return 'export-twee';
+
+		case 'json':
+			return 'export-json';
+
+		case 'archive':
+			return 'package';
+	}
 }
 
 function formatStatusLabel(formatProperties?: StoryFormatProperties) {
@@ -186,31 +178,185 @@ function logTime() {
 	});
 }
 
+function formatOptionValue(format: {name: string; version: string}): string {
+	return JSON.stringify({name: format.name, version: format.version});
+}
+
+function proofingFormatFromValue(
+	value: string,
+	story?: Story
+): ProofingFormatSelection | undefined {
+	if (!value) {
+		return story
+			? {name: story.storyFormat, version: story.storyFormatVersion}
+			: undefined;
+	}
+
+	try {
+		const parsed = JSON.parse(value) as ProofingFormatSelection;
+
+		if (parsed.name && parsed.version) {
+			return parsed;
+		}
+	} catch {
+		// Fall back to the story format below.
+	}
+
+	return story
+		? {name: story.storyFormat, version: story.storyFormatVersion}
+		: undefined;
+}
+
+function loadedFormats(formats: StoryFormat[]) {
+	return formats.filter(
+		(format): format is Extract<StoryFormat, {loadState: 'loaded'}> =>
+			format.loadState === 'loaded'
+	);
+}
+
+function proofingFormatOptions(formats: StoryFormat[], story?: Story) {
+	const loaded = loadedFormats(formats);
+	const proofing = loaded.filter(format => format.properties.proofing);
+	const current = story
+		? loaded.find(
+				format =>
+					format.name === story.storyFormat &&
+					format.version === story.storyFormatVersion
+			)
+		: undefined;
+	const candidates =
+		proofing.length > 0 ? proofing : current ? [current] : loaded;
+	const seen = new Set<string>();
+
+	return candidates
+		.filter(format => {
+			const key = `${format.name}\u0000${format.version}`;
+
+			if (seen.has(key)) {
+				return false;
+			}
+
+			seen.add(key);
+			return true;
+		})
+		.map(format => ({
+			label: `${format.name} ${format.version}`,
+			value: formatOptionValue(format)
+		}));
+}
+
+function sourceInspection(story: Story, storyIndex?: CoreStoryIndex) {
+	const start = story.passages.find(
+		passage => passage.id === story.startPassage
+	);
+	const lines = [
+		`story "${story.name}"`,
+		`  format       ${story.storyFormat} ${story.storyFormatVersion}`,
+		`  passages     ${story.passages.length}`,
+		`  links        ${storyIndex?.graph.links ?? 0}`,
+		`  assets       ${storyIndex?.assetInventory.length ?? 0}`,
+		`  diagnostics  ${storyIndex?.diagnostics.length ?? 0}`,
+		`  start        ${start?.name ?? 'not set'}`,
+		'',
+		'passages'
+	];
+
+	for (const passage of story.passages.slice(0, 24)) {
+		lines.push(
+			`  ${passage.name} - ${passage.text.length} chars - ${passage.tags.length} tags`
+		);
+	}
+
+	if (story.passages.length > 24) {
+		lines.push(`  ...${story.passages.length - 24} more passages`);
+	}
+
+	lines.push('', 'twee preview', storyToTwee(story).slice(0, 1400));
+
+	return lines.join('\n');
+}
+
+function htmlInspection(build?: StoryBuildPackage) {
+	if (!build?.html) {
+		return [
+			'No generated HTML is prepared yet.',
+			'',
+			'Use Export or Inspect output to build the current format first.'
+		].join('\n');
+	}
+
+	const storyDataCount = (build.html.match(/<tw-storydata\b/g) ?? []).length;
+	const passageCount = (build.html.match(/<tw-passagedata\b/g) ?? []).length;
+	const hasStoryDataGraph = build.html.includes(
+		`${TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE}=`
+	);
+
+	return [
+		`generated ${build.report.generatedAt}`,
+		`target ${build.report.target}`,
+		`size ${bytesLabel(build.html.length)}`,
+		`story data blocks ${storyDataCount}`,
+		`passage data blocks ${passageCount}`,
+		`twine.rs graph data ${hasStoryDataGraph ? 'present' : 'omitted'}`,
+		'',
+		'outputs',
+		...build.files.map(
+			file =>
+				`  ${file.filename} - ${file.kind} - ${bytesLabel(file.sizeBytes)}`
+		)
+	].join('\n');
+}
+
 export const BuildRoute: React.FC = () => {
 	const {storyId} = useParams<{storyId: string}>();
+	const history = useHistory();
 	const {stories} = useStoriesContext();
 	const story = storyForId(stories, storyId);
 	const coreProjectHost = useCoreProjectHost();
 	const {formats} = useStoryFormatsContext();
 	const {proofStoryPackage, publishStoryPackage} = usePublishing();
 	const {playStory, proofStory, testStory} = useStoryLaunch();
-	const [target, setTarget] = React.useState<StoryBuildTarget>('export-html');
+	const [view, setView] = React.useState<BuildView>('export');
+	const [exportFormat, setExportFormat] = React.useState<ExportFormat>('html');
+	const [formatOptions, setFormatOptions] = React.useState<ExportFormatOptions>(
+		{
+			htmlInlineAssets: true,
+			htmlCompatibility: false,
+			jsonPretty: true
+		}
+	);
 	const [startPassageId, setStartPassageId] = React.useState('');
-	const [busy, setBusy] = React.useState(false);
+	const [proofingFormatValue, setProofingFormatValue] = React.useState('');
+	const [busyAction, setBusyAction] = React.useState<string>();
 	const [error, setError] = React.useState<string>();
 	const [build, setBuild] = React.useState<StoryBuildPackage>();
-	const [logs, setLogs] = React.useState<BuildLogEntry[]>([
-		{
-			line: 'Build surface ready. Choose a target to validate outputs.',
-			time: logTime()
-		}
-	]);
+	const [inspectOpen, setInspectOpen] = React.useState(false);
+	const [inspectTab, setInspectTab] = React.useState<InspectTab>('source');
+	const [dismissedNoteIds, setDismissedNoteIds] = React.useState<Set<string>>(
+		() => new Set()
+	);
+	const [logs, setLogs] = React.useState<BuildLogEntry[]>([]);
 	const [dismissalsVersion, setDismissalsVersion] = React.useState(0);
 	const [storyIndex, setStoryIndex] = React.useState<CoreStoryIndex>();
-	const definition = targetDefinition(target);
 	const dismissedDiagnosticIds = React.useMemo(
 		() => (story ? loadDismissedDiagnosticIds(story.id) : new Set<string>()),
 		[dismissalsVersion, story]
+	);
+
+	const activeDefinition = exportDefinition(exportFormat);
+	const activeTarget = targetForExport(exportFormat);
+	const startPassageOptions =
+		story?.passages.map(passage => ({
+			label: passage.name,
+			value: passage.id
+		})) ?? [];
+	const proofingOptions = React.useMemo(
+		() => proofingFormatOptions(formats, story),
+		[formats, story]
+	);
+	const selectedProofingFormat = React.useMemo(
+		() => proofingFormatFromValue(proofingFormatValue, story),
+		[proofingFormatValue, story]
 	);
 
 	React.useEffect(() => {
@@ -235,6 +381,54 @@ export const BuildRoute: React.FC = () => {
 			active = false;
 		};
 	}, [coreProjectHost, story]);
+
+	React.useEffect(() => {
+		if (!story) {
+			return;
+		}
+
+		setStartPassageId(story.startPassage || story.passages[0]?.id || '');
+	}, [story]);
+
+	React.useEffect(() => {
+		if (
+			proofingOptions.length > 0 &&
+			!proofingOptions.some(option => option.value === proofingFormatValue)
+		) {
+			setProofingFormatValue(proofingOptions[0].value);
+		}
+	}, [proofingFormatValue, proofingOptions]);
+
+	React.useEffect(() => {
+		function handleDismissalsChanged() {
+			setDismissalsVersion(version => version + 1);
+		}
+
+		window.addEventListener(
+			diagnosticDismissalsChangedEvent,
+			handleDismissalsChanged
+		);
+
+		return () =>
+			window.removeEventListener(
+				diagnosticDismissalsChangedEvent,
+				handleDismissalsChanged
+			);
+	}, []);
+
+	React.useEffect(() => {
+		setBuild(undefined);
+		setDismissedNoteIds(new Set());
+		setError(undefined);
+	}, [
+		activeTarget,
+		exportFormat,
+		formatOptions.htmlCompatibility,
+		formatOptions.htmlInlineAssets,
+		formatOptions.jsonPretty,
+		view
+	]);
+
 	const format = React.useMemo(() => {
 		if (!story) {
 			return undefined;
@@ -258,8 +452,6 @@ export const BuildRoute: React.FC = () => {
 	const safety = formatProperties
 		? inspectStoryFormatPublishSafety(formatProperties)
 		: undefined;
-	const safetyIssues =
-		publishBoundTargets.includes(target) && safety ? safety.issues : [];
 	const missingAssets =
 		storyIndex?.assetInventory
 			.filter(asset => asset.missing)
@@ -273,133 +465,92 @@ export const BuildRoute: React.FC = () => {
 	const errorDiagnostics = diagnostics.filter(
 		diagnostic => diagnostic.severity === 'error'
 	);
+	const safetyIssues =
+		publishBoundTargets.includes(activeTarget) && safety ? safety.issues : [];
 	const buildWarningDiagnosticCount =
 		build?.report.diagnostics.filter(
 			diagnostic => diagnostic.severity === 'warning'
 		).length ?? 0;
-	const blockingIssueCount =
-		errorDiagnostics.length +
-		safetyIssues.filter(issue => issue.severity === 'error').length +
-		(build?.report.diagnostics.filter(
+	const buildErrorDiagnosticCount =
+		build?.report.diagnostics.filter(
 			diagnostic => diagnostic.severity === 'error'
-		).length ?? 0);
-	const startPassageOptions =
-		story?.passages.map(passage => ({
-			label: passage.name,
-			value: passage.id
-		})) ?? [];
-
-	React.useEffect(() => {
-		if (!story) {
-			return;
-		}
-
-		setStartPassageId(story.startPassage || story.passages[0]?.id || '');
-	}, [story]);
-
-	React.useEffect(() => {
-		function handleDismissalsChanged() {
-			setDismissalsVersion(version => version + 1);
-		}
-
-		window.addEventListener(
-			diagnosticDismissalsChangedEvent,
-			handleDismissalsChanged
-		);
-
-		return () =>
-			window.removeEventListener(
-				diagnosticDismissalsChangedEvent,
-				handleDismissalsChanged
-			);
-	}, []);
-
+		).length ?? 0;
+	const preparedSize = build
+		? bytesLabel(build.files.reduce((total, file) => total + file.sizeBytes, 0))
+		: 'Not built';
+	const sourceOnly = activeDefinition.sourceOnly;
 	const appendLog = React.useCallback((line: string) => {
 		setLogs(current => [...current.slice(-80), {line, time: logTime()}]);
 	}, []);
 
-	const buildSelectedTarget = React.useCallback(async () => {
-		if (!story) {
-			throw new Error('No story is selected.');
-		}
+	const updateFormatOption = React.useCallback(
+		<K extends keyof ExportFormatOptions>(
+			key: K,
+			value: ExportFormatOptions[K]
+		) => {
+			setFormatOptions(current => ({...current, [key]: value}));
+		},
+		[]
+	);
 
-		if (target === 'proof') {
-			return proofStoryPackage(story.id);
-		}
+	const prepareExportBuild = React.useCallback(
+		async (
+			actionName: string,
+			target: StoryBuildTarget = activeTarget,
+			label = activeDefinition.label
+		) => {
+			if (!story) {
+				throw new Error('No story is selected.');
+			}
 
-		return publishStoryPackage(story.id, {
-			buildTarget: target,
-			formatOptions: target === 'test' ? 'debug' : undefined,
-			...(target === 'test' && startPassageId
-				? {startId: startPassageId, startMode: 'afterStartup' as const}
-				: {startId: target === 'test' ? startPassageId : undefined})
-		});
-	}, [proofStoryPackage, publishStoryPackage, startPassageId, story, target]);
+			setBusyAction(actionName);
+			setError(undefined);
+			appendLog(`Preparing ${label}.`);
 
-	const prepareBuild = React.useCallback(async () => {
-		setBusy(true);
-		setError(undefined);
-		appendLog(`Preparing ${definition.label}.`);
+			try {
+				const nextBuild = await publishStoryPackage(story.id, {
+					buildTarget: target,
+					htmlCompatibility:
+						target === 'export-html' || target === 'publish'
+							? formatOptions.htmlCompatibility
+							: false,
+					jsonPretty: formatOptions.jsonPretty
+				});
 
-		try {
-			const nextBuild = await buildSelectedTarget();
-
-			setBuild(nextBuild);
-			appendLog(
-				`Prepared ${nextBuild.files.length} output file(s), ${nextBuild.assets.length} asset plan item(s).`
-			);
-			if (nextBuild.report.diagnostics.length > 0) {
+				setBuild(nextBuild);
 				appendLog(
-					`${nextBuild.report.diagnostics.length} build diagnostic(s) promoted into the report.`
+					`Prepared ${nextBuild.files.length} output file(s), ${nextBuild.assets.length} asset plan item(s).`
 				);
+				if (nextBuild.report.diagnostics.length > 0) {
+					appendLog(
+						`${nextBuild.report.diagnostics.length} build diagnostic(s) added to the report.`
+					);
+				}
+				return nextBuild;
+			} catch (error) {
+				const message = (error as Error).message;
+
+				setError(message);
+				appendLog(`Failed: ${message}`);
+				throw error;
+			} finally {
+				setBusyAction(undefined);
 			}
-			return nextBuild;
-		} catch (error) {
-			const message = (error as Error).message;
-
-			setError(message);
-			appendLog(`Failed: ${message}`);
-			throw error;
-		} finally {
-			setBusy(false);
-		}
-	}, [appendLog, buildSelectedTarget, definition.label]);
-
-	const runTarget = React.useCallback(async () => {
-		if (!story) {
-			return;
-		}
-
-		try {
-			await prepareBuild();
-
-			if (target === 'play') {
-				await playStory(story.id);
-				appendLog('Opened Play preview.');
-			} else if (target === 'test') {
-				await testStory(story.id, startPassageId);
-				appendLog('Opened Test preview.');
-			} else if (target === 'proof') {
-				await proofStory(story.id);
-				appendLog('Opened Proof preview.');
-			}
-		} catch {
-			// prepareBuild already recorded the error.
-		}
-	}, [
-		appendLog,
-		playStory,
-		prepareBuild,
-		proofStory,
-		startPassageId,
-		story,
-		target,
-		testStory
-	]);
+		},
+		[
+			activeDefinition.label,
+			activeTarget,
+			appendLog,
+			formatOptions.jsonPretty,
+			formatOptions.htmlCompatibility,
+			publishStoryPackage,
+			story
+		]
+	);
 
 	const savePreparedOutput = React.useCallback(async () => {
 		try {
-			const nextBuild = await prepareBuild();
+			const nextBuild = await prepareExportBuild('export');
 			const file = outputToSave(nextBuild);
 
 			if (file) {
@@ -407,9 +558,279 @@ export const BuildRoute: React.FC = () => {
 				appendLog(`Saved ${file.filename}.`);
 			}
 		} catch {
-			// prepareBuild already recorded the error.
+			// prepareExportBuild already recorded the error.
 		}
-	}, [appendLog, prepareBuild]);
+	}, [appendLog, prepareExportBuild]);
+
+	const inspectOutput = React.useCallback(async () => {
+		try {
+			await prepareExportBuild('inspect');
+			setInspectOpen(true);
+		} catch {
+			// prepareExportBuild already recorded the error.
+		}
+	}, [prepareExportBuild]);
+
+	const publishOnline = React.useCallback(async () => {
+		try {
+			await prepareExportBuild(
+				'publish-online',
+				exportFormat === 'html' ? 'publish' : activeTarget,
+				'Publish online'
+			);
+			appendLog('Online publishing package prepared.');
+		} catch {
+			// prepareExportBuild already recorded the error.
+		}
+	}, [activeTarget, appendLog, exportFormat, prepareExportBuild]);
+
+	const runPreview = React.useCallback(
+		async (action: PreviewAction) => {
+			if (!story) {
+				return;
+			}
+
+			setBusyAction(action);
+			setError(undefined);
+
+			try {
+				if (action === 'proof') {
+					const nextBuild = await proofStoryPackage(story.id, {
+						proofingFormat: selectedProofingFormat
+					});
+
+					setBuild(nextBuild);
+					await proofStory(story.id, selectedProofingFormat);
+					appendLog('Opened Proof preview.');
+					return;
+				}
+
+				const nextBuild = await publishStoryPackage(story.id, {
+					buildTarget: action,
+					formatOptions: action === 'test' ? 'debug' : undefined,
+					...(action === 'test' && startPassageId
+						? {startId: startPassageId, startMode: 'afterStartup' as const}
+						: {startId: action === 'test' ? startPassageId : undefined})
+				});
+
+				setBuild(nextBuild);
+
+				if (action === 'play') {
+					await playStory(story.id);
+					appendLog('Opened Play preview.');
+				} else {
+					await testStory(story.id, startPassageId);
+					appendLog('Opened Test preview.');
+				}
+			} catch (error) {
+				const message = (error as Error).message;
+
+				setError(message);
+				appendLog(`Failed: ${message}`);
+			} finally {
+				setBusyAction(undefined);
+			}
+		},
+		[
+			appendLog,
+			playStory,
+			proofStory,
+			proofStoryPackage,
+			publishStoryPackage,
+			selectedProofingFormat,
+			startPassageId,
+			story,
+			testStory
+		]
+	);
+
+	const rawNotes = React.useMemo<BuildNote[]>(() => {
+		const notes: BuildNote[] = [];
+
+		if (error) {
+			notes.push({
+				detail: error,
+				icon: 'alert-octagon',
+				id: 'last-build-error',
+				title: 'Last build failed',
+				tone: 'error'
+			});
+		}
+
+		if (errorDiagnostics.length > 0) {
+			notes.push({
+				actionLabel: 'Fix in Diagnostics',
+				detail: 'Resolve active error diagnostics before exporting this story.',
+				icon: 'alert-octagon',
+				id: 'story-diagnostics',
+				onAction: () => history.push(`/stories/${story?.id}/diagnostics`),
+				title: `${errorDiagnostics.length} story issue${
+					errorDiagnostics.length === 1 ? '' : 's'
+				}`,
+				tone: 'error'
+			});
+		}
+
+		const safetyErrors = safetyIssues.filter(
+			issue => issue.severity === 'error'
+		);
+
+		if (safetyErrors.length > 0) {
+			notes.push({
+				detail:
+					'The selected story format includes dev-only runtime code that cannot ship.',
+				icon: 'alert-octagon',
+				id: 'publish-safety',
+				title: 'Format needs review before publish',
+				tone: 'error'
+			});
+		}
+
+		if (buildErrorDiagnosticCount > 0) {
+			notes.push({
+				detail: `${buildErrorDiagnosticCount} build diagnostic${
+					buildErrorDiagnosticCount === 1 ? '' : 's'
+				} need attention.`,
+				icon: 'alert-octagon',
+				id: 'build-errors',
+				title: 'Build output has errors',
+				tone: 'error'
+			});
+		}
+
+		if (sourceOnly) {
+			notes.push({
+				detail:
+					'Assets and runtime HTML are not part of this file. That is by design.',
+				icon: 'info-circle',
+				id: 'source-only',
+				title:
+					exportFormat === 'json' ? 'Source-only data' : 'Source-only format',
+				tone: 'info'
+			});
+		}
+
+		if (exportFormat === 'archive') {
+			notes.push({
+				detail:
+					'Includes HTML, Twee source, JSON, and a copy plan for project assets.',
+				icon: 'info-circle',
+				id: 'archive-contents',
+				title: 'Everything in one archive',
+				tone: 'info'
+			});
+		}
+
+		if (exportFormat === 'html' && formatOptions.htmlCompatibility) {
+			notes.push({
+				detail:
+					'The exported HTML omits twine.rs graph data so other Twine tools can read it.',
+				icon: 'info-circle',
+				id: 'compatibility',
+				title: 'Classic Twine compatibility',
+				tone: 'info'
+			});
+		}
+
+		if (exportFormat === 'html' && !formatOptions.htmlInlineAssets) {
+			notes.push({
+				detail:
+					'Referenced project assets stay in the asset copy plan instead of being embedded.',
+				icon: 'info-circle',
+				id: 'asset-copy-plan',
+				title: 'Assets stay external',
+				tone: 'info'
+			});
+		}
+
+		if (!sourceOnly && missingAssets.length > 0) {
+			notes.push({
+				detail: `${missingAssets.slice(0, 3).join(', ')}${
+					missingAssets.length > 3 ? '...' : ''
+				} will be skipped unless restored.`,
+				dismissible: true,
+				icon: 'alert-triangle',
+				id: 'missing-assets',
+				title: `${missingAssets.length} asset${
+					missingAssets.length === 1 ? '' : 's'
+				} could not be found`,
+				tone: 'warn'
+			});
+		}
+
+		if (buildWarningDiagnosticCount > 0) {
+			notes.push({
+				detail: `${buildWarningDiagnosticCount} warning${
+					buildWarningDiagnosticCount === 1 ? '' : 's'
+				} were added to the package report.`,
+				dismissible: true,
+				icon: 'alert-triangle',
+				id: 'build-warnings',
+				title: 'Build warnings need review',
+				tone: 'warn'
+			});
+		}
+
+		if (dismissedDiagnosticCount > 0) {
+			notes.push({
+				detail: `${dismissedDiagnosticCount} dismissed diagnostic${
+					dismissedDiagnosticCount === 1 ? '' : 's'
+				} are hidden from this view.`,
+				dismissible: true,
+				icon: 'info-circle',
+				id: 'dismissed-diagnostics',
+				title: 'Dismissed diagnostics hidden',
+				tone: 'info'
+			});
+		}
+
+		return notes;
+	}, [
+		buildErrorDiagnosticCount,
+		buildWarningDiagnosticCount,
+		dismissedDiagnosticCount,
+		error,
+		errorDiagnostics.length,
+		exportFormat,
+		formatOptions.htmlCompatibility,
+		formatOptions.htmlInlineAssets,
+		history,
+		missingAssets,
+		safetyIssues,
+		sourceOnly,
+		story?.id
+	]);
+
+	const visibleNotes = rawNotes.filter(
+		note => !note.dismissible || !dismissedNoteIds.has(note.id)
+	);
+	const visibleProblemNotes = visibleNotes.filter(
+		note => note.tone === 'error' || note.tone === 'warn'
+	);
+	const notes =
+		visibleProblemNotes.length === 0
+			? [
+					{
+						detail: 'No problems found in this story. You are good to go.',
+						icon: 'circle-check',
+						id: 'ready',
+						title: 'Ready to export',
+						tone: 'ok' as const
+					},
+					...visibleNotes
+				]
+			: visibleNotes;
+
+	const sourceInspectionText = React.useMemo(
+		() => (inspectOpen && story ? sourceInspection(story, storyIndex) : ''),
+		[inspectOpen, story, storyIndex]
+	);
+	const htmlInspectionText = React.useMemo(
+		() => (inspectOpen ? htmlInspection(build) : ''),
+		[build, inspectOpen]
+	);
+	const inspectText =
+		inspectTab === 'source' ? sourceInspectionText : htmlInspectionText;
 
 	if (!story) {
 		return (
@@ -422,350 +843,452 @@ export const BuildRoute: React.FC = () => {
 	return (
 		<FormatLoader block={false}>
 			<div className="build-route">
-				<aside className="build-route__targets" aria-label="Build targets">
-					<div className="build-route__target-group">Run</div>
-					{buildTargets
-						.filter(candidate => candidate.group === 'Run')
-						.map(candidate => (
-							<button
-								aria-current={candidate.target === target}
-								className="build-route__target"
-								key={candidate.target}
-								onClick={() => setTarget(candidate.target)}
-								type="button"
-							>
-								<TablerIcon
-									className="build-route__target-icon"
-									icon={candidate.icon}
-								/>
-								<span>{candidate.label}</span>
-								<span
-									className="build-route__target-dot"
-									style={{background: 'var(--sem-saved)'}}
-								/>
-							</button>
-						))}
-					<div className="build-route__target-group">Export</div>
-					{buildTargets
-						.filter(candidate => candidate.group === 'Export')
-						.map(candidate => {
-							const risky =
-								publishBoundTargets.includes(candidate.target) &&
-								!!safety?.issues.length;
-
-							return (
-								<button
-									aria-current={candidate.target === target}
-									className="build-route__target"
-									key={candidate.target}
-									onClick={() => setTarget(candidate.target)}
-									type="button"
-								>
-									<TablerIcon
-										className="build-route__target-icon"
-										icon={candidate.icon}
-									/>
-									<span>{candidate.label}</span>
-									<span
-										className="build-route__target-dot"
-										style={{
-											background: risky ? 'var(--sem-warn)' : 'var(--acc-blue)'
-										}}
-									/>
-								</button>
-							);
-						})}
-				</aside>
 				<div className="build-route__main">
-					<div className="build-route__detail">
+					<header className="build-route__head">
 						<div>
-							<div className="build-route__hero">
-								<div className="build-route__hero-icon">
-									<TablerIcon icon={definition.icon} />
-								</div>
-								<div>
-									<h1>{definition.label}</h1>
-									<p>{definition.description}</p>
-								</div>
-							</div>
+							<h1>
+								{view === 'export' ? 'Export your story' : 'Preview your story'}
+							</h1>
+							<p>
+								{view === 'export'
+									? 'Pick a format and save a file. Run actions live under Preview.'
+									: 'Open a live copy to read or test. Nothing is saved to disk.'}
+							</p>
+						</div>
+						<div className="build-route__head-spacer" />
+						<Badge
+							icon={
+								capabilities?.publishSafe ? 'discount-check' : 'alert-circle'
+							}
+							tone={capabilities?.publishSafe ? 'saved' : 'warn'}
+						>
+							{story.storyFormat} {story.storyFormatVersion}
+						</Badge>
+					</header>
 
-							<div className="build-route__warning-list">
-								{error && (
-									<div className="build-route__warning build-route__warning--error">
-										<TablerIcon
-											className="build-route__warning-icon"
-											icon="alert-octagon"
-										/>
-										<div>
-											<div className="build-route__warning-title">
-												Last build failed
-											</div>
-											<div className="build-route__warning-detail">{error}</div>
-										</div>
-									</div>
-								)}
-								{blockingIssueCount > 0 && (
-									<div className="build-route__warning build-route__warning--error">
-										<TablerIcon
-											className="build-route__warning-icon"
-											icon="alert-octagon"
-										/>
-										<div>
-											<div className="build-route__warning-title">
-												{blockingIssueCount} blocker
-												{blockingIssueCount === 1 ? '' : 's'} before publish
-											</div>
-											<div className="build-route__warning-detail">
-												Resolve active error diagnostics or publish-safety
-												errors before shipping this target.
-											</div>
-										</div>
-									</div>
-								)}
-								{missingAssets.length > 0 && (
-									<div className="build-route__warning">
-										<TablerIcon
-											className="build-route__warning-icon"
-											icon="alert-triangle"
-										/>
-										<div>
-											<div className="build-route__warning-title">
-												{missingAssets.length} missing asset
-												{missingAssets.length === 1 ? '' : 's'}
-											</div>
-											<div className="build-route__warning-detail">
-												{missingAssets.slice(0, 3).join(', ')}
-											</div>
-										</div>
-									</div>
-								)}
-								{buildWarningDiagnosticCount > 0 && (
-									<div className="build-route__warning">
-										<TablerIcon
-											className="build-route__warning-icon"
-											icon="alert-triangle"
-										/>
-										<div>
-											<div className="build-route__warning-title">
-												Build diagnostics need review
-											</div>
-											<div className="build-route__warning-detail">
-												{buildWarningDiagnosticCount} warning
-												{buildWarningDiagnosticCount === 1 ? '' : 's'} were
-												promoted into the package report.
-											</div>
-										</div>
-									</div>
-								)}
-							</div>
+					<SegmentedControl
+						className="build-route__view-switch"
+						onChange={value => setView(value as BuildView)}
+						options={[
+							{icon: 'download', label: 'Export', value: 'export'},
+							{icon: 'player-play', label: 'Preview', value: 'preview'}
+						]}
+						value={view}
+					/>
 
-							<div className="build-route__section-title">Output</div>
-							<div className="build-route__option-grid">
-								<div className="build-route__option">
-									<span>Story</span>
-									<b>{story.name}</b>
+					{view === 'preview' ? (
+						<section
+							className="build-route__group"
+							aria-label="Preview actions"
+						>
+							<div className="build-route__action-row">
+								<div className="build-route__action-icon build-route__action-icon--green">
+									<TablerIcon icon="player-play" />
 								</div>
-								<div className="build-route__option">
-									<span>Format</span>
-									<b>
-										{story.storyFormat} {story.storyFormatVersion}
-									</b>
-								</div>
-								<div className="build-route__option">
-									<span>Format status</span>
-									<b>{formatStatusLabel(formatProperties)}</b>
-								</div>
-								<div className="build-route__option">
-									<span>Diagnostics</span>
-									<b>
-										{diagnostics.length}
-										{dismissedDiagnosticCount > 0 &&
-											` (${dismissedDiagnosticCount} dismissed)`}
-									</b>
-								</div>
-								<div className="build-route__option">
-									<span>Asset plan</span>
-									<b>
-										{build?.assets.length ??
-											storyIndex?.assetInventory.length ??
-											0}
-									</b>
-								</div>
-								<div className="build-route__option">
-									<span>Prepared size</span>
-									<b>
-										{build
-											? bytesLabel(
-													build.files.reduce(
-														(total, file) => total + file.sizeBytes,
-														0
-													)
-												)
-											: 'Not built'}
-									</b>
-								</div>
-							</div>
-
-							{target === 'test' && (
-								<>
-									<div className="build-route__section-title">
-										Test start passage
+								<div className="build-route__action-body">
+									<div className="build-route__action-title">Play</div>
+									<div className="build-route__action-detail">
+										Open the story from its start passage in an app preview.
 									</div>
-									<Select
-										ariaLabel="Test start passage"
-										onChange={setStartPassageId}
-										options={startPassageOptions}
-										value={startPassageId}
-									/>
-								</>
-							)}
-
-							<div className="build-route__actions">
-								{['play', 'test', 'proof'].includes(target) ? (
-									<Button
-										icon={definition.icon}
-										loading={busy}
-										onClick={runTarget}
-										variant="primary"
-									>
-										Run {definition.label}
-									</Button>
-								) : (
-									<Button
-										icon="download"
-										loading={busy}
-										onClick={savePreparedOutput}
-										variant="primary"
-									>
-										Build and Save
-									</Button>
-								)}
-								<Button icon="check" loading={busy} onClick={prepareBuild}>
-									Prepare Report
+								</div>
+								<Button
+									icon="player-play"
+									loading={busyAction === 'play'}
+									onClick={() => runPreview('play')}
+									variant="primary"
+								>
+									Play
 								</Button>
 							</div>
-						</div>
 
-						<div className="build-route__side">
-							<Panel icon="components" pad title="Format Capabilities">
-								<div className="build-route__badge-row">
-									{capabilities ? (
-										Object.entries({
-											Parser: capabilities.parser,
-											Exporter: capabilities.exporter,
-											Syntax: capabilities.syntax,
-											Autocomplete: capabilities.autocomplete,
-											Diagnostics: capabilities.diagnostics,
-											Devtools: capabilities.devtoolsPanels,
-											'Editor UI': capabilities.editorToolbarActions,
-											'Publish safe': capabilities.publishSafe
-										}).map(([label, enabled]) => (
-											<Badge
-												icon={enabled ? 'check' : 'minus'}
-												key={label}
-												tone={enabled ? 'saved' : 'neutral'}
-											>
-												{label}
-											</Badge>
-										))
-									) : (
-										<Badge icon="clock">Loading format</Badge>
-									)}
+							<div className="build-route__action-row">
+								<div className="build-route__action-icon">
+									<TablerIcon icon="tool" />
 								</div>
-							</Panel>
-							<Panel icon="file-text" pad title="Fidelity Boundary">
-								<div className="build-route__section-title">Preserves</div>
-								<ul className="build-route__fidelity-list">
-									{(
-										build?.report.fidelity.preserves ?? [
-											'Build once to inspect exact preserved data.'
-										]
-									).map(item => (
-										<li key={item}>{item}</li>
-									))}
-								</ul>
-								<div className="build-route__section-title">Omits</div>
-								<ul className="build-route__fidelity-list">
-									{(
-										build?.report.fidelity.omits ?? [
-											'Build once to inspect target omissions.'
-										]
-									).map(item => (
-										<li key={item}>{item}</li>
-									))}
-								</ul>
-							</Panel>
-							<Panel
-								count={build?.files.length ?? 0}
-								icon="file-code"
-								pad
-								title="Prepared Outputs"
-							>
-								<ul className="build-route__output-list">
-									{build?.files.length ? (
-										build.files.map(file => (
-											<li key={`${file.filename}-${file.kind}`}>
-												<b>{file.filename}</b>
-												<span>
-													{file.kind} · {file.role} ·{' '}
-													{bytesLabel(file.sizeBytes)}
-												</span>
-											</li>
-										))
-									) : (
-										<li>No output prepared yet.</li>
-									)}
-								</ul>
-							</Panel>
-							<Panel
-								count={build?.report.diagnostics.length ?? 0}
-								icon="alert-triangle"
-								pad
-								title="Build Diagnostics"
-							>
-								<ul className="build-route__output-list">
-									{build?.report.diagnostics.length ? (
-										build.report.diagnostics.map((diagnostic, index) => (
-											<li key={`${diagnostic.code}-${index}`}>
-												<b>{diagnostic.code}</b>
-												<span>
-													{diagnostic.severity} · {diagnostic.message}
-												</span>
-											</li>
-										))
-									) : (
-										<li>No build diagnostics prepared yet.</li>
-									)}
-								</ul>
-							</Panel>
-						</div>
-					</div>
-					<div className="build-route__log">
-						<div className="build-route__log-head">
-							<span className="build-route__log-title">Build Output</span>
-							<span className="build-route__log-spacer" />
-							<Button
-								icon="trash"
-								onClick={() => setLogs([])}
-								size="sm"
-								variant="ghost"
-							>
-								Clear
-							</Button>
-						</div>
-						<div className="build-route__log-body">
-							{logs.map((entry, index) => (
-								<div
-									className="build-route__log-line"
-									key={`${entry.line}-${index}`}
+								<div className="build-route__action-body">
+									<div className="build-route__action-title">
+										Test from a passage
+									</div>
+									<div className="build-route__action-detail">
+										Run with debug output, starting from any passage you choose.
+									</div>
+									<div className="build-route__action-inline">
+										<span>Start at</span>
+										<Select
+											ariaLabel="Test start passage"
+											onChange={setStartPassageId}
+											options={startPassageOptions}
+											size="sm"
+											value={startPassageId}
+										/>
+									</div>
+								</div>
+								<Button
+									icon="tool"
+									loading={busyAction === 'test'}
+									onClick={() => runPreview('test')}
 								>
-									<span className="build-route__log-time">{entry.time}</span>
-									<span>{entry.line}</span>
+									Test
+								</Button>
+							</div>
+
+							<div className="build-route__action-row">
+								<div className="build-route__action-icon">
+									<TablerIcon icon="book" />
 								</div>
-							))}
-						</div>
-					</div>
+								<div className="build-route__action-body">
+									<div className="build-route__action-title">Proof</div>
+									<div className="build-route__action-detail">
+										Open a proofing copy for review and editing passes.
+									</div>
+									<div className="build-route__action-inline">
+										<span>Proofing format</span>
+										<Select
+											ariaLabel="Proofing format"
+											disabled={proofingOptions.length === 0}
+											onChange={setProofingFormatValue}
+											options={proofingOptions}
+											size="sm"
+											value={proofingFormatValue}
+										/>
+									</div>
+								</div>
+								<Button
+									icon="book"
+									loading={busyAction === 'proof'}
+									onClick={() => runPreview('proof')}
+								>
+									Proof
+								</Button>
+							</div>
+						</section>
+					) : (
+						<>
+							<section
+								className="build-route__group"
+								aria-label="Export format"
+							>
+								<div className="build-route__label">Format</div>
+								<div className="build-route__formats">
+									{exportFormats.map(format => {
+										const selected = exportFormat === format.format;
+
+										return (
+											<button
+												aria-pressed={selected}
+												className={`build-route__format${
+													selected ? ' build-route__format--selected' : ''
+												}`}
+												key={format.format}
+												onClick={() => setExportFormat(format.format)}
+												type="button"
+											>
+												<TablerIcon
+													className="build-route__format-check"
+													icon="circle-check-filled"
+												/>
+												<div className="build-route__format-icon">
+													<TablerIcon icon={format.icon} />
+												</div>
+												<div>
+													<div className="build-route__format-title">
+														{format.label}
+														{format.sourceOnly && (
+															<span className="build-route__source-chip">
+																source
+															</span>
+														)}
+													</div>
+													<div className="build-route__format-detail">
+														{format.description}
+													</div>
+												</div>
+											</button>
+										);
+									})}
+								</div>
+							</section>
+
+							<section
+								className="build-route__group"
+								aria-label="Export options"
+							>
+								<div className="build-route__label">Options</div>
+								<div className="build-route__panel">
+									{exportFormat === 'html' && (
+										<>
+											<div className="build-route__row">
+												<div className="build-route__row-left">
+													<div className="build-route__row-title">
+														Inline all assets
+													</div>
+													<div className="build-route__row-detail">
+														Embed images and media so the single file works
+														offline.
+													</div>
+												</div>
+												<Switch
+													ariaLabel="Inline all assets"
+													checked={formatOptions.htmlInlineAssets}
+													onChange={checked =>
+														updateFormatOption('htmlInlineAssets', checked)
+													}
+												/>
+											</div>
+											<div className="build-route__row">
+												<div className="build-route__row-left">
+													<div className="build-route__row-title">
+														Classic Twine compatibility
+													</div>
+													<div className="build-route__row-detail">
+														Omit the twine.rs graph data so other Twine tools
+														can read it.
+													</div>
+												</div>
+												<Switch
+													ariaLabel="Classic Twine compatibility"
+													checked={formatOptions.htmlCompatibility}
+													onChange={checked =>
+														updateFormatOption('htmlCompatibility', checked)
+													}
+												/>
+											</div>
+										</>
+									)}
+
+									{exportFormat === 'json' && (
+										<div className="build-route__row">
+											<div className="build-route__row-left">
+												<div className="build-route__row-title">
+													Pretty-print
+												</div>
+												<div className="build-route__row-detail">
+													Indent the JSON for readable diffs in version control.
+												</div>
+											</div>
+											<Switch
+												ariaLabel="Pretty-print"
+												checked={formatOptions.jsonPretty}
+												onChange={checked =>
+													updateFormatOption('jsonPretty', checked)
+												}
+											/>
+										</div>
+									)}
+
+									{exportFormat === 'twee' && (
+										<div className="build-route__row">
+											<div className="build-route__row-left">
+												<div className="build-route__row-title">
+													Passage tags and metadata
+												</div>
+												<div className="build-route__row-detail">
+													Tags, positions, and story settings are written in the
+													Twee source.
+												</div>
+											</div>
+											<Badge icon="check" tone="saved">
+												Included
+											</Badge>
+										</div>
+									)}
+
+									{exportFormat === 'archive' && (
+										<div className="build-route__row">
+											<div className="build-route__row-left">
+												<div className="build-route__row-title">Contents</div>
+												<div className="build-route__row-detail">
+													Playable HTML, Twee source, JSON, manifest, and asset
+													copy plan.
+												</div>
+											</div>
+											<Badge icon="package" tone="neutral">
+												4 parts
+											</Badge>
+										</div>
+									)}
+
+									<div className="build-route__meta">
+										<div>
+											<span>Destination</span>
+											<b>Choose when exporting</b>
+										</div>
+										<div>
+											<span>Prepared size</span>
+											<b>{preparedSize}</b>
+										</div>
+										<div>
+											<span>Format status</span>
+											<b>{formatStatusLabel(formatProperties)}</b>
+										</div>
+									</div>
+								</div>
+							</section>
+
+							<section className="build-route__notes" aria-label="Export notes">
+								{notes.map(note => (
+									<div
+										className={`build-route__note build-route__note--${note.tone}`}
+										key={note.id}
+									>
+										<TablerIcon
+											className="build-route__note-icon"
+											icon={note.icon}
+										/>
+										<div className="build-route__note-body">
+											<div className="build-route__note-title">
+												{note.title}
+											</div>
+											<div className="build-route__note-detail">
+												{note.detail}
+											</div>
+										</div>
+										{note.actionLabel && (
+											<button
+												className="build-route__note-action"
+												onClick={note.onAction}
+												type="button"
+											>
+												{note.actionLabel}
+											</button>
+										)}
+										{note.dismissible && (
+											<IconButton
+												icon="x"
+												label={`Dismiss ${note.title}`}
+												onClick={() =>
+													setDismissedNoteIds(current => {
+														const next = new Set(current);
+
+														next.add(note.id);
+														return next;
+													})
+												}
+												size="sm"
+											/>
+										)}
+									</div>
+								))}
+							</section>
+
+							<footer className="build-route__footer">
+								<Button
+									icon="download"
+									loading={busyAction === 'export'}
+									onClick={savePreparedOutput}
+									variant="primary"
+								>
+									Export {activeDefinition.label}
+								</Button>
+								<Button
+									icon="search"
+									loading={busyAction === 'inspect'}
+									onClick={inspectOutput}
+								>
+									Inspect output
+								</Button>
+								<div className="build-route__footer-spacer" />
+								{!sourceOnly && (
+									<Button
+										icon="cloud-upload"
+										loading={busyAction === 'publish-online'}
+										onClick={publishOnline}
+										variant="ghost"
+									>
+										Publish online...
+									</Button>
+								)}
+							</footer>
+
+							{visibleProblemNotes.some(note => note.tone === 'warn') && (
+								<div className="build-route__footer-note">
+									Warnings never block an export. They are skipped and noted.
+								</div>
+							)}
+						</>
+					)}
+
+					{logs.length > 0 && (
+						<section
+							className="build-route__activity"
+							aria-label="Build output"
+						>
+							<div className="build-route__activity-head">
+								<span>Build output</span>
+								<Button
+									icon="trash"
+									onClick={() => setLogs([])}
+									size="sm"
+									variant="ghost"
+								>
+									Clear
+								</Button>
+							</div>
+							<div className="build-route__activity-body">
+								{logs.map((entry, index) => (
+									<div
+										className="build-route__activity-line"
+										key={`${entry.line}-${index}`}
+									>
+										<span>{entry.time}</span>
+										<span>{entry.line}</span>
+									</div>
+								))}
+							</div>
+						</section>
+					)}
 				</div>
+
+				{inspectOpen && (
+					<div
+						className="build-route__scrim"
+						onClick={() => setInspectOpen(false)}
+					>
+						<aside
+							aria-label="Inspect output"
+							className="build-route__drawer"
+							onClick={event => event.stopPropagation()}
+						>
+							<header className="build-route__drawer-head">
+								<TablerIcon icon="search" />
+								<b>Inspect output</b>
+								<div className="build-route__drawer-spacer" />
+								<IconButton
+									icon="x"
+									label="Close inspect output"
+									onClick={() => setInspectOpen(false)}
+								/>
+							</header>
+							<div className="build-route__drawer-tabs">
+								<SegmentedControl
+									onChange={value => setInspectTab(value as InspectTab)}
+									options={[
+										{icon: 'list-details', label: 'Source', value: 'source'},
+										{icon: 'code', label: 'HTML', value: 'html'}
+									]}
+									size="sm"
+									value={inspectTab}
+								/>
+							</div>
+							<pre className="build-route__inspect-pre">{inspectText}</pre>
+							<footer className="build-route__drawer-foot">
+								<TablerIcon icon="info-circle" />
+								<span>
+									Read-only - this used to be an exported report. Now it just
+									shows here.
+								</span>
+								<Button
+									icon="copy"
+									onClick={() => void navigator.clipboard?.writeText(inspectText)}
+									size="sm"
+									variant="ghost"
+								>
+									Copy
+								</Button>
+							</footer>
+						</aside>
+					</div>
+				)}
 			</div>
 		</FormatLoader>
 	);

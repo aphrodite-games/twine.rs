@@ -77,54 +77,36 @@ describe('<BuildRoute>', () => {
 		window.localStorage.clear();
 	});
 
-	it('surfaces M6 build targets, capabilities, and output context', () => {
+	it('collapses the old target list into Export and Preview flows', async () => {
 		renderComponent();
 
-		expect(screen.getByRole('button', {name: /Play/})).toBeInTheDocument();
+		await waitFor(() =>
+			expect(screen.getByText('Ready to export')).toBeInTheDocument()
+		);
+		expect(screen.getByRole('tab', {name: /Export/})).toBeInTheDocument();
+		expect(screen.getByRole('tab', {name: /Preview/})).toBeInTheDocument();
+		expect(screen.getByText('Playable HTML')).toBeInTheDocument();
+		expect(screen.getByText('Twee Source')).toBeInTheDocument();
+		expect(screen.getByText('JSON')).toBeInTheDocument();
+		expect(screen.getByText('Archive (.zip)')).toBeInTheDocument();
+		expect(screen.getByText('Inline all assets')).toBeInTheDocument();
+		expect(screen.getByText('Classic Twine compatibility')).toBeInTheDocument();
+		expect(screen.queryByText('Build output')).not.toBeInTheDocument();
 		expect(
-			screen.getByRole('button', {name: /Export HTML/})
-		).toBeInTheDocument();
+			screen.queryByRole('button', {name: /Compatibility Export/})
+		).not.toBeInTheDocument();
 		expect(
-			screen.getByRole('button', {name: /Compatibility Export/})
-		).toBeInTheDocument();
+			screen.queryByRole('button', {name: /Inspect Source/})
+		).not.toBeInTheDocument();
 		expect(
-			screen.getByRole('button', {name: /Inspect Source/})
-		).toBeInTheDocument();
-		expect(screen.getByRole('button', {name: /Package/})).toBeInTheDocument();
-		expect(screen.getByText('Format Capabilities')).toBeInTheDocument();
-		expect(screen.getByText('Fidelity Boundary')).toBeInTheDocument();
-		expect(screen.getByText('Moon Castle')).toBeInTheDocument();
+			screen.queryByRole('button', {name: /Inspect HTML/})
+		).not.toBeInTheDocument();
 	});
 
-	it('prepares a build report for the selected export target', async () => {
+	it('exports the selected file format', async () => {
 		renderComponent();
 
-		fireEvent.click(screen.getByRole('button', {name: 'Prepare Report'}));
-
-		expect(await screen.findByText('Moon Castle.html')).toBeInTheDocument();
-		expect(screen.getByText(/Prepared 1 output file/)).toBeInTheDocument();
-		expect(screen.getByText('standard Twine story data')).toBeInTheDocument();
-	});
-
-	it('surfaces promoted build diagnostics for compatibility exports', async () => {
-		renderComponent();
-
-		fireEvent.click(screen.getByRole('button', {name: /Compatibility Export/}));
-		fireEvent.click(screen.getByRole('button', {name: 'Prepare Report'}));
-
-		expect(
-			await screen.findByText('Build diagnostics need review')
-		).toBeInTheDocument();
-		expect(screen.getAllByText('fidelity-omission').length).toBeGreaterThan(0);
-		expect(
-			screen.getByText(/build diagnostic\(s\) promoted into the report/)
-		).toBeInTheDocument();
-	});
-
-	it('saves the primary output for export targets', async () => {
-		renderComponent();
-
-		fireEvent.click(screen.getByRole('button', {name: 'Build and Save'}));
+		fireEvent.click(screen.getByRole('button', {name: 'Export Playable HTML'}));
 
 		await waitFor(() =>
 			expect(saveFile).toHaveBeenCalledWith(
@@ -136,32 +118,61 @@ describe('<BuildRoute>', () => {
 		expect(screen.getByText('Saved Moon Castle.html.')).toBeInTheDocument();
 	});
 
-	it('saves inspection reports for inspection targets', async () => {
+	it('frames source-only formats as info and hides publish', async () => {
 		renderComponent();
 
-		fireEvent.click(screen.getByRole('button', {name: /Inspect Source/}));
-		fireEvent.click(screen.getByRole('button', {name: 'Build and Save'}));
+		fireEvent.click(screen.getByRole('button', {name: /Twee Source/}));
+
+		expect(screen.getByText('Source-only format')).toBeInTheDocument();
+		expect(screen.getByText('Ready to export')).toBeInTheDocument();
+		expect(
+			screen.queryByRole('button', {name: /Publish online/})
+		).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', {name: 'Export Twee Source'}));
 
 		await waitFor(() =>
 			expect(saveFile).toHaveBeenCalledWith(
-				expect.stringContaining('Source inspection for Moon Castle'),
-				'Moon Castle.source-inspection.txt',
+				expect.stringContaining('StoryTitle'),
+				'Moon Castle.twee',
 				'text/plain;charset=utf-8'
 			)
 		);
 	});
 
-	it('runs preview targets after preparing their package', async () => {
+	it('shows inspection on-screen instead of saving inspection reports', async () => {
 		renderComponent();
 
-		fireEvent.click(screen.getByRole('button', {name: /Test From Selection/}));
-		fireEvent.click(
-			screen.getByRole('button', {name: /Run Test From Selection/})
-		);
+		fireEvent.click(screen.getByRole('button', {name: 'Inspect output'}));
+
+		expect(
+			await screen.findByRole('complementary', {name: 'Inspect output'})
+		).toBeInTheDocument();
+		expect(screen.getByRole('tab', {name: /Source/})).toBeInTheDocument();
+		expect(screen.getByRole('tab', {name: /HTML/})).toBeInTheDocument();
+		expect(
+			screen.getByText(/this used to be an exported report/)
+		).toBeInTheDocument();
+		expect(saveFile).not.toHaveBeenCalled();
+	});
+
+	it('runs preview actions with inline passage and proofing format choices', async () => {
+		const {format} = renderComponent();
+
+		fireEvent.click(screen.getByRole('tab', {name: /Preview/}));
+		fireEvent.click(screen.getByRole('button', {name: 'Test'}));
 
 		await waitFor(() =>
 			expect(mockTestStory).toHaveBeenCalledWith('story-id', 'passage-0')
 		);
-		expect(screen.getByText('Opened Test preview.')).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', {name: 'Proof'}));
+
+		await waitFor(() =>
+			expect(mockProofStory).toHaveBeenCalledWith('story-id', {
+				name: format.name,
+				version: format.version
+			})
+		);
 	});
 });

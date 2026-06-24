@@ -1,10 +1,14 @@
 import * as React from 'react';
-import {publishArchive, publishStory, PublishOptions} from '../util/publish';
+import {
+	publishArchive,
+	publishStory,
+	type PublishOptions
+} from '../util/publish';
 import {
 	createStoryBuildPackage,
-	StoryBuildPackage,
-	StoryHtmlBuildTarget,
-	StoryBuildTarget
+	type StoryBuildPackage,
+	type StoryHtmlBuildTarget,
+	type StoryBuildTarget
 } from '../util/build-package';
 import {useCoreProjectHost} from '../core/project-host';
 import type {CoreAssetInventoryEntry} from '../core';
@@ -23,19 +27,36 @@ export type PublishStoryOptions = PublishOptions & {
 
 export type BuildStoryPackageOptions = PublishOptions & {
 	buildTarget?: StoryBuildTarget;
+	htmlCompatibility?: boolean;
+	jsonPretty?: boolean;
 };
+
+export interface ProofingFormatSelection {
+	name: string;
+	version: string;
+}
+
+export type ProofStoryPackageOptions =
+	| CoreAssetInventoryEntry[]
+	| {
+			assetInventory?: CoreAssetInventoryEntry[];
+			proofingFormat?: ProofingFormatSelection;
+	  };
 
 export interface UsePublishingProps {
 	buildStoryPackage: (
 		storyId: string,
 		target: StoryBuildTarget,
-		publishOptions?: PublishOptions
+		publishOptions?: Omit<BuildStoryPackageOptions, 'buildTarget'>
 	) => Promise<StoryBuildPackage>;
 	proofStoryPackage: (
 		storyId: string,
-		assetInventory?: CoreAssetInventoryEntry[]
+		options?: ProofStoryPackageOptions
 	) => Promise<StoryBuildPackage>;
-	proofStory: (storyId: string) => Promise<string>;
+	proofStory: (
+		storyId: string,
+		proofingFormat?: ProofingFormatSelection
+	) => Promise<string>;
 	publishArchive: (storyIds?: string[]) => Promise<string>;
 	publishStoryPackage: (
 		storyId: string,
@@ -70,11 +91,42 @@ export function usePublishing(): UsePublishingProps {
 		[coreProjectHost]
 	);
 
+	const loadProofFormatProperties = React.useCallback(
+		async (proofingFormat?: ProofingFormatSelection) => {
+			const selectedFormat = proofingFormat ?? prefs.proofingFormat;
+			const format = formatWithNameAndVersion(
+				formats,
+				selectedFormat.name,
+				selectedFormat.version
+			);
+			const formatProperties =
+				await loadFormatProperties(format)(storyFormatsDispatch);
+
+			if (!formatProperties) {
+				throw new Error(`Couldn't load story format properties`);
+			}
+
+			return formatProperties;
+		},
+		[
+			formats,
+			prefs.proofingFormat.name,
+			prefs.proofingFormat.version,
+			storyFormatsDispatch
+		]
+	);
+
+	const normalizeProofPackageOptions = React.useCallback(
+		(options?: ProofStoryPackageOptions) =>
+			Array.isArray(options) ? {assetInventory: options} : (options ?? {}),
+		[]
+	);
+
 	const buildStoryPackage = React.useCallback(
 		async (
 			storyId: string,
 			target: StoryBuildTarget,
-			publishOptions?: PublishOptions
+			publishOptions?: Omit<BuildStoryPackageOptions, 'buildTarget'>
 		) => {
 			const story = storyWithId(stories, storyId);
 			const format = formatWithNameAndVersion(
@@ -114,19 +166,10 @@ export function usePublishing(): UsePublishingProps {
 			[stories]
 		),
 		proofStory: React.useCallback(
-			async storyId => {
+			async (storyId, proofingFormat) => {
 				const story = storyWithId(stories, storyId);
-				const format = formatWithNameAndVersion(
-					formats,
-					prefs.proofingFormat.name,
-					prefs.proofingFormat.version
-				);
 				const formatProperties =
-					await loadFormatProperties(format)(storyFormatsDispatch);
-
-				if (!formatProperties) {
-					throw new Error(`Couldn't load story format properties`);
-				}
+					await loadProofFormatProperties(proofingFormat);
 
 				return createStoryBuildPackage(story, getAppInfo(), {
 					assetInventory: await assetInventoryForStory(storyId),
@@ -134,44 +177,29 @@ export function usePublishing(): UsePublishingProps {
 					target: 'proof'
 				}).html;
 			},
-			[
-				assetInventoryForStory,
-				formats,
-				prefs.proofingFormat.name,
-				prefs.proofingFormat.version,
-				stories,
-				storyFormatsDispatch
-			]
+			[assetInventoryForStory, loadProofFormatProperties, stories]
 		),
 		proofStoryPackage: React.useCallback(
-			async (storyId, assetInventory) => {
+			async (storyId, options) => {
+				const proofOptions = normalizeProofPackageOptions(options);
 				const story = storyWithId(stories, storyId);
-				const format = formatWithNameAndVersion(
-					formats,
-					prefs.proofingFormat.name,
-					prefs.proofingFormat.version
+				const formatProperties = await loadProofFormatProperties(
+					proofOptions.proofingFormat
 				);
-				const formatProperties =
-					await loadFormatProperties(format)(storyFormatsDispatch);
-
-				if (!formatProperties) {
-					throw new Error(`Couldn't load story format properties`);
-				}
 
 				return createStoryBuildPackage(story, getAppInfo(), {
 					assetInventory:
-						assetInventory ?? (await assetInventoryForStory(storyId)),
+						proofOptions.assetInventory ??
+						(await assetInventoryForStory(storyId)),
 					formatProperties,
 					target: 'proof'
 				});
 			},
 			[
 				assetInventoryForStory,
-				formats,
-				prefs.proofingFormat.name,
-				prefs.proofingFormat.version,
-				stories,
-				storyFormatsDispatch
+				loadProofFormatProperties,
+				normalizeProofPackageOptions,
+				stories
 			]
 		),
 		publishStory: React.useCallback(

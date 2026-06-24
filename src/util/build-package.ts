@@ -4,7 +4,6 @@ import type {Story} from '../store/stories';
 import type {AppInfo} from './app-info';
 import type {PublishOptions} from './publish';
 import {publishStoryWithFormat} from './publish';
-import {TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE} from './story-graph-metadata';
 import {storyToTwee} from './twee';
 import {
 	inspectStoryFormatPublishSafety,
@@ -21,9 +20,6 @@ export type StoryBuildTarget =
 	| 'export-html'
 	| 'export-json'
 	| 'export-twee'
-	| 'compatibility-export'
-	| 'inspect-html'
-	| 'inspect-source'
 	| 'package';
 
 export type StoryHtmlBuildTarget =
@@ -36,7 +32,6 @@ export type StoryHtmlBuildTarget =
 export type StoryBuildOutputKind =
 	| 'archive'
 	| 'html'
-	| 'inspection'
 	| 'json'
 	| 'package-manifest'
 	| 'twee';
@@ -62,7 +57,7 @@ export interface StoryBuildOutput {
 }
 
 export interface StoryBuildFile extends StoryBuildOutput {
-	contents: string;
+	contents: BlobPart;
 }
 
 export interface StoryBuildFidelityReport {
@@ -102,6 +97,8 @@ export interface StoryBuildPackage {
 
 export interface StoryBuildPackageOptions extends PublishOptions {
 	formatProperties: StoryFormatProperties;
+	htmlCompatibility?: boolean;
+	jsonPretty?: boolean;
 	target: StoryBuildTarget;
 }
 
@@ -150,8 +147,55 @@ function storyFilename(story: Story, extension: string) {
 	return `${baseName}${extension}`;
 }
 
-function byteLength(source: string) {
+function byteLength(source: BlobPart) {
 	return new Blob([source]).size;
+}
+
+function utf8Bytes(value: string) {
+	if (typeof TextEncoder !== 'undefined') {
+		return new TextEncoder().encode(value);
+	}
+
+	const bytes: number[] = [];
+
+	for (let index = 0; index < value.length; index++) {
+		let codePoint = value.charCodeAt(index);
+
+		if (
+			codePoint >= 0xd800 &&
+			codePoint <= 0xdbff &&
+			index + 1 < value.length
+		) {
+			const low = value.charCodeAt(index + 1);
+
+			if (low >= 0xdc00 && low <= 0xdfff) {
+				codePoint =
+					0x10000 + ((codePoint - 0xd800) << 10) + (low - 0xdc00);
+				index++;
+			}
+		}
+
+		if (codePoint <= 0x7f) {
+			bytes.push(codePoint);
+		} else if (codePoint <= 0x7ff) {
+			bytes.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f));
+		} else if (codePoint <= 0xffff) {
+			bytes.push(
+				0xe0 | (codePoint >> 12),
+				0x80 | ((codePoint >> 6) & 0x3f),
+				0x80 | (codePoint & 0x3f)
+			);
+		} else {
+			bytes.push(
+				0xf0 | (codePoint >> 18),
+				0x80 | ((codePoint >> 12) & 0x3f),
+				0x80 | ((codePoint >> 6) & 0x3f),
+				0x80 | (codePoint & 0x3f)
+			);
+		}
+	}
+
+	return new Uint8Array(bytes);
 }
 
 function outputDescriptor(
@@ -160,7 +204,7 @@ function outputDescriptor(
 	role: StoryBuildOutputRole,
 	filename: string,
 	mediaType: string,
-	contents: string
+	contents: BlobPart
 ): StoryBuildFile {
 	return {
 		contents,
@@ -173,26 +217,41 @@ function outputDescriptor(
 	};
 }
 
-function storyToJson(story: Story) {
-	return JSON.stringify(story, null, 2);
+function storyToJson(story: Story, pretty = true) {
+	return JSON.stringify(story, null, pretty ? 2 : 0);
 }
 
 function shouldRenderHtml(target: StoryBuildTarget) {
-	return !['export-json', 'export-twee', 'inspect-source'].includes(target);
+	return !['export-json', 'export-twee'].includes(target);
 }
 
 function publishOptionsForTarget(
 	target: StoryBuildTarget,
-	publishOptions: PublishOptions
+	publishOptions: PublishOptions,
+	htmlCompatibility = false
 ) {
 	if (target === 'package') {
 		return {...publishOptions, includeStoryGraph: true, startOptional: true};
 	}
 
+	if (target === 'export-html' || target === 'publish') {
+		return {
+			...publishOptions,
+			includeStoryGraph: publishOptions.includeStoryGraph ?? !htmlCompatibility
+		};
+	}
+
 	return publishOptions;
 }
 
-function targetFidelity(target: StoryBuildTarget): StoryBuildFidelityReport {
+function targetFidelity(
+	target: StoryBuildTarget,
+	htmlCompatibility = false
+): StoryBuildFidelityReport {
+	const includesProjectGraph =
+		target === 'package' ||
+		((target === 'export-html' || target === 'publish') && !htmlCompatibility);
+
 	switch (target) {
 		case 'export-json':
 			return {
@@ -223,42 +282,6 @@ function targetFidelity(target: StoryBuildTarget): StoryBuildFidelityReport {
 				]
 			};
 
-		case 'compatibility-export':
-			return {
-				omits: [
-					'twine.rs StoryData graph metadata carrier',
-					'future graph groups, collapsed state, annotations, saved views, hierarchy, and derived rules',
-					'editor selection/highlight state'
-				],
-				preserves: [
-					'normal Twine HTML and Twee compatibility outputs',
-					'passage text, tags, and standard position/size metadata',
-					'story IFID, format, start passage, tag colors, JavaScript, and CSS'
-				]
-			};
-
-		case 'inspect-html':
-			return {
-				omits: ['no runnable package is produced by the inspection report'],
-				preserves: [
-					'HTML output structure summary',
-					'story data, format, start passage, asset, and publish-safety markers'
-				]
-			};
-
-		case 'inspect-source':
-			return {
-				omits: [
-					'story format runtime bundle',
-					'asset binaries',
-					'HTML runtime wrapper'
-				],
-				preserves: [
-					'Twee source structure summary',
-					'StoryData, StoryTitle, passage count, script, stylesheet, and asset reference counts'
-				]
-			};
-
 		case 'package':
 			return {
 				omits: [
@@ -276,13 +299,19 @@ function targetFidelity(target: StoryBuildTarget): StoryBuildFidelityReport {
 			return {
 				omits: [
 					'asset binaries, except through the asset copy plan',
+					...(includesProjectGraph
+						? []
+						: ['twine.rs StoryData graph metadata carrier']),
 					'editor selection/highlight state',
 					'future graph groups, collapsed state, hierarchy, and workspace views'
 				],
 				preserves: [
 					'standard Twine story data',
 					'passage text, tags, and positions',
-					'story IFID, format, start passage, tag colors, JavaScript, and CSS'
+					'story IFID, format, start passage, tag colors, JavaScript, and CSS',
+					...(includesProjectGraph
+						? ['twine.rs StoryData graph metadata carrier']
+						: [])
 				]
 			};
 	}
@@ -301,7 +330,6 @@ function reportOutputs(files: StoryBuildFile[]): StoryBuildOutput[] {
 
 function buildDiagnostics(
 	target: StoryBuildTarget,
-	fidelity: StoryBuildFidelityReport,
 	safetyIssues: StoryFormatPublishSafetyIssue[],
 	missingAssets: string[],
 	assets: StoryBuildAsset[]
@@ -323,7 +351,7 @@ function buildDiagnostics(
 			code: 'missing-asset',
 			message: `Referenced asset "${path}" cannot be copied into this build.`,
 			outputPath: path,
-			severity: 'error',
+			severity: 'warning',
 			target
 		});
 	}
@@ -339,18 +367,6 @@ function buildDiagnostics(
 					target
 				});
 			}
-		}
-	}
-
-	if (target === 'compatibility-export' || target === 'export-twee') {
-		for (const omission of fidelity.omits) {
-			diagnostics.push({
-				code: 'fidelity-omission',
-				message: omission,
-				outputPath: null,
-				severity: 'warning',
-				target
-			});
 		}
 	}
 
@@ -383,90 +399,189 @@ function packageManifest(
 	);
 }
 
+function blobPartToBytes(contents: BlobPart) {
+	if (typeof contents === 'string') {
+		return utf8Bytes(contents);
+	}
+
+	if (contents instanceof Uint8Array) {
+		return contents;
+	}
+
+	if (contents instanceof ArrayBuffer) {
+		return new Uint8Array(contents);
+	}
+
+	if (ArrayBuffer.isView(contents)) {
+		return new Uint8Array(
+			contents.buffer,
+			contents.byteOffset,
+			contents.byteLength
+		);
+	}
+
+	throw new Error('Unsupported binary archive entry.');
+}
+
+const crc32Table = Array.from({length: 256}, (_, index) => {
+	let value = index;
+
+	for (let bit = 0; bit < 8; bit++) {
+		value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+	}
+
+	return value >>> 0;
+});
+
+function crc32(bytes: Uint8Array) {
+	let value = 0xffffffff;
+
+	for (const byte of bytes) {
+		value = crc32Table[(value ^ byte) & 0xff] ^ (value >>> 8);
+	}
+
+	return (value ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(date: Date) {
+	const year = Math.max(1980, date.getFullYear());
+
+	return {
+		date:
+			((year - 1980) << 9) |
+			((date.getMonth() + 1) << 5) |
+			date.getDate(),
+		time:
+			(date.getHours() << 11) |
+			(date.getMinutes() << 5) |
+			Math.floor(date.getSeconds() / 2)
+	};
+}
+
+function concatBytes(parts: Uint8Array[]) {
+	const totalLength = parts.reduce((total, part) => total + part.length, 0);
+	const result = new Uint8Array(totalLength);
+	let offset = 0;
+
+	for (const part of parts) {
+		result.set(part, offset);
+		offset += part.length;
+	}
+
+	return result;
+}
+
+function bytesWriter(length: number) {
+	const bytes = new Uint8Array(length);
+	const view = new DataView(bytes.buffer);
+	let offset = 0;
+
+	return {
+		bytes,
+		u16(value: number) {
+			view.setUint16(offset, value, true);
+			offset += 2;
+		},
+		u32(value: number) {
+			view.setUint32(offset, value, true);
+			offset += 4;
+		}
+	};
+}
+
+function storedZip(
+	entries: Array<{contents: BlobPart; path: string}>,
+	modifiedAt: Date
+) {
+	const {date, time} = dosDateTime(modifiedAt);
+	const localParts: Uint8Array[] = [];
+	const centralParts: Uint8Array[] = [];
+	let localOffset = 0;
+
+	for (const entry of entries) {
+		const nameBytes = utf8Bytes(entry.path);
+		const contents = blobPartToBytes(entry.contents);
+		const checksum = crc32(contents);
+		const local = bytesWriter(30);
+
+		local.u32(0x04034b50);
+		local.u16(20);
+		local.u16(0x0800);
+		local.u16(0);
+		local.u16(time);
+		local.u16(date);
+		local.u32(checksum);
+		local.u32(contents.length);
+		local.u32(contents.length);
+		local.u16(nameBytes.length);
+		local.u16(0);
+		localParts.push(local.bytes, nameBytes, contents);
+
+		const central = bytesWriter(46);
+
+		central.u32(0x02014b50);
+		central.u16(20);
+		central.u16(20);
+		central.u16(0x0800);
+		central.u16(0);
+		central.u16(time);
+		central.u16(date);
+		central.u32(checksum);
+		central.u32(contents.length);
+		central.u32(contents.length);
+		central.u16(nameBytes.length);
+		central.u16(0);
+		central.u16(0);
+		central.u16(0);
+		central.u16(0);
+		central.u32(0);
+		central.u32(localOffset);
+		centralParts.push(central.bytes, nameBytes);
+
+		localOffset += 30 + nameBytes.length + contents.length;
+	}
+
+	const centralDirectory = concatBytes(centralParts);
+	const end = bytesWriter(22);
+
+	end.u32(0x06054b50);
+	end.u16(0);
+	end.u16(0);
+	end.u16(entries.length);
+	end.u16(entries.length);
+	end.u32(centralDirectory.length);
+	end.u32(localOffset);
+	end.u16(0);
+
+	return concatBytes([...localParts, centralDirectory, end.bytes]);
+}
+
 function packageArchive(
-	story: Story,
 	generatedAt: string,
 	files: StoryBuildFile[],
 	assets: StoryBuildAsset[]
 ) {
-	return JSON.stringify(
+	const archiveFiles = [
+		...files.map(file => ({
+			contents: file.contents,
+			path: file.filename
+		})),
 		{
-			type: 'twine.rs/project-archive',
-			version: 1,
-			generatedAt,
-			story: {
-				format: story.storyFormat,
-				formatVersion: story.storyFormatVersion,
-				id: story.id,
-				ifid: story.ifid,
-				name: story.name
-			},
-			files: files.map(file => ({
-				contents: file.contents,
-				filename: file.filename,
-				kind: file.kind,
-				mediaType: file.mediaType,
-				role: file.role,
-				sizeBytes: file.sizeBytes
-			})),
-			assets
-		},
-		null,
-		2
-	);
-}
+			contents: JSON.stringify(
+				{
+					type: 'twine.rs/archive-asset-copy-plan',
+					version: 1,
+					generatedAt,
+					assets
+				},
+				null,
+				2
+			),
+			path: 'asset-copy-plan.json'
+		}
+	];
 
-function htmlInspection(story: Story, html: string, assets: StoryBuildAsset[]) {
-	const storyDataCount = (html.match(/<tw-storydata\b/g) ?? []).length;
-	const passageCount = (html.match(/<tw-passagedata\b/g) ?? []).length;
-	const hasStoryDataGraph = html.includes(
-		`${TWINE_RS_STORY_GRAPH_HTML_ATTRIBUTE}=`
-	);
-
-	return [
-		`HTML inspection for ${story.name}`,
-		'',
-		`Story format: ${story.storyFormat} ${story.storyFormatVersion}`,
-		`IFID: ${story.ifid}`,
-		`Story data blocks: ${storyDataCount}`,
-		`Passage data blocks: ${passageCount}`,
-		`twine.rs StoryData graph metadata: ${
-			hasStoryDataGraph ? 'present' : 'omitted'
-		}`,
-		`Asset copy plan items: ${assets.length}`,
-		`Output size: ${byteLength(html)} bytes`
-	].join('\n');
-}
-
-function sourceInspection(
-	story: Story,
-	twee: string,
-	assets: StoryBuildAsset[]
-) {
-	return [
-		`Source inspection for ${story.name}`,
-		'',
-		`Passages: ${story.passages.length}`,
-		`Tags: ${story.tags.length}`,
-		`Story format: ${story.storyFormat} ${story.storyFormatVersion}`,
-		`Start passage: ${
-			story.passages.find(passage => passage.id === story.startPassage)?.name ??
-			'not set'
-		}`,
-		`Script bytes: ${byteLength(story.script)}`,
-		`Stylesheet bytes: ${byteLength(story.stylesheet)}`,
-		`Asset copy plan items: ${assets.length}`,
-		`Twee bytes: ${byteLength(twee)}`,
-		'',
-		'Passages:',
-		...story.passages
-			.slice()
-			.sort((a, b) => a.name.localeCompare(b.name))
-			.map(
-				passage =>
-					`- ${passage.name} (${byteLength(passage.text)} bytes, ${passage.tags.length} tags, ${passage.left},${passage.top} ${passage.width}x${passage.height})`
-			)
-	].join('\n');
+	return storedZip(archiveFiles, new Date(generatedAt));
 }
 
 function buildOutputFiles(
@@ -474,17 +589,19 @@ function buildOutputFiles(
 	target: StoryBuildTarget,
 	html: string,
 	generatedAt: string,
-	assets: StoryBuildAsset[]
+	assets: StoryBuildAsset[],
+	options: {htmlCompatibility?: boolean; jsonPretty?: boolean} = {}
 ) {
-	const projectFidelity = target === 'package';
+	const projectFidelity =
+		target === 'package' ||
+		((target === 'export-html' || target === 'publish') &&
+			!options.htmlCompatibility);
 	const htmlFile =
 		html.trim() !== ''
 			? outputDescriptor(
 					target,
 					'html',
-					target === 'package' || target === 'inspect-html'
-						? 'supporting'
-						: 'primary',
+					target === 'package' ? 'supporting' : 'primary',
 					storyFilename(story, '.html'),
 					'text/html;charset=utf-8',
 					html
@@ -496,7 +613,7 @@ function buildOutputFiles(
 		target === 'export-json' ? 'primary' : 'supporting',
 		storyFilename(story, '.json'),
 		'application/json;charset=utf-8',
-		storyToJson(story)
+		storyToJson(story, options.jsonPretty)
 	);
 	const tweeFile = outputDescriptor(
 		target,
@@ -514,37 +631,6 @@ function buildOutputFiles(
 		case 'export-twee':
 			return [tweeFile];
 
-		case 'compatibility-export':
-			return [htmlFile, tweeFile].filter(
-				(file): file is StoryBuildFile => !!file
-			);
-
-		case 'inspect-html':
-			return [
-				outputDescriptor(
-					target,
-					'inspection',
-					'primary',
-					storyFilename(story, '.html-inspection.txt'),
-					'text/plain;charset=utf-8',
-					htmlInspection(story, html, assets)
-				),
-				...(htmlFile ? [htmlFile] : [])
-			];
-
-		case 'inspect-source':
-			return [
-				outputDescriptor(
-					target,
-					'inspection',
-					'primary',
-					storyFilename(story, '.source-inspection.txt'),
-					'text/plain;charset=utf-8',
-					sourceInspection(story, tweeFile.contents, assets)
-				),
-				tweeFile
-			];
-
 		case 'package': {
 			const packageFiles = [htmlFile, jsonFile, tweeFile].filter(
 				(file): file is StoryBuildFile => !!file
@@ -561,9 +647,9 @@ function buildOutputFiles(
 				target,
 				'archive',
 				'primary',
-				storyFilename(story, '.twine-project-archive.json'),
-				'application/json;charset=utf-8',
-				packageArchive(story, generatedAt, packageFiles, assets)
+				storyFilename(story, '.zip'),
+				'application/zip',
+				packageArchive(generatedAt, [manifest, ...packageFiles], assets)
 			);
 
 			return [manifest, archive, ...packageFiles];
@@ -604,7 +690,6 @@ function assertPublishSafety(
 	const publishBoundTargets: StoryBuildTarget[] = [
 		'publish',
 		'export-html',
-		'compatibility-export',
 		'package'
 	];
 
@@ -628,30 +713,48 @@ export function createStoryBuildPackage(
 	appInfo: AppInfo,
 	options: StoryBuildPackageOptions
 ): StoryBuildPackage {
-	const {formatProperties, target, ...publishOptions} = options;
+	const {
+		formatProperties,
+		htmlCompatibility = false,
+		jsonPretty = true,
+		target,
+		...publishOptions
+	} = options;
 	const safety = inspectStoryFormatPublishSafety(formatProperties);
 	const generatedAt = new Date().toISOString();
 
 	assertPublishSafety(target, safety.issues);
 
 	const assets = buildAssetCopyPlan(publishOptions.assetInventory);
+	const renderPublishOptions = {
+		...publishOptions,
+		assetInventory: publishOptions.assetInventory?.filter(
+			asset => !asset.missing
+		)
+	};
 	const html = shouldRenderHtml(target)
 		? publishStoryWithFormat(
 				story,
 				formatProperties.source,
 				appInfo,
-				publishOptionsForTarget(target, publishOptions)
+				publishOptionsForTarget(
+					target,
+					renderPublishOptions,
+					htmlCompatibility
+				)
 			)
 		: '';
-	const files = buildOutputFiles(story, target, html, generatedAt, assets);
+	const files = buildOutputFiles(story, target, html, generatedAt, assets, {
+		htmlCompatibility,
+		jsonPretty
+	});
 	const capabilities = storyFormatCapabilities(formatProperties);
 	const missingAssets = (publishOptions.assetInventory ?? [])
 		.filter(asset => asset.missing)
 		.map(asset => asset.path);
-	const fidelity = targetFidelity(target);
+	const fidelity = targetFidelity(target, htmlCompatibility);
 	const buildReportDiagnostics = buildDiagnostics(
 		target,
-		fidelity,
 		safety.issues,
 		missingAssets,
 		assets

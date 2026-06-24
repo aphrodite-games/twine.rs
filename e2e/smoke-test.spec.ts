@@ -110,11 +110,23 @@ test('opens the M6 Build and Formats surfaces', async ({page}) => {
 
 	await page.getByTitle('Build & Export').click();
 	await expect(page).toHaveURL(/#\/stories\/[^/]+\/build$/);
-	await expect(page.getByRole('heading', {name: 'Export HTML'})).toBeVisible();
-	await expect(page.getByText('Format Capabilities')).toBeVisible();
+	await expect(
+		page.getByRole('heading', {name: 'Export your story'})
+	).toBeVisible();
+	await expect(
+		page.locator('.build-route__format-title', {hasText: 'Playable HTML'})
+	).toBeVisible();
+	await expect(
+		page.locator('.build-route__format-title', {hasText: 'Archive (.zip)'})
+	).toBeVisible();
 
-	await page.getByRole('button', {name: 'Prepare Report'}).click();
+	await page.getByRole('button', {name: 'Inspect output'}).click();
+	await expect(
+		page.getByRole('complementary', {name: 'Inspect output'})
+	).toContainText('story "M6 surface smoke"');
+	await page.getByRole('tab', {name: /HTML/}).click();
 	await expect(page.getByText('M6 surface smoke.html')).toBeVisible();
+	await page.getByRole('button', {name: 'Close inspect output'}).click();
 
 	await page.getByTitle('Story Formats').click();
 	await expect(page).toHaveURL(/#\/formats$/);
